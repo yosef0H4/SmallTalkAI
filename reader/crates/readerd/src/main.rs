@@ -8702,7 +8702,7 @@ async fn portal_shortcuts(app: App) -> Result<()> {
     };
     use ashpd::desktop::CreateSessionOptions;
     use futures_lite::StreamExt;
-    ensure_host_desktop_entry()?;
+    portal_identity::ensure_host_desktop_entry()?;
     let portal = GlobalShortcuts::new().await?;
     let session = portal
         .create_session(CreateSessionOptions::default())
@@ -8792,27 +8792,6 @@ async fn portal_shortcuts(app: App) -> Result<()> {
             PortalEvent::Deactivated(Some(_)) => {}
         }
     }
-}
-#[cfg(target_os = "linux")]
-fn ensure_host_desktop_entry() -> Result<()> {
-    let root = dirs::data_local_dir().context("locating XDG data directory for desktop entry")?;
-    let apps = root.join("applications");
-    std::fs::create_dir_all(&apps)?;
-    let path = apps.join("io.github.yosef0H4.simple_stt.desktop");
-    if !path.exists() {
-        let ctl = sibling("readerctl")?;
-        let desktop = format!(
-            "[Desktop Entry]\nType=Application\nName=Simple STT\nComment=Local dictation, read aloud, and screen text\nExec=\"{}\" read-selection\nIcon=simple-stt\nTerminal=false\nCategories=Utility;Accessibility;\n",
-            ctl.display()
-        );
-        std::fs::write(path, desktop)?;
-        let _ = Command::new("update-desktop-database")
-            .arg(&apps)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
-    Ok(())
 }
 #[cfg(target_os = "linux")]
 fn read_selection_hotkey(app: &App) -> Result<()> {

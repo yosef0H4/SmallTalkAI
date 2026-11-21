@@ -1259,10 +1259,17 @@ fn shutdown() -> Result<()> {
     if simple_stt::reader::status().is_some() {
         let _ = simple_stt::reader::action("shutdown", "");
     }
+    // systemd's ExecStop can run after the tray has already stopped capture.
+    let capture_state = state_file();
+    if !capture_state.try_exists()? {
+        return Ok(());
+    }
     invalidate_delivery_session()?;
     let result = run_ctl(["shutdown"], Duration::from_secs(5), false)?;
     if result.ok {
         println!("[{APP}] shutdown requested");
+        Ok(())
+    } else if !capture_state.try_exists()? {
         Ok(())
     } else {
         bail!("{}", result.message)

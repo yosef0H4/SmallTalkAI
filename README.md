@@ -32,8 +32,9 @@ The portable zip does not include a speech model by default. After launching it,
 ## Using the app
 
 On Linux, launch **Simple STT** from your application menu and configure it in
-Settings. Follow the [Linux installation guide](docs/linux-installation.md) for
-models, shortcuts and the desktop service.
+Settings. You can enable the user service to start Simple STT at desktop login.
+Choose **Close Simple STT** from the tray to quit for the current session.
+See the [Linux startup instructions](docs/linux-installation.md#start-at-login-and-quit-for-the-current-session).
 
 On Windows:
 

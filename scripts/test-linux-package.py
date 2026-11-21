@@ -59,6 +59,9 @@ def main():
         (home / 'run').mkdir(mode=0o700)
         subprocess.run(['/usr/bin/simple-stt', '--help'], cwd=home, env=env,
                        check=True, stdout=subprocess.DEVNULL, timeout=10)
+        # ExecStop must also succeed after a tray quit has removed capture state.
+        subprocess.run(['/usr/bin/simple-stt', 'shutdown'], cwd=home, env=env,
+                       check=True, timeout=10)
         process = subprocess.Popen([str(root / 'simple-stt-settings'), '--no-browser'],
                                    cwd=home, env=env, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True)

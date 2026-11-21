@@ -2,7 +2,7 @@
 
 The Linux release builds produce two x86_64 packages:
 
-- Fedora 44: `simple-stt-0.3.1-44.fc44.x86_64.rpm`
+- Fedora 44: `simple-stt-0.3.1-45.fc44.x86_64.rpm`
 - Arch Linux / Omarchy: `simple-stt-0.3.1-39-x86_64.pkg.tar.zst`
 
 These packages include the app, Settings, reading/OCR workers, paste helper and Arabic fonts.
@@ -21,19 +21,22 @@ From the directory containing your downloaded package:
 
 ```sh
 # Fedora 44
-sudo dnf install ./simple-stt-0.3.1-44.fc44.x86_64.rpm
+sudo dnf install ./simple-stt-0.3.1-45.fc44.x86_64.rpm
 
 # Arch / Omarchy (update the system first, as usual for Arch packages)
 sudo pacman -Syu
 sudo pacman -U ./simple-stt-0.3.1-39-x86_64.pkg.tar.zst
 ```
 
-Launch **Simple STT** from the application menu, or run:
+After installing or upgrading, reload the user service definitions from your
+desktop session:
 
 ```sh
 systemctl --user daemon-reload
-simple-stt launch
 ```
+
+Open **Simple STT** from the application menu or run `simple-stt` to start the
+service and open Settings. Opening the app again reuses the running service.
 
 On Wayland, the first launch requests desktop shortcut permission. Use
 Settings → General → **Set up shortcuts** to reopen the portal configuration.
@@ -46,14 +49,30 @@ without that capability.
 
 New installations start without a selected model or downloaded runtime. Open
 Settings → Models to install the required runtime and model, then select
-them in Settings → Models. Then try a short
-recording in an ordinary text editor. The package supplies a systemd **user**
-service; it does not start a root daemon or enable startup during installation.
-To start with your desktop session:
+them in Settings → Models. Then try a short recording in an ordinary text editor.
+
+## Start at login and quit for the current session
+
+The package leaves automatic startup off until you enable it for your account.
+Run this once as your regular user to start Simple STT in the tray at each
+graphical login:
 
 ```sh
-systemctl --user enable --now simple-stt-linux.service
+systemctl --user enable simple-stt-linux.service
 ```
+
+Choose **Close Simple STT** in the tray to stop the app. It stays closed until
+you open it again or log in to a new desktop session. Closing the Settings
+window leaves the tray and dictation running.
+
+After quitting, check that login startup is enabled and the service is stopped:
+
+```sh
+systemctl --user is-enabled simple-stt-linux.service  # enabled
+systemctl --user is-active simple-stt-linux.service   # inactive
+```
+
+## Settings and models
 
 Settings and state use the stable `installed` profile under
 `~/.config/simple-stt/instances/installed/` and
@@ -86,8 +105,11 @@ systemctl --user show simple-stt-linux.service -p FragmentPath -p ExecStart
 The installed profile starts independently; the checkout profile is preserved.
 Install and select the required optional assets in installed Settings.
 Old manually installed application-menu entries may still launch the checkout;
-use `simple-stt launch` during testing. Remove or back up the old entries when
-you are ready to switch permanently. Rebind any desktop shortcuts that contain
+use `simple-stt launch` during testing. If the menu starts a standalone reader
+instead, check whether
+`~/.local/share/applications/io.github.yosef0H4.simple_stt.desktop` runs
+`readerctl read-selection`. Move that old entry outside the applications
+directory to restore the packaged launcher. Rebind any desktop shortcuts that contain
 a checkout path to `simple-stt toggle`, `simple-stt cancel`, etc.; the app's
 built-in shortcuts can also be configured in Settings.
 

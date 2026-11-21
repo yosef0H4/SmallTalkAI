@@ -226,20 +226,22 @@
     padding-block: 8px;
   }
 
+  .shortcut-quick-actions > button {
+    display: block;
+    margin-inline-start: auto;
+  }
+
   @media (max-width: 1120px), (max-height: 720px) {
     .shortcut-quick-actions {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(min(100%, 164px), 1fr));
+      display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: 4px 14px;
       padding-block: 4px;
     }
 
-    .shortcut-quick-actions > button {
-      justify-self: start;
-    }
-
     .shortcut-quick-actions :global(.field) {
+      flex: 1 1 164px;
       grid-template-columns: minmax(0, 1fr) 34px;
     }
 

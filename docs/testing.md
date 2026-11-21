@@ -200,6 +200,15 @@ Run `node scripts/test-settings-compact.cjs` to check the compact layout,
 shortcut input width, text-free dictation notices, search scrolling, and the
 the default Classic appearance. Screenshots are written to `artifacts/compact-settings/`.
 
+Run `node scripts/test-settings-layout.cjs` against the compiled Settings assets
+to check for overflow, overlapping controls, clipped button text, shortcut
+alignment, and minimum gaps in action groups and paginated catalogs. It covers
+the minimum and default window sizes and the CSS breakpoints
+with English and Arabic, both themes, and Linux and Windows API fixtures.
+Set `SETTINGS_LAYOUT_BROWSER=webkit` to run the same checks with Playwright
+WebKit installed. Set `SETTINGS_LAYOUT_SCREENSHOTS` to a directory to capture
+the shortcut row and the first distinct failures.
+
 For Tauri frontend hot reload, point Vite's `SIMPLE_STT_SETTINGS_ORIGIN` at
 the native Settings server's loopback address. Launch the debug Settings window
 with the same explicit `--listen` address and set `SIMPLE_STT_SETTINGS_DEV_ORIGIN`

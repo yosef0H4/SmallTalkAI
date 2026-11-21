@@ -2,7 +2,7 @@
 
 The Linux release builds produce two x86_64 packages:
 
-- Fedora 44: `simple-stt-0.3.1-45.fc44.x86_64.rpm`
+- Fedora 44: `simple-stt-0.3.1-46.fc44.x86_64.rpm`
 - Arch Linux / Omarchy: `simple-stt-0.3.1-39-x86_64.pkg.tar.zst`
 
 These packages include the app, Settings, reading/OCR workers, paste helper and Arabic fonts.
@@ -21,7 +21,7 @@ From the directory containing your downloaded package:
 
 ```sh
 # Fedora 44
-sudo dnf install ./simple-stt-0.3.1-45.fc44.x86_64.rpm
+sudo dnf install ./simple-stt-0.3.1-46.fc44.x86_64.rpm
 
 # Arch / Omarchy (update the system first, as usual for Arch packages)
 sudo pacman -Syu

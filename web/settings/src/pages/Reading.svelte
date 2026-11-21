@@ -100,6 +100,5 @@
 <style>
   .read-along-timing { --number-min-columns: 5ch; }
   textarea {width:100%;box-sizing:border-box;}
-  .reading-actions {display:flex;flex-wrap:wrap;gap:.5rem;margin-block:1rem;}
   p {color:var(--muted);line-height:1.6;}
 </style>

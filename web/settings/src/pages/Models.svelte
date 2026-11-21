@@ -199,7 +199,7 @@
   .feature-catalogs button { display: flex; align-items: center; justify-content: center; gap: 8px; flex: 1; min-width: 0; padding: 12px 8px; border: 0; border-block-end: 2px solid transparent; border-radius: 0; background: transparent; }
   .feature-catalogs button.chosen { color: var(--accent); border-block-end-color: var(--accent); }
   .selection-section { margin-block-end: 28px; }
-  .catalog + .catalog { border-block-start: 1px solid var(--line); margin-block-start: 32px; padding-block-start: 24px; }
+  .model-results > button { margin-block: 12px; }
   .catalog h2 { margin-block: 0 16px; font-size: 17px; }
   .engine-filters button.chosen { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
   .library-filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-block: 0 8px; }

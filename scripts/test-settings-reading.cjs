@@ -174,8 +174,7 @@ const f=require('./settings-fixture.cjs');
     for(const lang of ['en','ar']) {
       await page.locator('[data-page=general]').click();await setChoice(page.locator('#ui-language'), lang);
       for(const theme of ['light','dark']) {
-        const themeLabel=lang==='ar'?(theme==='light'?'فاتح':'داكن'):(theme==='light'?'Light':'Dark');
-        await choose('general.ui_theme',themeLabel,new RegExp(`^${themeLabel}$`));
+        await setChoice(page.locator('[data-setting-path="general.ui_theme"] [role="combobox"]'), theme);
         for(const width of [360,768,1280]) {
           await page.setViewportSize({width,height:900});
           for(const name of ['models','reading']) {

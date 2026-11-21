@@ -58,6 +58,8 @@ JetBrains Mono is used for waveform glyphs; Noto Sans Arabic is used for Arabic 
 
 The English Settings typeface, Simple STT Paper Sans, is a subset of Adobe Source Sans 3. The SIL Open Font License 1.1 and Adobe copyright notice ship with the font in `web/settings/public/settings-sans-license.txt` and in distribution packages.
 
+Simple STT Overlay Icons is a renamed 12-glyph subset of Font Awesome Free Solid 6.7.2 (Copyright 2024 Fonticons, Inc.). The Linux tooltip uses it for the microphone and shortcut symbols. The SIL Open Font License 1.1 and upstream notices ship in `assets/fonts/LICENSE-FontAwesomeFree.txt` and in Linux distribution packages.
+
 ## fastText language identification
 
 The unmodified Facebook AI Research `lid.176.ftz` model is distributed under CC BY-SA 3.0. See `assets/language/ATTRIBUTION.md` and `LICENSE-CC-BY-SA-3.0.txt` (also installed with the package licenses). The fastText library is MIT licensed.

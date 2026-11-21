@@ -8,6 +8,16 @@ fn main() -> Result<()> {
     #[cfg(not(windows))]
     let overlay = OverlayHandle::spawn()?;
     let config = simple_stt::config::AppConfig::load()?;
+    #[cfg(target_os = "linux")]
+    let (config_path, mut config_modified) = {
+        overlay.set_theme(config.general.ui_theme);
+        let path = simple_stt::config::AppConfig::config_path();
+        let modified = path
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok();
+        (path, modified)
+    };
     overlay.set_locale(simple_stt::localization::resolve(
         config.general.ui_language,
     ));
@@ -26,6 +36,18 @@ fn main() -> Result<()> {
     let mut idle = Instant::now();
     let mut hints_enabled = config.general.shortcut_reminders;
     while let Some(status) = simple_stt::reader::status() {
+        #[cfg(target_os = "linux")]
+        if let Some(modified) = config_path
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .filter(|modified| Some(*modified) != config_modified)
+        {
+            if let Ok(updated) = simple_stt::config::AppConfig::load_from(&config_path) {
+                overlay.set_theme(updated.general.ui_theme);
+                config_modified = Some(modified);
+            }
+        }
         let next_hints_enabled =
             simple_stt::reader::shortcut_hints_enabled(&status, config.general.shortcut_reminders);
         if hints_enabled != next_hints_enabled {

@@ -1,0 +1,15 @@
+# Monochrome fonts for the Linux tooltip
+
+Start with **Noto Emoji Bold** to preserve the tooltip’s existing emoji codepoints. **Material Symbols Rounded** is the strongest icon-font candidate to preview at tiny sizes because it has a filled setting and an optical-size axis. Using it or Font Awesome would require mapping the tooltip markers to the chosen font’s icons.
+
+## Unicode emoji fonts
+
+I checked the published font binaries’ character maps. Noto Emoji 3.002 and OpenMoji Black 18.0 both cover the 12 primary markers: 🎙 U+1F399, 🔴 U+1F534, ❌ U+274C, 🔄 U+1F504, ✨ U+2728, ↪ U+21AA, ⌨ U+2328, 🔊 U+1F50A, 📷 U+1F4F7, 📋 U+1F4CB, 🎧 U+1F3A7, and 📖 U+1F4D6. Both also cover 🎤, ⏳, ⚠, 📄, 🌐, 🔍, ⏸, ✅, and ℹ. Both lack ⟳ U+27F3, which needs a fallback font to retain that character. These checks cover base codepoints. Emoji presentation selectors, font fallback, and legibility at tooltip size are separate rendering checks. [Noto Emoji TTF inspected](https://github.com/google/fonts/blob/b979dba422e445492b0eb9951ac52ee0b4d648c3/ofl/notoemoji/NotoEmoji%5Bwght%5D.ttf) · [OpenMoji Black TTF inspected](https://github.com/hfg-gmuend/openmoji/blob/e6a003adeea3a8e6cd1b3fd87a11babc3b81d910/font/OpenMoji-black-glyf/OpenMoji-black-glyf.ttf)
+
+- **Noto Emoji Bold** is a monochrome outline font with a variable weight range of 300–700. Use `wght=700` for Bold. [Google Fonts metadata](https://github.com/google/fonts/blob/main/ofl/notoemoji/METADATA.pb) · [SIL Open Font License 1.1](https://github.com/google/fonts/blob/main/ofl/notoemoji/OFL.txt)
+- **OpenMoji Black** is a monochrome outline font with a fixed design and no weight axis. It offers a second Unicode preview with the same coverage for the sampled markers. [OpenMoji font documentation](https://github.com/hfg-gmuend/openmoji/tree/master/font) · [CC BY-SA 4.0](https://github.com/hfg-gmuend/openmoji/blob/master/LICENSE.txt)
+
+## Icon typefaces
+
+- **Material Symbols Rounded** can be set to `FILL=1, opsz=20` at the actual tooltip text size. The optical-size axis changes the drawing independently of its rendered size. The font supports named ligatures or its published private-use mappings, such as `mic` U+E31D, `keyboard` U+E312, and `content_paste` U+E14F. [Google’s axis and ligature guide](https://developers.google.com/fonts/docs/material_symbols) · [Rounded glyph mappings](https://github.com/google/material-design-icons/blob/master/variablefont/MaterialSymbolsRounded%5BFILL%2CGRAD%2Copsz%2Cwght%5D.codepoints) · [Apache 2.0 license](https://github.com/google/material-design-icons/blob/master/LICENSE)
+- **Font Awesome Free Solid** supplies a ready-made solid style in the desktop release. Its private-use mappings include `microphone` U+F130, `keyboard` U+F11C, and `paste` U+F0EA. The font is under SIL OFL 1.1, while the separately distributed SVG and JS icons use CC BY 4.0. [Official desktop release](https://github.com/FortAwesome/Font-Awesome/releases/tag/7.3.1) · [Free icon metadata](https://github.com/FortAwesome/Font-Awesome/blob/7.3.1/metadata/icons.json) · [Font Awesome Free license](https://github.com/FortAwesome/Font-Awesome/blob/7.3.1/LICENSE.txt)

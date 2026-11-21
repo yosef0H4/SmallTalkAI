@@ -4,6 +4,7 @@
   import Range from "./Range.svelte";
   import Combo from "./Combo.svelte";
   import Help from "./Help.svelte";
+  import NumberInput from "./NumberInput.svelte";
   import { t } from "../lib/i18n";
   let { spec, extra }: { spec: FieldSpec; extra?: import("svelte").Snippet } =
     $props();
@@ -12,10 +13,6 @@
     const input = event.currentTarget as HTMLInputElement;
     let v: unknown = input.value;
     if (spec.type === "checkbox") v = input.checked;
-    else if (spec.type === "number" || spec.type === "range") {
-      v = input.valueAsNumber;
-      if (!Number.isFinite(v)) return;
-    }
     set(spec.path, v);
     if (spec.path === "cleanup.enabled" && !v)
       set("cleanup.screenshot.enabled", false);
@@ -23,7 +20,7 @@
 </script>
 
 {#if spec.type === "select"}
-<Combo label={spec.label} path={spec.path} value={String(value??"")} items={(spec.options||[]).map(([value,label])=>({value,label}))} help={spec.help||""} disabled={spec.disabled} onselect={value=>set(spec.path,value)}>
+<Combo selectOnly label={spec.label} path={spec.path} value={String(value??"")} items={(spec.options||[]).map(([value,label])=>({value,label}))} help={spec.help||""} disabled={spec.disabled} onselect={value=>set(spec.path,value)}>
  {#snippet extra()}{#if extra}{@render extra()}{/if}{/snippet}
 </Combo>
 {:else if spec.type === "range"}
@@ -55,14 +52,14 @@
         value={String(value ?? "")}
         disabled={spec.disabled}
         oninput={change}></textarea>
+    {:else if spec.type === "number"}
+      <NumberInput id={spec.path} label={t(spec.label)} value={String(value ?? "")} min={spec.min} max={spec.max}
+        step={spec.step} disabled={spec.disabled} oninput={value => set(spec.path, value)} />
     {:else}<input
         id={spec.path}
         dir="ltr"
-        type={spec.type === "number" ? "number" : "text"}
+        type="text"
         value={String(value ?? "")}
-        min={spec.min}
-        max={spec.max}
-        step={spec.step || "any"}
         disabled={spec.disabled}
         oninput={change}
       />{/if}

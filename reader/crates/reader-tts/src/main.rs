@@ -578,15 +578,21 @@ fn remote_stream(
         .as_deref()
         .context("remote speech needs --model")?;
     let key = std::env::var("SIMPLE_TTS_SPEECH_API_KEY").unwrap_or_default();
+    let instructions = std::env::var(reader_core::provider_prompts::SPEECH_ENV).unwrap_or_default();
+    reader_core::provider_prompts::validate(&instructions)?;
+    let mut body = serde_json::json!({
+        "model": model,
+        "input": text,
+        "voice": args.remote_voice.as_deref().unwrap_or(voice),
+        "response_format": args.format,
+        "speed": speed
+    });
+    if let Some(instructions) = reader_core::provider_prompts::speech(model, &instructions) {
+        body["instructions"] = instructions.into();
+    }
     let mut request = client
         .post(reader_core::provider_url::operation(base, "audio/speech")?)
-        .json(&serde_json::json!({
-            "model": model,
-            "input": text,
-            "voice": args.remote_voice.as_deref().unwrap_or(voice),
-            "response_format": args.format,
-            "speed": speed
-        }));
+        .json(&body);
     if !key.is_empty() {
         request = request.bearer_auth(&key)
     }

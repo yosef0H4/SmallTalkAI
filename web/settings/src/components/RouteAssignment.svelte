@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Combo from "./Combo.svelte";
   import { t, languageName } from "../lib/i18n";
   import { markDirty } from "../lib/state.svelte";
   import type { Binding, Feature, RemoteRoute, Connection } from "../lib/modules.svelte";
@@ -45,19 +46,14 @@
     {/if}
   {/snippet}
   {#if feature !== "ocr"}
-    <div class="field">
-      <label for={`${path}-route`}>{t("settings.run_model")}</label>
-      <div class="control">
-        <select id={`${path}-route`} value={selected} onchange={event => {
-          const value = event.currentTarget.value;
-          update(value === "default" ? null : { ...remote, enabled: value === "remote" });
-        }}>
-          <option value="default">{t("settings.default_route")} · {t(defaultRemote ? "ui.openai_compatible.b10d74" : "module.local_models")}</option>
-          <option value="local">{t("module.local_models")}</option>
-          <option value="remote">{t("ui.openai_compatible.b10d74")}</option>
-        </select>
-      </div>
-    </div>
+    <Combo selectOnly id={`${path}-route`} path={`${path}.route`} label="settings.run_model" value={selected}
+      items={[
+        { value: "default", label: `${t("settings.default_route")} · ${t(defaultRemote ? "ui.openai_compatible.b10d74" : "module.local_models")}` },
+        { value: "local", label: "module.local_models" },
+        { value: "remote", label: "ui.openai_compatible.b10d74" },
+      ]}
+      onselect={value => update(value === "default" ? null : { ...remote, enabled: value === "remote" })}
+    />
     {#if selected === "remote"}
       <ConnectionEditor {feature} path={`${path}.primary`} connection={remote.primary} onchange={primary => update({ ...remote, primary })} />
       <div class="field">

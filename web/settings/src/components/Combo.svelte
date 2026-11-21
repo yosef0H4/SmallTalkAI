@@ -9,6 +9,7 @@
     label,
     ariaLabel,
     path,
+    id: inputId,
     value,
     items,
     onselect,
@@ -18,10 +19,13 @@
     help = "",
     searchMatcher,
     extra,
+    selectOnly = false,
+    inline = false,
   }: {
     label: string;
     ariaLabel?: string;
     path: string;
+    id?: string;
     value: string;
     items: (ComboItem & { search?: string })[];
     onselect: (value: string) => void;
@@ -31,13 +35,15 @@
     help?: string;
     searchMatcher?: (query: string, item: ComboItem & { search?: string }) => boolean;
     extra?: Snippet;
+    selectOnly?: boolean;
+    inline?: boolean;
   } = $props();
+  const id = $derived(inputId ?? `combo-${path}`);
   let open = $state(false),
     query = $state(""),
     active = $state(-1),
     input: HTMLInputElement,
     root: HTMLDivElement;
-  let position = $state({ left: 0, top: 0, width: 0, height: 260 });
   const selected = $derived(
     items.find((i) => i.value === value)?.label ||
       (unavailable ? `${t("ui.unavailable.2c9c1f")} · ${value}` : value),
@@ -48,17 +54,58 @@
     ),
   );
   function expand() {
-    if(disabled)return;
+    if (disabled) return;
     open = true;
     query = "";
-    active = -1;
-    const box = input.getBoundingClientRect();
-    const below = window.innerHeight - box.bottom - 12;
-    position = {
-      left: box.left,
-      top: below < 130 ? Math.max(8, box.top - 270) : box.bottom + 5,
-      width: box.width,
-      height: below < 130 ? 250 : Math.min(280, below),
+    active = selectOnly ? items.findIndex(item => item.value === value) : -1;
+  }
+  function anchorList(list: HTMLDivElement) {
+    const pane = input.closest("main") ?? document.documentElement;
+    const gap = 4;
+    const maxHeight = 280;
+    let frame = 0;
+
+    function update() {
+      frame = 0;
+      const field = input.getBoundingClientRect();
+      const { top, bottom } = pane.getBoundingClientRect();
+      const above = field.top - top - gap;
+      const below = bottom - field.bottom - gap;
+
+      if (field.bottom <= top || field.top >= bottom || Math.max(above, below) <= 0) {
+        close();
+        return;
+      }
+
+      list.style.left = `${field.left}px`;
+      list.style.width = `${field.width}px`;
+      const fullHeight = list.scrollHeight + list.offsetHeight - list.clientHeight;
+      const upward = below < Math.min(maxHeight, fullHeight) && above > below;
+      list.style.top = upward ? "auto" : `${field.bottom + gap}px`;
+      list.style.bottom = upward ? `${window.innerHeight - field.top + gap}px` : "auto";
+      list.style.maxHeight = `${Math.min(maxHeight, upward ? above : below)}px`;
+    }
+
+    function scheduleUpdate() {
+      if (!frame) frame = requestAnimationFrame(update);
+    }
+
+    function onScroll(event: Event) {
+      if (event.target === pane || event.target === document) scheduleUpdate();
+    }
+
+    const observer = new ResizeObserver(scheduleUpdate);
+    observer.observe(input);
+    observer.observe(pane);
+    document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+    update();
+
+    return {
+      destroy() {
+        observer.disconnect();
+        document.removeEventListener("scroll", onScroll, true);
+        cancelAnimationFrame(frame);
+      },
     };
   }
   function choose(item: ComboItem) {
@@ -92,9 +139,10 @@
       document
         .getElementById(`option-${path}-${active}`)
         ?.scrollIntoView({ block: "nearest" });
-    } else if (event.key === "Enter") {
+    } else if (event.key === "Enter" || (selectOnly && event.key === " ")) {
       event.preventDefault();
-      if (active >= 0 && filtered[active]) choose(filtered[active]);
+      if (selectOnly && !open) expand();
+      else if (active >= 0 && filtered[active]) choose(filtered[active]);
       else if (custom) close();
       else if (filtered.length === 1) choose(filtered[0]);
     }
@@ -111,36 +159,40 @@
       close();
   }}
 />
-<svelte:window onresize={() => (open = false)} />
-<div class="field" data-setting-path={path} bind:this={root}>
+<div class={inline ? "inline-combo" : "field"} data-setting-path={path} bind:this={root}>
+  {#if !inline}
   <div class="field-copy">
-    <label for={`combo-${path}`}>{t(label)}</label>{#if help}<Help
+    <label for={id}>{t(label)}</label>{#if help}<Help
         text={t(help)}
       />{/if}
   </div>
+  {/if}
   <div class="control assignment-control">
     <div class="combo model-combo">
       <div class="combo-shell">
         <input
           bind:this={input}
-          id={`combo-${path}`}
+          {id}
           class="combo-input"
           {disabled}
+          readonly={selectOnly}
           type="text"
           dir="auto"
           role="combobox"
           aria-label={t(ariaLabel || label)}
-          aria-autocomplete="list"
+          aria-autocomplete={selectOnly ? undefined : "list"}
           aria-expanded={open}
           aria-controls={`list-${path}`}
           aria-activedescendant={open && active >= 0
             ? `option-${path}-${active}`
             : undefined}
           autocomplete="off"
-          value={open ? query : t(selected)}
-          onfocus={expand}
+          value={open && !selectOnly ? query : t(selected)}
+          data-value={value}
+          onfocus={() => { if (!selectOnly) expand(); }}
           onclick={() => {
             if (!open) expand();
+            else if (selectOnly) close();
           }}
           oninput={(event) => {
             query = event.currentTarget.value;
@@ -164,22 +216,21 @@
 </div>
 {#if open}<div
     class="combo-list"
+    use:anchorList
     id={`list-${path}`}
     data-combo-list={path}
     role="listbox"
     aria-label={`${t(label)} ${t("ui.choices.153eb4")}`}
-    style:left={`${position.left}px`}
-    style:top={`${position.top}px`}
-    style:width={`${position.width}px`}
-    style:max-height={`${position.height}px`}
   >
     {#each filtered as item, i (item.value)}<button
         type="button"
+        tabindex="-1"
         id={`option-${path}-${i}`}
         role="option"
         aria-label={t(item.label)}
         aria-describedby={item.meta ? `meta-${path}-${i}` : undefined}
         aria-selected={value === item.value}
+        data-value={item.value}
         class:highlighted={active === i}
         onpointerdown={(event) => event.preventDefault()}
         onclick={() => choose(item)}

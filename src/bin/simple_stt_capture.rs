@@ -385,6 +385,8 @@ fn main() -> Result<()> {
 
     let overlay = OverlayHandle::spawn()?;
     overlay.set_locale(locale);
+    #[cfg(target_os = "linux")]
+    overlay.set_theme(config.general.ui_theme);
     overlay.set_shortcuts(
         simple_stt::shortcuts::current(&config, locale),
         config.general.shortcut_reminders,
@@ -1567,6 +1569,8 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                         let locale =
                             simple_stt::localization::set_language(config.general.ui_language);
                         overlay.set_locale(locale);
+                        #[cfg(target_os = "linux")]
+                        overlay.set_theme(config.general.ui_theme);
                         overlay.set_shortcuts(
                             simple_stt::shortcuts::current(config, locale),
                             config.general.shortcut_reminders,

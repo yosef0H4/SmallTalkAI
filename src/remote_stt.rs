@@ -8,11 +8,13 @@ use crate::config::RemoteSttConfig;
 use anyhow::{Context, Result};
 use reqwest::blocking::Client;
 use serde::Deserialize;
+use std::io::Read;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const MAX_AUDIO_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const HARD_TIMEOUT: Duration = Duration::from_secs(300);
 const RETRY_DELAYS: [Duration; 2] = [Duration::from_millis(250), Duration::from_secs(1)];
@@ -195,12 +197,11 @@ fn transcribe_once(
         .as_nanos();
     let sequence = BOUNDARY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let boundary = format!("simple-stt-{}-{timestamp}-{sequence}", std::process::id());
-    let body = multipart_body(&boundary, &config.model, audio, language).map_err(|error| {
-        AttemptError {
+    let body =
+        multipart_body(&boundary, config, audio, language).map_err(|error| AttemptError {
             message: error.to_string(),
             retryable: false,
-        }
-    })?;
+        })?;
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(connect_timeout)
@@ -225,18 +226,28 @@ fn transcribe_once(
         retryable: error.is_connect() || error.is_timeout(),
     })?;
     let status = response.status();
-    let body = response.text().map_err(|error| AttemptError {
-        message: format!("reading response: {error}"),
-        retryable: error.is_timeout() || error.is_connect(),
-    })?;
     if !status.is_success() {
         return Err(AttemptError {
             message: format!("provider returned HTTP {status} (response body omitted)"),
             retryable: matches!(status.as_u16(), 408 | 429 | 500 | 502 | 503 | 504),
         });
     }
+    let mut body = Vec::new();
+    response
+        .take(MAX_RESPONSE_BYTES + 1)
+        .read_to_end(&mut body)
+        .map_err(|error| AttemptError {
+            message: format!("reading transcription response: {error}"),
+            retryable: error.kind() == std::io::ErrorKind::TimedOut,
+        })?;
+    if body.len() as u64 > MAX_RESPONSE_BYTES {
+        return Err(AttemptError {
+            message: "Transcription response exceeds 1 MiB".into(),
+            retryable: false,
+        });
+    }
     let response: TranscriptionResponse =
-        serde_json::from_str(&body).map_err(|error| AttemptError {
+        serde_json::from_slice(&body).map_err(|error| AttemptError {
             message: format!("response was not valid transcription JSON: {error}"),
             retryable: false,
         })?;
@@ -262,12 +273,18 @@ fn endpoint(base_url: &str) -> Result<url::Url> {
 
 fn multipart_body(
     boundary: &str,
-    model: &str,
+    config: &RemoteSttConfig,
     audio: &[u8],
     language: Option<&str>,
 ) -> Result<Vec<u8>> {
     let mut body = Vec::with_capacity(audio.len() + 512);
-    field(&mut body, boundary, "model", model.as_bytes());
+    field(&mut body, boundary, "model", config.model.as_bytes());
+    reader_core::provider_prompts::validate(&config.prompt)?;
+    if let Some(prompt) =
+        reader_core::provider_prompts::transcription(&config.model, &config.prompt)
+    {
+        field(&mut body, boundary, "prompt", prompt.as_bytes());
+    }
     if let Some(language) = language.filter(|value| !value.is_empty() && *value != "single") {
         anyhow::ensure!(
             language.len() <= 80 && !language.contains(['\r', '\n']),
@@ -300,6 +317,7 @@ mod tests {
     use super::*;
     fn config(base_url: String) -> RemoteSttConfig {
         RemoteSttConfig {
+            prompt: String::new(),
             key_slot: None,
             use_feature_key: true,
             base_url,
@@ -341,6 +359,7 @@ mod tests {
             let body = String::from_utf8_lossy(&body);
             assert!(body.contains("name=\"model\"\r\n\r\nwhisper-test"));
             assert!(body.contains("name=\"language\"\r\n\r\nen"));
+            assert!(body.contains("name=\"prompt\"\r\n\r\nSpell the name Noor."));
             assert!(body.contains("name=\"file\"; filename=\"audio.wav\""));
             assert!(body.contains("Content-Type: audio/wav"));
             request
@@ -350,8 +369,10 @@ mod tests {
                 .unwrap();
         });
         let endpoint = endpoint(&address).unwrap();
+        let mut prompted = config(address);
+        prompted.prompt = "Spell the name Noor.".into();
         let text = transcribe_bytes_with_token(
-            &config(address),
+            &prompted,
             &endpoint,
             b"RIFFtest",
             Some("en"),
@@ -360,6 +381,28 @@ mod tests {
         .unwrap();
         assert_eq!(text, "Hello 世界");
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn malformed_response_does_not_break_the_next_transcription() {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let address = format!("http://{}/v1", server.server_addr());
+        let worker = std::thread::spawn(move || {
+            for payload in ["malformed server response", r#"{"text":"recovered"}"#] {
+                server
+                    .recv()
+                    .unwrap()
+                    .respond(tiny_http::Response::from_string(payload))
+                    .unwrap();
+            }
+        });
+        let endpoint = endpoint(&address).unwrap();
+        let config = config(address);
+        let transcribe =
+            || transcribe_bytes_with_token(&config, &endpoint, b"RIFFtest", None, None);
+        assert!(format!("{:#}", transcribe().unwrap_err()).contains("not valid transcription JSON"));
+        assert_eq!(transcribe().unwrap(), "recovered");
+        worker.join().unwrap();
     }
 
     #[test]

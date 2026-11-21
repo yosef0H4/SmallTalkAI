@@ -110,19 +110,20 @@
   onMount(() => { void refreshModules().catch(error => notice(t("ui.operation_failed.c4e6ed"), "error", String(error))); });
 </script>
 
-<div class="field">
-  <label for={`${feature}-mode`}>{t("ui.mode.a7b93d")}</label>
-  <div class="control">
-    <select id={`${feature}-mode`} value={mode} onchange={event => changeMode(event.currentTarget.value as Selection["mode"])}>
-      <option value="single_model">{t("ui.use_one_model.bce8d2")}</option>
-      {#if feature === "tts"}<option value="auto_detect">{t("module.auto_detect")}</option>{/if}
-      <option value="follow_keyboard">{t("ui.follow_keyboard.565bed")}</option>
-    </select>
+<Combo selectOnly id={`${feature}-mode`} path={`${feature}.mode`} label="ui.mode.a7b93d" value={mode ?? "single_model"}
+  items={[
+    { value: "single_model", label: "ui.use_one_model.bce8d2" },
+    ...(feature === "tts" ? [{ value: "auto_detect", label: "module.auto_detect" }] : []),
+    { value: "follow_keyboard", label: "ui.follow_keyboard.565bed" },
+  ]}
+  onselect={value => changeMode(value as Selection["mode"])}
+>
+  {#snippet extra()}
     {#if mode === "follow_keyboard"}
       <IconButton icon="refresh" label="ui.refresh_keyboard_languages.49fbe8" onclick={refreshLanguages} />
     {/if}
-  </div>
-</div>
+  {/snippet}
+</Combo>
 
 <svelte:window onkeydown={event => { if (event.key === "Escape") adding = false; }} />
 <svelte:document onpointerdown={event => {

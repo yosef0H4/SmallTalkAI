@@ -1,3 +1,4 @@
+const { setChoice } = require("./settings-fixture.cjs");
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -51,19 +52,19 @@ const f = require('./settings-fixture.cjs');
       assert.equal(await runtime.locator('.model-result').count(),feature==='stt'?3:2);
     }
     await choose('stt','runtime');
-    await page.locator('#stt-mode').selectOption('single_model');
+    await setChoice(page.locator('#stt-mode'), 'single_model');
     await choose('tts','runtime');
-    await page.locator('#tts-mode').selectOption('single_model');
+    await setChoice(page.locator('#tts-mode'), 'single_model');
     await choose('ocr','runtime');
     await choose('tts','runtime');
-    assert.equal(await page.locator('#tts-mode').inputValue(),'single_model','reader draft survives feature switch');
+    assert.equal(await page.locator('#tts-mode').getAttribute("data-value"),'single_model','reader draft survives feature switch');
     await choose('stt','runtime');
-    assert.equal(await page.locator('#stt-mode').inputValue(),'single_model','dictation draft survives feature switch');
+    assert.equal(await page.locator('#stt-mode').getAttribute("data-value"),'single_model','dictation draft survives feature switch');
     await page.locator('#savebar button').click();
     await page.locator('#savebar').waitFor({state:'detached'});
     assert.equal(f.getConfig().speech.selection_mode,'single_model');
     assert.equal(f.getReaderConfig().speech.selection.mode,'single_model');
-    await page.locator('#stt-mode').selectOption('follow_keyboard');
+    await setChoice(page.locator('#stt-mode'), 'follow_keyboard');
     await page.locator('#savebar button').click();
     await page.locator('#savebar').waitFor({state:'detached'});
     assert.equal(await row('parakeet-cuda').locator('strong').textContent(),'NVIDIA');
@@ -82,10 +83,10 @@ const f = require('./settings-fixture.cjs');
     if(process.env.SETTINGS_VISUAL_REVIEW==='1') {
       const output=path.resolve('artifacts/catalog-ui');fs.mkdirSync(output,{recursive:true});
       for(const locale of ['en','ar']) for(const theme of ['light','dark']) {
-        await page.locator('[data-page=general]').click();await page.locator('#ui-language').selectOption(locale);await page.locator('[data-setting-path="general.ui_theme"] select').selectOption(theme);await page.locator('[data-page=models]').click();await choose('stt','runtime');
+        await page.locator('[data-page=general]').click();await setChoice(page.locator('#ui-language'), locale);await setChoice(page.locator('[data-setting-path="general.ui_theme"] [role=combobox]'), theme);await page.locator('[data-page=models]').click();await choose('stt','runtime');
         for(const width of [360,1280]) {await page.setViewportSize({width,height:900});await page.evaluate(()=>document.fonts.ready);assert.equal(await page.locator('.model-result progress').count(),2);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));assert(await page.locator('.model-result progress').evaluateAll(nodes=>nodes.every(node=>{const bar=node.getBoundingClientRect(),row=node.closest('article').getBoundingClientRect();return bar.y>=row.y&&bar.bottom<=row.bottom&&bar.x>=row.x&&bar.right<=row.right+1;})),'progress must stay inside its downloading item');await page.screenshot({path:path.join(output,`${locale}-${theme}-${width}-downloading.png`),fullPage:true});}
       }
-      await page.locator('[data-page=general]').click();await page.locator('#ui-language').selectOption('en');await page.locator('[data-setting-path="general.ui_theme"] select').selectOption('auto');await page.setViewportSize({width:360,height:900});await page.locator('[data-page=models]').click();
+      await page.locator('[data-page=general]').click();await setChoice(page.locator('#ui-language'), 'en');await setChoice(page.locator('[data-setting-path="general.ui_theme"] [role=combobox]'), 'auto');await page.setViewportSize({width:360,height:900});await page.locator('[data-page=models]').click();
     }
     await choose('tts','runtime');
     await row('sherpa-cpu').getByRole('button',{name:'Download',exact:true}).click();
@@ -153,9 +154,9 @@ const f = require('./settings-fixture.cjs');
     f.installFixture('sherpa-cuda'); f.installFixture('english-q8.gguf');
     const output=path.resolve('artifacts/catalog-ui');fs.mkdirSync(output,{recursive:true});
     for(const locale of ['en','ar']) {
-      await page.locator('[data-page=general]').click();await page.locator('#ui-language').selectOption(locale);
+      await page.locator('[data-page=general]').click();await setChoice(page.locator('#ui-language'), locale);
       for(const theme of ['light','dark']) {
-        await page.locator('[data-setting-path="general.ui_theme"] select').selectOption(theme);
+        await setChoice(page.locator('[data-setting-path="general.ui_theme"] [role=combobox]'), theme);
         for(const width of [360,768,1280]) {
           await page.setViewportSize({width,height:900});await page.locator('[data-page=models]').click();
           for(const feature of ['stt','tts','ocr']) for(const kind of ['runtime','model']) {

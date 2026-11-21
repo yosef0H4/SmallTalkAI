@@ -15,6 +15,10 @@
   import type { Page } from "./lib/types";
   import { direction, locale, t, tEnglish } from "./lib/i18n";
   const desktop = "__SIMPLE_STT_DESKTOP__" in window;
+  let maximized = $state(document.documentElement.dataset.maximized === "true");
+  function updateFrameState() {
+    maximized = document.documentElement.dataset.maximized === "true";
+  }
   function frameAction(action: "drag" | "minimize" | "maximize") {
     window.location.assign("/__settings_frame/" + action);
   }
@@ -104,9 +108,12 @@
   }
   onMount(() => {
     if (authenticated) stopSession = startSession();
+    updateFrameState();
     window.addEventListener("settings-close-request", close);
+    window.addEventListener("settings-window-state", updateFrameState);
     return () => {
       window.removeEventListener("settings-close-request", close);
+      window.removeEventListener("settings-window-state", updateFrameState);
       stopSession?.();
     };
   });
@@ -157,13 +164,11 @@
     }
   }
   function searchKey(event: KeyboardEvent) {
-    if (event.key === "ArrowDown") {
+    if (results.length && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
       event.preventDefault();
-      searchIndex = Math.min(results.length - 1, searchIndex + 1);
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      searchIndex = Math.max(0, searchIndex - 1);
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      searchIndex = Math.max(0, Math.min(results.length - 1, searchIndex + step));
+      document.getElementById(`setting-result-${searchIndex}`)?.scrollIntoView({ block: "nearest" });
     }
     if (event.key === "Enter" && results[searchIndex]) {
       event.preventDefault();
@@ -197,8 +202,8 @@
     <button type="button" aria-label={t("ui.minimize_settings")} onclick={() => frameAction("minimize")}>
       <span class="frame-minimize" aria-hidden="true"></span>
     </button>
-    <button type="button" aria-label={t("ui.maximize_restore_settings")} onclick={() => frameAction("maximize")}>
-      <span class="frame-maximize" aria-hidden="true"></span>
+    <button type="button" aria-label={t(maximized ? "ui.restore_settings" : "ui.maximize_settings")} onclick={() => frameAction("maximize")}>
+      <span class={maximized ? "frame-restore" : "frame-maximize"} aria-hidden="true"></span>
     </button>
     <button type="button" aria-label={t("ui.close_settings.5bd91a")} onclick={close}>
       <span class="frame-close" aria-hidden="true"></span>

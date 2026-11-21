@@ -1,3 +1,4 @@
+const { setChoice } = require("./settings-fixture.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -78,9 +79,9 @@ const freePort = () =>
     await page.goto(url);
     await page.locator('[data-setting-path="general.enabled"] input').waitFor();
     const language = page.locator(
-      '[data-setting-path="general.ui_language"] select',
+      '[data-setting-path="general.ui_language"] [role=combobox]',
     );
-    await language.selectOption("ar");
+    await setChoice(language, "ar");
     await page.waitForFunction(() => document.documentElement.dir === "rtl");
 
     const setup = page.getByRole("button", {
@@ -105,12 +106,11 @@ const freePort = () =>
     const artifacts = path.resolve("artifacts/settings-shortcut-portal");
     fs.mkdirSync(artifacts, { recursive: true });
     for (const locale of ["en", "ar"]) {
-      await language.selectOption(locale);
+      await setChoice(language, locale);
       const actionButton = page.getByRole("button", { name: locale === "en" ? "Set up shortcuts" : "إعداد الاختصارات", exact: true });
     for (const theme of ["light", "dark"]) {
-      await page
-        .locator('[data-setting-path="general.ui_theme"] select')
-        .selectOption(theme);
+      await setChoice(page
+        .locator('[data-setting-path="general.ui_theme"] [role=combobox]'), theme);
       for (const width of [360, 1280]) {
         await page.setViewportSize({ width, height: 900 });
         await page.screenshot({
@@ -134,7 +134,7 @@ const freePort = () =>
     }
 
     }
-    await language.selectOption("ar");
+    await setChoice(language, "ar");
     let failureIntercepted = false;
     await page.route("**/api/platform-action", (route) => {
       failureIntercepted = true;

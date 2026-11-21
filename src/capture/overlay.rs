@@ -48,7 +48,59 @@ mod platform {
     }
 }
 pub use overlay_model::{
-    ascii_visualizer, empty_visualizer_levels, linux_overlay_lines, render_overlay_text,
-    set_visualizer_level, NoticeLevel, OverlayPrimary, RecordingIndicators,
+    ascii_visualizer, empty_visualizer_levels, render_overlay_text, set_visualizer_level,
+    NoticeLevel, OverlayPrimary, RecordingIndicators,
 };
 pub use platform::OverlayHandle;
+
+#[cfg(any(windows, target_os = "linux"))]
+impl OverlayHandle {
+    pub fn start_recording(&self, _target_window: isize, indicators: RecordingIndicators) {
+        self.send(overlay_model::OverlayCommand::StartRecording(indicators));
+    }
+
+    pub fn set_shortcuts(&self, text: String, enabled: bool) {
+        self.send(overlay_model::OverlayCommand::SetShortcuts(text, enabled));
+    }
+
+    pub fn set_locale(&self, locale: crate::localization::Locale) {
+        self.send(overlay_model::OverlayCommand::SetLocale(locale));
+    }
+
+    pub fn set_primary(&self, primary: OverlayPrimary) {
+        self.send(overlay_model::OverlayCommand::SetPrimary(primary));
+    }
+
+    pub fn notify_info(&self, text: impl Into<String>, duration: Option<std::time::Duration>) {
+        self.notify(NoticeLevel::Info, text, duration);
+    }
+
+    pub fn notify_warning(&self, text: impl Into<String>, duration: std::time::Duration) {
+        self.notify(NoticeLevel::Warning, text, Some(duration));
+    }
+
+    pub fn notify_error(&self, text: impl Into<String>, duration: std::time::Duration) {
+        self.notify(NoticeLevel::Error, text, Some(duration));
+    }
+
+    pub fn clear_notice(&self) {
+        self.send(overlay_model::OverlayCommand::ClearNotice);
+    }
+
+    pub fn hide(&self) {
+        self.send(overlay_model::OverlayCommand::Hide);
+    }
+
+    fn notify(
+        &self,
+        level: NoticeLevel,
+        text: impl Into<String>,
+        duration: Option<std::time::Duration>,
+    ) {
+        self.send(overlay_model::OverlayCommand::Notify {
+            level,
+            text: text.into(),
+            duration,
+        });
+    }
+}

@@ -1,5 +1,5 @@
 ; Generated from desktop catalogs and tray menu. Run node web/settings/tools/locales.mjs.
-; catalog-sha256: 147678fc9fd244d14c5079c8758da57d6399931a6fe7236ee6e3aa69b23b1f2a
+; catalog-sha256: 74d1e4be69d494f6cc581830d8a0b9a0bee3d62d6c1d6b7e7a2b0a839018353b
 UiSetLanguage(language := "auto") {
     global SimpleSttUiLocale
     if language = "auto"
@@ -466,7 +466,6 @@ UiText(id, args := unset) {
 UiTrayMenu() {
     return [
         [
-            ["read_selection", "menu.readSelection", "speaker", ""],
             ["read_region", "menu.readRegion", "camera", ""],
             ["read_along", "reading.read_along_start", "book", ""],
             ["copy_region", "menu.copyRegion", "clipboard", ""],

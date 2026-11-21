@@ -1,9 +1,11 @@
+const { setChoice } = require("./settings-fixture.cjs");
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const {chromium}=require('playwright');
 const f=require('./settings-fixture.cjs');
 (async()=>{
+  if (process.env.SETTINGS_TIMING_SCREENSHOTS) f.getConfig().general.ui_theme = 'light';
   await new Promise(resolve=>f.server.listen(0,'127.0.0.1',resolve));
   const browser=await chromium.launch({headless:true});
   try {
@@ -14,13 +16,31 @@ const f=require('./settings-fixture.cjs');
     const modelFeature=async(feature)=>{await go('models');await page.locator(`[data-catalog-feature=${feature}]`).click();};
     const choose=async(path,query,option)=>{const input=page.locator(`[data-setting-path="${path}"] .combo-input`);await input.click();await input.fill(query);await page.locator(`[data-combo-list="${path}"]`).getByRole('option',{name:option}).click();};
     await go('reading');
+    const timing = page.locator('.read-along-timing');
+    const delayField = timing.locator('[data-setting-path="read_along.delay_ms"] .range-number');
+    await delayField.waitFor();
+    for (const width of [1280, 420]) {
+      await page.setViewportSize({width, height:900});
+      const aligned = await timing.evaluate(group => {
+        const [delay, retries] = [...group.querySelectorAll('.number-field')].map(field => field.getBoundingClientRect());
+        const [delayTrack, retryTrack] = [...group.querySelectorAll('input[type=range]')].map(track => track.getBoundingClientRect());
+        return Math.abs(delay.left-retries.left)<1 && Math.abs(delayTrack.right-retryTrack.right)<1;
+      });
+      assert(aligned, `Read along sliders and numeric fields align at ${width}px`);
+      if (process.env.SETTINGS_TIMING_SCREENSHOTS) {
+        fs.mkdirSync(process.env.SETTINGS_TIMING_SCREENSHOTS,{recursive:true});
+        await page.evaluate(() => document.fonts.ready);
+        await timing.screenshot({path:path.join(process.env.SETTINGS_TIMING_SCREENSHOTS,`read-along-timing-${width}.png`)});
+      }
+    }
+    await page.setViewportSize({width:1280,height:900});
     const playbackDevice=page.getByRole('combobox',{name:'Playback device'});
     assert.equal(await playbackDevice.inputValue(),'System default');
     await choose('playback.output_device','Fixture headphones',/^Fixture headphones$/);
     assert.equal(await page.locator('.engine-assignment').count(),0,'model setup does not duplicate on Reading');
     await page.getByRole('button',{name:'Copy screen text'}).click();
     assert(f.actions.some(a=>a.action==='copy_region'));
-    await page.locator('#read-along-action').selectOption('key');
+    await setChoice(page.locator('#read-along-action'), 'key');
     await page.getByRole('button',{name:'Record',exact:true}).click();await page.keyboard.press('PageDown');await page.keyboard.press('Escape');
     await page.locator('#read-along-prefetch').uncheck();
     await page.locator('[data-setting-path="read_along.delay_ms"] .range-number').fill('250');
@@ -35,7 +55,7 @@ const f=require('./settings-fixture.cjs');
 
     for(const id of ['sherpa-cpu','sherpa-cuda','kokoro','supertonic3','paddle-ar-en']) f.installFixture(id);
     await modelFeature('tts');
-    assert.equal(await page.locator('#tts-mode').inputValue(),'auto_detect');
+    assert.equal(await page.locator('#tts-mode').getAttribute("data-value"),'auto_detect');
     assert.equal(await page.locator('.engine-assignment[data-module=tts]').count(),0,'unassigned automatic mode starts empty');
     await page.getByText('Add a language to choose its runtime and model.',{exact:true}).waitFor();
     assert.equal(await page.locator('#tts-uncertain, [data-setting-path^="tts.fallback"]').count(),0);
@@ -152,7 +172,7 @@ const f=require('./settings-fixture.cjs');
     assert.deepEqual(f.getReaderConfig().speech,speech,'reading does not modify TTS model assignment');
     const output=path.resolve('artifacts/combined-app/settings');fs.mkdirSync(output,{recursive:true});
     for(const lang of ['en','ar']) {
-      await page.locator('[data-page=general]').click();await page.locator('#ui-language').selectOption(lang);
+      await page.locator('[data-page=general]').click();await setChoice(page.locator('#ui-language'), lang);
       for(const theme of ['light','dark']) {
         const themeLabel=lang==='ar'?(theme==='light'?'فاتح':'داكن'):(theme==='light'?'Light':'Dark');
         await choose('general.ui_theme',themeLabel,new RegExp(`^${themeLabel}$`));

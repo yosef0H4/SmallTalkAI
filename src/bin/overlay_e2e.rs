@@ -141,11 +141,16 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 fn render_offscreen() {
-    use simple_stt::capture::overlay::{overlay_render, OverlayPrimary, RecordingIndicators};
+    use simple_stt::capture::overlay::{
+        empty_visualizer_levels, overlay_render, set_visualizer_level, OverlayPrimary,
+        RecordingIndicators,
+    };
     use simple_stt::localization::{translate, Locale};
     let directory = std::env::var("SIMPLE_STT_OVERLAY_SCREENSHOT_DIR")
         .unwrap_or_else(|_| "artifacts/localization/offscreen".into());
     std::fs::create_dir_all(&directory).expect("create screenshot directory");
+    let mut waveform = empty_visualizer_levels();
+    set_visualizer_level(&mut waveform, 0.95);
     for locale in [Locale::En, Locale::Ar] {
         let activity =
             |value: serde_json::Value| simple_stt::reader::activity_text(&value, locale, false);
@@ -155,11 +160,9 @@ fn render_offscreen() {
                 locale,
             )
         };
+        let read_along = simple_stt::reader::hud_text(&serde_json::json!({"state":"reading","activity":{"phase":"idle","message_id":"idle"},"chunk_text":if locale == Locale::Ar { "هذا هو النص الذي يُقرأ الآن." } else { "This is the sentence being read aloud." },"chunk":1,"chunk_total":6,"read_along_active":true,"next_page_activity":{"phase":"ocr"}}),locale,0).0;
         let mut reader_cases = vec![
-            (
-                "read-along-next-page",
-                simple_stt::reader::hud_text(&serde_json::json!({"state":"reading","activity":{"phase":"idle","message_id":"idle"},"chunk_text":if locale == Locale::Ar { "هذا هو النص الذي يُقرأ الآن." } else { "This is the sentence being read aloud." },"read_along_active":true,"next_page_activity":{"phase":"ocr"}}),locale,0).0,
-            ),
+            ("read-along-next-page", read_along.clone()),
             (
                 "reader-detect-language",
                 activity(
@@ -263,11 +266,11 @@ fn render_offscreen() {
         ];
         let bindings = [
             ("record", "Meta+Z"),
-            ("cancel", "Meta+X"),
-            ("delivery", "Meta+D"),
-            ("cleanup", "Meta+Ctrl+A"),
-            ("retry", "Meta+Ctrl+V"),
-            ("shortcuts", "Meta+Ctrl+H"),
+            ("cancel", "Meta+Ctrl+Z"),
+            ("retry", "Meta+Ctrl+,"),
+            ("read-selection", "Meta+X"),
+            ("read-region", "Meta+Ctrl+X"),
+            ("read-along", "Meta+Ctrl+B"),
         ]
         .into_iter()
         .map(|(id, chord)| (id.to_owned(), chord.to_owned()))
@@ -284,6 +287,12 @@ fn render_offscreen() {
                 "reminders-transcribing",
                 OverlayPrimary::Transcribing,
                 String::new(),
+                true,
+            ),
+            (
+                "reminders-read-along",
+                OverlayPrimary::Hidden,
+                read_along,
                 true,
             ),
             (
@@ -320,7 +329,7 @@ fn render_offscreen() {
             let plan = overlay_render::plan_with_shortcuts(
                 primary,
                 Some(&notice),
-                &[0.6; 10],
+                &waveform,
                 RecordingIndicators::default(),
                 locale,
                 &shortcuts,

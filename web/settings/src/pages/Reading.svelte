@@ -81,17 +81,24 @@
       onselect={value => { if (reading.config) reading.config.playback.output_device = value || null; }} />
   </Group>
   <Group title="reading.read_along" icon="keyboard">
-    <div class="field"><label for="read-along-action">{t("reading.read_along_action")}</label><div class="control"><select id="read-along-action" bind:value={reading.config.read_along.action}><option value="key">{t("reading.read_along_key")}</option><option value="click">{t("reading.read_along_click")}</option></select></div></div>
+    <Combo selectOnly id="read-along-action" path="reading.read_along.action"
+      label="reading.read_along_action" value={reading.config.read_along.action}
+      items={[{ value: "key", label: "reading.read_along_key" }, { value: "click", label: "reading.read_along_click" }]}
+      onselect={value => { if (reading.config) reading.config.read_along.action = value as "key" | "click"; }}
+    />
     {#if reading.config.read_along.action === "key"}<ActionRecorder />{/if}
     <div class="field"><label for="read-along-prefetch">{t("reading.read_along_prefetch")}</label><div class="control"><input id="read-along-prefetch" type="checkbox" role="switch" bind:checked={reading.config.read_along.prefetch} /></div></div>
-    <Range label="reading.read_along_delay" path="read_along.delay_ms" value={reading.config.read_along.delay_ms} min={0} max={10000} step={50} unit="ms" onchange={value=>{if(reading.config)reading.config.read_along.delay_ms=value;}}/>
-    <Range label="reading.read_along_retries" path="read_along.retry_count" value={reading.config.read_along.retry_count} min={0} max={5} step={1} unit="" onchange={value=>{if(reading.config)reading.config.read_along.retry_count=value;}}/>
+    <div class="read-along-timing">
+      <Range label="reading.read_along_delay" path="read_along.delay_ms" value={reading.config.read_along.delay_ms} min={0} max={10000} step={50} onchange={value=>{if(reading.config)reading.config.read_along.delay_ms=value;}}/>
+      <Range label="reading.read_along_retries" path="read_along.retry_count" value={reading.config.read_along.retry_count} min={0} max={5} step={1} onchange={value=>{if(reading.config)reading.config.read_along.retry_count=value;}}/>
+    </div>
   </Group>
   <SelectionCopy />
   <ReadingBehavior />
 
 {/if}
 <style>
+  .read-along-timing { --number-min-columns: 5ch; }
   textarea {width:100%;box-sizing:border-box;}
   .reading-actions {display:flex;flex-wrap:wrap;gap:.5rem;margin-block:1rem;}
   p {color:var(--muted);line-height:1.6;}

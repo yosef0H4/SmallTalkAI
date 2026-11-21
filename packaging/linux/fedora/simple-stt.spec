@@ -1,6 +1,6 @@
 Name:           simple-stt
 Version:        0.3.1
-Release:        39%{?dist}
+Release:        44%{?dist}
 %global __provides_exclude_from ^/usr/lib/simple-stt/.*\.so.*$
 Summary:        Local dictation, read aloud, and screen text for Linux desktops
 License:        GPL-2.0-only AND MIT AND OFL-1.1 AND CC-BY-SA-3.0
@@ -69,6 +69,7 @@ cp -a %{_sourcedir}/stage/. %{buildroot}/
 %license /usr/share/licenses/simple-stt/THIRD_PARTY_NOTICES.md
 %license /usr/share/licenses/simple-stt/OFL-JetBrainsMono.txt
 %license /usr/share/licenses/simple-stt/OFL-NotoSansArabic.txt
+%license /usr/share/licenses/simple-stt/OFL-FontAwesomeFree.txt
 %license /usr/share/licenses/simple-stt/settings-sans-license.txt
 %license /usr/share/licenses/simple-stt/LICENSE-CC-BY-SA-3.0.txt
 %license /usr/share/licenses/simple-stt/fastText-ATTRIBUTION.md

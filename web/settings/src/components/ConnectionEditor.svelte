@@ -7,6 +7,7 @@ import {t} from '../lib/i18n';
 import type {Connection} from '../lib/modules.svelte';
 import ProviderCredentials from './ProviderCredentials.svelte';
 import ProviderModels from './ProviderModels.svelte';
+import ProviderPrompt from './ProviderPrompt.svelte';
 let {connection,feature,path,onchange}:{connection:Connection;feature:'stt'|'tts';path:string;onchange:(value:Connection)=>void}=$props();
 let key=$state(''),saved=$state(false),busy=$state(false);
 async function credentials(clear=false){
@@ -22,3 +23,4 @@ onMount(()=>{if(connection.key_slot)void api<{saved:boolean}>('/api/connection-s
 <div class="field"><label for={`${path}-url`}>{t('reading.base_url')}</label><div class="control"><input id={`${path}-url`} dir="ltr" value={connection.base_url} oninput={event=>onchange({...connection,base_url:event.currentTarget.value})}/></div></div>
 <ProviderCredentials id={`${path}-key`} bind:value={key} {saved} {busy} onsave={()=>credentials()} onclear={()=>credentials(true)}/>
 <ProviderModels {feature} prefix={path} baseUrl={connection.base_url} apiKey={key} keySlot={connection.key_slot} model={connection.model} voice={connection.voice} onmodel={model=>onchange({...connection,model})} onvoice={feature==='tts'?voice=>onchange({...connection,voice}):undefined}/>
+<ProviderPrompt {feature} path={`${path}.prompt`} value={connection.prompt} onchange={prompt => onchange({...connection,prompt})} />

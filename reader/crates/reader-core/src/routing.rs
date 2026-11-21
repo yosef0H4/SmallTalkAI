@@ -37,6 +37,8 @@ pub enum Device {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Connection {
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub prompt: String,
     pub base_url: String,
     pub model: String,
     pub voice: String,
@@ -47,6 +49,7 @@ pub struct Connection {
 impl Default for Connection {
     fn default() -> Self {
         Self {
+            prompt: String::new(),
             base_url: String::new(),
             model: String::new(),
             voice: String::new(),
@@ -64,6 +67,7 @@ impl Connection {
             "audio/speech"
         };
         let url = crate::provider_url::operation(&self.base_url, operation)?;
+        crate::provider_prompts::validate(&self.prompt)?;
         if feature == Feature::Stt {
             crate::provider_url::validate_stt_transport(&url)?;
         }
@@ -444,6 +448,7 @@ impl crate::AppConfig {
                         model: remote.primary.model.clone(),
                         voice: remote.primary.voice.clone(),
                         format: remote.primary.format.clone(),
+                        instructions: remote.primary.prompt.clone(),
                     };
                     config.speech.key_slot = remote.primary.key_slot.clone();
                     config.speech.use_feature_key = false;

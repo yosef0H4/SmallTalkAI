@@ -1,3 +1,4 @@
+const { setChoice } = require("./settings-fixture.cjs");
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -60,6 +61,13 @@ const downloads = require('../assets/catalog/downloads.json');
     await choose('ocr');
     await page.getByText('Install a runtime first.', { exact: true }).waitFor();
     await row('paddle-ar-en').waitFor();
+    assert(await section.locator('.model-result').evaluateAll(rows => rows.every(row => getComputedStyle(row).contentVisibility !== 'auto')),
+      'bounded catalog rows are rendered before they scroll into view');
+    assert(await row('paddle-ar-en').locator('.language-overflow').evaluate(group => {
+      const count = group.querySelector('bdi').getBoundingClientRect();
+      const help = group.querySelector('button').getBoundingClientRect();
+      return help.left - count.right >= 4 && help.right <= group.getBoundingClientRect().right;
+    }), 'catalog help button has space beside the language count');
     await page.locator('[data-download-kind=runtime]').click();
     for (const feature of ['tts', 'ocr']) {
       await page.locator(`[data-catalog-feature=${feature}]`).click();
@@ -128,7 +136,7 @@ const downloads = require('../assets/catalog/downloads.json');
       fs.mkdirSync(output, { recursive: true });
       for (const locale of ['en', 'ar']) {
         await page.locator('[data-page=general]').click();
-        await page.locator('#ui-language').selectOption(locale);
+        await setChoice(page.locator('#ui-language'), locale);
         for (const theme of ['light', 'dark']) {
         await page.locator('[data-setting-path="general.ui_theme"] [role=combobox]').click();
         await page.getByRole('option', { name: new RegExp(theme === 'light' ? 'Light|فاتح' : 'Dark|داكن', 'i') }).click();

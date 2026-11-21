@@ -24,6 +24,8 @@ pub enum SpeechProvider {
         model: String,
         voice: String,
         format: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        instructions: String,
     },
 }
 
@@ -36,6 +38,8 @@ pub enum OcrProvider {
         base_url: String,
         model: String,
         api: OcrApi,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        prompt: String,
     },
 }
 
@@ -469,16 +473,21 @@ impl AppConfig {
             crate::secrets::validate_slot(slot)?;
         }
         if let SpeechProvider::OpenAiCompatible {
-            base_url, model, ..
+            base_url,
+            model,
+            instructions,
+            ..
         } = &self.speech.provider
         {
             crate::provider_url::operation(base_url, "audio/speech")?;
+            crate::provider_prompts::validate(instructions)?;
             validate_remote(base_url, model)?;
         }
         if let OcrProvider::OpenAiCompatible {
             base_url,
             model,
             api,
+            prompt,
         } = &self.ocr.provider
         {
             crate::provider_url::operation(
@@ -490,6 +499,7 @@ impl AppConfig {
                 },
             )?;
             validate_remote(base_url, model)?;
+            crate::provider_prompts::validate(prompt)?;
         }
         Ok(())
     }
@@ -767,11 +777,13 @@ mod tests {
             model: "voice".into(),
             voice: "alloy".into(),
             format: "wav".into(),
+            instructions: String::new(),
         };
         config.ocr.provider = OcrProvider::OpenAiCompatible {
             base_url: "https://vision.example/v1".into(),
             model: "vision".into(),
             api: OcrApi::Responses,
+            prompt: String::new(),
         };
         config.validate().unwrap();
         let encoded = serde_json::to_string(&config).unwrap();
@@ -822,6 +834,7 @@ mod tests {
             model: "v".into(),
             voice: "x".into(),
             format: "pcm".into(),
+            instructions: String::new(),
         };
         assert!(config.validate().is_err());
         config.speech.provider = SpeechProvider::LocalKokoro;

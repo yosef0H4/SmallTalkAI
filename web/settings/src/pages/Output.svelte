@@ -11,6 +11,7 @@
   import Group from "../components/Group.svelte";
   import Field from "../components/Field.svelte";
   import Combo from "../components/Combo.svelte";
+  import NumberInput from "../components/NumberInput.svelte";
   import IconButton from "../components/IconButton.svelte";
   import Help from "../components/Help.svelte";
   import RangeInput from "../components/RangeInput.svelte";
@@ -158,7 +159,10 @@
       <div class="field-copy"><label for="typing-speed">{t("ui.speed.2d2cb0")}</label><Help text={t("typing.speed_help")} /></div>
       <div class="control">
         <RangeInput id="typing-speed" min={0} max={100} valueText={typingLabel} value={typingPosition} oninput={setTypingPosition} />
-        <input class="range-number" type="number" aria-label={t("settings.typing_exact")} min="50" max="1650" step="1" value={typingPosition===100?"":ui.config?.output.typing_speed_wpm} placeholder={t("typing.instant")} oninput={event=>{const value=event.currentTarget.valueAsNumber;if(Number.isFinite(value)){set("output.typing_speed_wpm",value);set("output.paced_typing_enabled",true);}}}/><output class="range-value" for="typing-speed">{typingPosition===100?t("typing.instant"):t("ui.wpm.3fc2c6")}</output>
+        <NumberInput label={t("settings.typing_exact")} min={50} max={1650}
+          value={typingPosition===100 ? "" : ui.config?.output.typing_speed_wpm ?? ""} placeholder={t("typing.instant")}
+          oninput={value => { set("output.typing_speed_wpm", value); set("output.paced_typing_enabled", true); }} />
+        <output class="range-value" for="typing-speed">{typingPosition===100?t("typing.instant"):t("ui.wpm.3fc2c6")}</output>
       </div>
     </div>
   </div></Group
@@ -192,17 +196,16 @@
             entry.app_id = e.currentTarget.value;
             markDirty();
           }}
-        /><select
-          aria-label={t("ui.delivery_mode_for_app.763ef6", { app: entry.app_id || t("ui.application.d2005c") })}
+        /><Combo selectOnly inline path={`output.app_overrides.${index}.mode`}
+          label="ui.delivery_mode_for_app.763ef6"
+          ariaLabel={t("ui.delivery_mode_for_app.763ef6", { app: entry.app_id || t("ui.application.d2005c") })}
           value={entry.mode}
-          onchange={(e) => {
-            entry.mode = e.currentTarget.value as DeliveryMode;
+          items={deliveryOptions.map(([value, label]) => ({value, label}))}
+          onselect={(value) => {
+            entry.mode = value as DeliveryMode;
             markDirty();
           }}
-          >{#each deliveryOptions as [value, label]}<option {value}
-              >{t(label)}</option
-            >{/each}</select
-        ><IconButton
+        /><IconButton
           icon="trash"
           label="ui.remove_app_override.10d229"
           onclick={() => {

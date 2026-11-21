@@ -7,6 +7,7 @@ pub mod language;
 pub mod local_ipc;
 pub mod native_paths;
 pub mod paddle;
+pub mod provider_prompts;
 pub mod provider_url;
 pub mod recorded_action;
 pub mod request_budget;

@@ -7,6 +7,7 @@ import {t} from "../lib/i18n";
 import Combo from "./Combo.svelte";
 import ProviderCredentials from "./ProviderCredentials.svelte";
 import ProviderModels from "./ProviderModels.svelte";
+import ProviderPrompt from "./ProviderPrompt.svelte";
 import Group from "./Group.svelte";
 import ModuleSelection from "./ModuleSelection.svelte";
 let key=$state(""), busy=$state(false);
@@ -25,6 +26,8 @@ async function saveKey(clear=false){busy=true;try{if(clear){await api("/api/read
   {#each [["base_url","reading.base_url"]] as [key,label]}<div class="field" data-setting-path={`speech.remote_openai_compatible.${key}`}><label for={`stt-${key}`}>{t(label)}</label><div class="control"><input id={`stt-${key}`} dir="ltr" value={speech.remote_openai_compatible[key as "base_url"]} oninput={event=>set(`speech.remote_openai_compatible.${key}`,event.currentTarget.value)}/></div></div>{/each}
   <ProviderCredentials id="stt-key" bind:value={key} saved={reading.sttKeySaved} {busy} onsave={()=>saveKey()} onclear={()=>saveKey(true)}/>
   <ProviderModels feature="stt" baseUrl={speech.remote_openai_compatible.base_url} apiKey={key} model={speech.remote_openai_compatible.model} onmodel={v=>set('speech.remote_openai_compatible.model',v)}/>
+  <ProviderPrompt feature="stt" path="speech.remote_openai_compatible.prompt"
+    value={speech.remote_openai_compatible.prompt} onchange={value => set("speech.remote_openai_compatible.prompt", value)} />
   <div class="field"><label for="stt-fallback">{t("reading.fallback_to_local")}</label><div class="control"><input id="stt-fallback" type="checkbox" role="switch" checked={speech.remote_openai_compatible.fallback_to_local} onchange={event=>set("speech.remote_openai_compatible.fallback_to_local",event.currentTarget.checked)}/></div></div>
  {/if}
  {/snippet}

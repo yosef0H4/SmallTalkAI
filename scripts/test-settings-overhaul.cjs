@@ -1,3 +1,4 @@
+const { setChoice } = require("./settings-fixture.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -31,10 +32,9 @@ const f = require("./settings-fixture.cjs");
     await go("models");
     await page.locator(`[data-catalog-feature="${feature}"]`).click();
   };
-  const choose = async (settingPath, query, option) => {
+  const choose = async (settingPath, option) => {
     const input = page.locator(`[data-setting-path="${settingPath}"] .combo-input`);
     await input.click();
-    await input.fill(query);
     await page.locator(`[data-combo-list="${settingPath}"]`).getByRole("option", { name: option }).click();
   };
   const save = async () => {
@@ -57,6 +57,38 @@ const f = require("./settings-fixture.cjs");
   await page.goto(url);
   await page.locator('[data-setting-path="general.enabled"] input').waitFor();
   const initial = f.getConfig();
+  const desktop = await context.newPage();
+  await desktop.setViewportSize({ width: 900, height: 620 });
+  await desktop.emulateMedia({ colorScheme: "dark" });
+  await desktop.addInitScript(() => { window.__SIMPLE_STT_DESKTOP__ = true; });
+  await desktop.goto(url);
+  await desktop.getByRole("button", { name: "Maximize Settings", exact: true }).locator(".frame-maximize").waitFor();
+  for (const maximized of [true, false]) {
+    await desktop.evaluate((state) => {
+      document.documentElement.dataset.maximized = String(state);
+      window.dispatchEvent(new Event("settings-window-state"));
+    }, maximized);
+    await desktop.getByRole("button", { name: maximized ? "Restore Settings" : "Maximize Settings", exact: true })
+      .locator(maximized ? ".frame-restore" : ".frame-maximize").waitFor();
+  }
+  const cleanupFits = await desktop.locator('nav button[data-page="cleanup"]').evaluate(button => {
+    const label = button.querySelector('.nav-copy');
+    return label.getBoundingClientRect().bottom < button.getBoundingClientRect().bottom;
+  });
+  assert(cleanupFits, "Text cleanup label fits within the compact navigation button");
+  await setChoice(desktop.locator('[data-setting-path="general.ui_theme"] [role=combobox]'), "light");
+  await desktop.locator('nav button[data-page="models"]').click();
+  const mode = desktop.locator("#stt-mode");
+  await mode.press("Space");
+  const choices = desktop.locator('[data-combo-list="stt.mode"]');
+  await choices.getByRole("option", { name: "Follow keyboard" }).waitFor();
+  const theme = await choices.evaluate(list => ({
+    scheme: getComputedStyle(list).colorScheme,
+    radius: getComputedStyle(list).borderRadius,
+  }));
+  assert.deepEqual(theme, { scheme: "light", radius: "0px" }, "open dropdown follows the app theme");
+  await mode.press("Escape");
+  await desktop.close();
   for (const name of [
     "general",
     "audio",
@@ -180,15 +212,21 @@ const f = require("./settings-fixture.cjs");
   await page.waitForFunction(() => document.querySelector('#typing-speed').value !== '99');
   assert.notEqual(await typing.inputValue(), '100');
   await typingNumber.fill("800");
+  const numberField = page.locator('[data-setting-path="output.typing_speed_wpm"] .number-field');
+  const dimensions = await numberField.boundingBox();
+  assert(dimensions.width < 76 && dimensions.height === 28, "typing number field is compact");
+  await numberField.getByRole("button", { name: "Increase Typing speed exact value" }).click();
+  assert.equal(await typingNumber.inputValue(), "801");
+  await numberField.getByRole("button", { name: "Decrease Typing speed exact value" }).click();
+  assert.equal(await typingNumber.inputValue(), "800");
   await save();
   assert.equal(f.getConfig().output.typing_speed_wpm, 800, "numeric range input saves an exact value");
   await page.getByRole("button", { name: "Add manually" }).click();
   await page
     .getByRole("textbox", { name: "Application identity" })
     .fill("terminal-test");
-  await page
-    .getByRole("combobox", { name: "Delivery mode for terminal-test" })
-    .selectOption("paste_ctrl_shift_v");
+  await setChoice(page
+    .getByRole("combobox", { name: "Delivery mode for terminal-test" }), "paste_ctrl_shift_v");
   await save();
   assert.equal(
     f.getConfig().output.app_overrides[0].mode,
@@ -222,14 +260,14 @@ const f = require("./settings-fixture.cjs");
   await page.getByRole("button", { name: "Test cleanup", exact: true }).click();
   await page.getByText("مرحبا · Hello Jayson", { exact: true }).waitFor();
   await catalog("cleanup");
-  await choose("cleanup.provider", "ChatGPT", /ChatGPT/);
+  await choose("cleanup.provider", /ChatGPT/);
   await page.getByRole("button", { name: "Connect ChatGPT", exact: true }).click();
   await page.getByRole("button", { name: "Disconnect ChatGPT", exact: true }).waitFor({ timeout: 8000 });
   await page.getByRole("button", { name: "Disconnect ChatGPT", exact: true }).click();
   await page.getByRole("button", { name: "Connect ChatGPT", exact: true }).waitFor();
-  await choose("cleanup.provider", "OpenAI", /OpenAI/);
+  await choose("cleanup.provider", /OpenAI/);
   await page.getByRole("button", { name: "Remove saved API key" }).click();
-  await choose("cleanup.provider", "ChatGPT", /ChatGPT/);
+  await choose("cleanup.provider", /ChatGPT/);
   assert.equal(f.options.keySaved, false);
   f.options.history = [{raw:"مرحبا الأصل",cleaned:"مرحبا العالم",model:"test",latency_ms:10,outcome:"cleaned"}];
   await page.getByRole("button", { name: "Connect using a code", exact: true }).click();

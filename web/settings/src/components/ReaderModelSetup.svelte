@@ -6,6 +6,7 @@ import {ui,notice,markDirty} from "../lib/state.svelte";
 import {t} from "../lib/i18n";
 import Group from "../components/Group.svelte";
 import Combo from "./Combo.svelte";
+import ProviderPrompt from "./ProviderPrompt.svelte";
 import ProviderCredentials from "./ProviderCredentials.svelte";
 import ProviderModels from "./ProviderModels.svelte";
 import ModuleSelection from "../components/ModuleSelection.svelte";
@@ -44,6 +45,8 @@ onMount(()=>{void refresh().catch(error=>notice(t("reading.failed"),"error",Stri
       <ProviderCredentials id="speech-key" bind:value={reading.speechKey} saved={reading.speechKeySaved} {busy} onsave={()=>saveConnection("speech")} onclear={()=>clearKey("speech")}/>
       <ProviderModels feature="tts" baseUrl={config.speech.provider.base_url} apiKey={reading.speechKey} model={config.speech.provider.model} voice={config.speech.provider.voice} onmodel={v=>{if(reading.config?.speech.provider.kind==='open_ai_compatible')config.speech.provider.model=v;}} onvoice={v=>{if(reading.config?.speech.provider.kind==='open_ai_compatible')config.speech.provider.voice=v;}}/>
       <div class="field"><label for="speech-format">{t('reading.format')}</label><div class="control"><input id="speech-format" bind:value={config.speech.provider.format}/></div></div>
+      <ProviderPrompt feature="tts" path="speech.provider.instructions" value={config.speech.provider.instructions}
+        onchange={value => { if (config.speech.provider.kind === "open_ai_compatible") config.speech.provider.instructions = value; }} />
       <div class="field"><label for="speech-fallback">{t("reading.fallback_to_local")}</label><div class="control"><input id="speech-fallback" type="checkbox" role="switch" bind:checked={config.speech.fallback_to_local} /></div></div>
     {/if}
     {/snippet}
@@ -59,7 +62,15 @@ onMount(()=>{void refresh().catch(error=>notice(t("reading.failed"),"error",Stri
       <div class="field"><label for="ocr-base_url">{t('reading.base_url')}</label><div class="control"><input id="ocr-base_url" dir="ltr" bind:value={config.ocr.provider.base_url}/></div></div>
       <ProviderCredentials id="ocr-key" bind:value={reading.ocrKey} saved={reading.ocrKeySaved} {busy} onsave={()=>saveConnection("ocr")} onclear={()=>clearKey("ocr")}/>
       <ProviderModels feature="ocr" baseUrl={config.ocr.provider.base_url} apiKey={reading.ocrKey} model={config.ocr.provider.model} onmodel={v=>{if(reading.config?.ocr.provider.kind==='open_ai_compatible')config.ocr.provider.model=v;}}/>
-      <div class="field"><label for="ocr-api">{t('reading.api')}</label><div class="control"><select id="ocr-api" bind:value={config.ocr.provider.api}><option value="chat_completions">Chat Completions</option><option value="responses">Responses</option></select></div></div>
+      <Combo selectOnly id="ocr-api" path="ocr.provider.api" label="reading.api" value={config.ocr.provider.api ?? "chat_completions"}
+        items={[{ value: "chat_completions", label: "Chat Completions" }, { value: "responses", label: "Responses" }]}
+        onselect={value => {
+          if (config.ocr.provider.kind === "open_ai_compatible")
+            config.ocr.provider.api = value as typeof config.ocr.provider.api;
+        }}
+      />
+      <ProviderPrompt feature="ocr" path="ocr.provider.prompt" value={config.ocr.provider.prompt}
+        onchange={value => { if (config.ocr.provider.kind === "open_ai_compatible") config.ocr.provider.prompt = value; }} />
       <div class="field"><label for="ocr-fallback">{t("reading.fallback_to_local")}</label><div class="control"><input id="ocr-fallback" type="checkbox" role="switch" bind:checked={config.ocr.fallback_to_local} /></div></div>
     {/if}
     {/snippet}

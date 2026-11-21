@@ -57,6 +57,7 @@ install -m 0644 assets/language/LICENSE-CC-BY-SA-3.0.txt "$stage/usr/share/licen
 install -m 0644 assets/language/ATTRIBUTION.md "$stage/usr/share/licenses/simple-stt/fastText-ATTRIBUTION.md"
 install -m 0644 assets/fonts/LICENSE-JetBrainsMono.txt "$stage/usr/share/licenses/simple-stt/OFL-JetBrainsMono.txt"
 install -m 0644 assets/fonts/LICENSE-NotoSansArabic.txt "$stage/usr/share/licenses/simple-stt/OFL-NotoSansArabic.txt"
+install -m 0644 assets/fonts/LICENSE-FontAwesomeFree.txt "$stage/usr/share/licenses/simple-stt/OFL-FontAwesomeFree.txt"
 install -m 0644 web/settings/public/settings-sans-license.txt "$stage/usr/share/licenses/simple-stt/"
 printf 'Installed runtime root; models use the per-user data directory.\n' > "$app/linux-installation"
 if [[ "$distro" == fedora ]]; then

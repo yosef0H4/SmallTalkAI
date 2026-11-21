@@ -2421,6 +2421,7 @@ fn spawn_tts(
         model,
         voice,
         format,
+        instructions,
     } = &config.speech.provider
     {
         command.args([
@@ -2435,6 +2436,7 @@ fn spawn_tts(
             "--format",
             format,
         ]);
+        command.env(reader_core::provider_prompts::SPEECH_ENV, instructions);
         command.env(
             "SIMPLE_TTS_SPEECH_API_KEY",
             if let Some(slot) = &config.speech.key_slot {
@@ -6453,6 +6455,7 @@ fn with_ocr_worker<T>(
             base_url,
             model,
             api,
+            prompt,
         } = &config.ocr.provider
         {
             command.args([
@@ -6467,6 +6470,7 @@ fn with_ocr_worker<T>(
                     "chat_completions"
                 },
             ]);
+            command.env(reader_core::provider_prompts::OCR_ENV, prompt);
         }
         if let Some(library) = &config.ocr.worker_library {
             command.arg("--library").arg(library);
@@ -10676,7 +10680,13 @@ mod server_model_tests {
                 let body: serde_json::Value = serde_json::from_reader(request.as_reader()).unwrap();
                 let is_speech = path.contains("audio/speech");
                 if is_speech {
+                    assert_eq!(body["instructions"], "Use a calm voice.");
                     speech += 1;
+                } else {
+                    assert_eq!(
+                        body["messages"][0]["content"],
+                        "Return the visible words only."
+                    );
                 }
                 let block = is_speech && speech == 2;
                 captured.lock().unwrap().push((path, body));
@@ -10702,6 +10712,7 @@ mod server_model_tests {
             model: "remote-tts".into(),
             voice: "test-voice".into(),
             format: "pcm".into(),
+            instructions: "Use a calm voice.".into(),
         };
         config.speech.use_feature_key = false;
         config.speech.fallback_to_local = false;
@@ -10710,6 +10721,7 @@ mod server_model_tests {
             base_url: format!("{base}/ocr/v1"),
             model: "remote-ocr".into(),
             api: reader_core::config::OcrApi::ChatCompletions,
+            prompt: "Return the visible words only.".into(),
         };
         config.ocr.fallback_to_local = false;
         let path = reader_core::config::config_path();
@@ -10844,6 +10856,7 @@ mod server_model_tests {
             model: "tts".into(),
             voice: "voice".into(),
             format: "wav".into(),
+            instructions: String::new(),
         };
         config.speech.excluded_words = vec!["marker".into()];
         let original = "Read MARKER this.".to_owned();

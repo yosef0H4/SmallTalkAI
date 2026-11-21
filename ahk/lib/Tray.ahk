@@ -39,7 +39,7 @@ class TrayController {
 
     Callback(action) {
         switch action {
-            case "read_selection", "read_region", "read_along", "copy_region":
+            case "read_region", "read_along", "copy_region":
                 return ObjBindMethod(this.app, "ReaderAction", action)
             case "abort": return ObjBindMethod(this.app, "CancelAll")
             case "settings": return ObjBindMethod(this.app, "OpenSettings")

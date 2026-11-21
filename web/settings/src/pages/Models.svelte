@@ -50,13 +50,24 @@
   const jobs = $derived(modules.assets?.jobs ?? (modules.assets?.progress ? [modules.assets.progress] : []));
   const installedRuntimes = $derived(modules.runtimes.filter(runtime => runtime.feature === feature && runtime.installed));
   function catalogRows(kind: Kind, filter: CatalogFilter, selectedEngine: string) {
-    return [
-    ...modules.runtimes.map(runtime => ({ ...runtime, kind: 'runtime' as const, languages: [] as string[], search: moduleSearchText(runtime, modules.models, modules.runtimes, modules.assets?.assets) })),
-    ...modules.models.map(model => ({ ...model, kind: 'model' as const, search: moduleSearchText(model, modules.models, modules.runtimes, modules.assets?.assets) })),
-  ].filter(row => row.feature === feature && row.kind === kind
-    && (selectedEngine === 'all' || row.engine === selectedEngine)
-    && (!filter.installed || row.installed) && matchesCatalogSearch(filter.query, row, row.search))
-    .sort((a, b) => Number(!!b.recommended) - Number(!!a.recommended) || a.label.localeCompare(b.label));
+    const rows = kind === 'runtime'
+      ? modules.runtimes.map(runtime => ({ ...runtime, kind: 'runtime' as const, languages: [] as string[] }))
+      : modules.models.map(model => ({ ...model, kind: 'model' as const }));
+    return rows.filter(row => row.feature === feature
+      && (selectedEngine === 'all' || row.engine === selectedEngine)
+      && (!filter.installed || row.installed)
+      && (!filter.query.trim() || matchesCatalogSearch(filter.query, row,
+        moduleSearchText(row, modules.models, modules.runtimes, modules.assets?.assets))))
+      .sort((a, b) => Number(!!b.recommended) - Number(!!a.recommended) || a.label.localeCompare(b.label));
+  }
+
+  function downloadValue(bar: HTMLProgressElement, value: number | null) {
+    function update(bytes: number | null) {
+      if (bytes === null) bar.removeAttribute('value');
+      else bar.value = bytes;
+    }
+    update(value);
+    return { update };
   }
 
   async function refresh() {
@@ -142,13 +153,14 @@
       {@const phase = job?.phase || (job ? 'downloading' : '')}
       {@const busy = ['queued', 'downloading', 'verifying', 'extracting'].includes(phase)}
       {@const title = row.kind === 'runtime' ? runtimeLabel(row) : row.label}
+      {@const bytes = size(row.id, row.asset)}
       <article class="model-result" data-model-id={row.id}>
         <div class="model-copy">
           <strong dir="auto">{title}</strong>
           {#if row.recommended}<span class="recommendation" title={recommendationLabel(row.recommendation)}><Icon name="check" size={14} />{t('ui.recommended.9ef937')}</span>{/if}
           {#if row.kind === 'model' && row.installed && !installedRuntimes.some(runtime => runtime.engine === row.engine)}<span>{t('module.runtime_missing')}</span>{/if}
-          {#if row.languages.length || size(row.id, row.asset)}
-            <span>{languageSummary(row.languages)}{#if row.languages.length > 3}{' '}<bdi dir="ltr">+{row.languages.length - 3}</bdi><Help text={row.languages.map(languageName).join(', ')} />{/if}{#if row.languages.length && size(row.id, row.asset)}{' · '}{/if}{#if size(row.id, row.asset)}<bdi dir="ltr">{Math.ceil(size(row.id, row.asset)! / 1024 / 1024)} MB</bdi>{/if}</span>
+          {#if row.languages.length || bytes}
+            <span>{languageSummary(row.languages)}{#if row.languages.length > 3}{' '}<span class="language-overflow"><bdi dir="ltr">+{row.languages.length - 3}</bdi><Help text={row.languages.map(languageName).join(', ')} /></span>{/if}{#if row.languages.length && bytes}{' · '}{/if}{#if bytes}<bdi dir="ltr">{Math.ceil(bytes / 1024 / 1024)} MB</bdi>{/if}</span>
           {/if}
           <small dir="ltr">{row.kind === 'runtime' ? row.label : row.id}</small>
         </div>
@@ -166,7 +178,7 @@
             <div class="download-detail"><span>{t(phase === 'queued' ? 'module.queued' : `assets.${phase}`)}</span>
               {#if job.total > 0}<bdi dir="ltr">{megabytes(job.downloaded)} / {megabytes(job.total)} MB · {percent(job.downloaded, job.total)}%</bdi>{/if}
             </div>
-            <progress max={job.total || 1} value={job.total > 0 ? job.downloaded : undefined} aria-label={`${t('assets.downloading')} ${title}`}></progress>
+            <progress max={job.total} use:downloadValue={job.total ? job.downloaded : null} aria-label={`${t('assets.downloading')} ${title}`}></progress>
           </div>
         {:else if phase === 'failed' && job && 'error' in job && job.error}
           <details class="download-error"><summary>{t('assets.failed')} · {t('ui.details.dc3dec')}</summary><pre dir="auto">{job.error}</pre></details>
@@ -192,15 +204,43 @@
   .engine-filters button.chosen { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
   .library-filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-block: 0 8px; }
   .engine-filters { display: flex; gap: 6px; flex-wrap: wrap; }
-  .engine-filters button { border-radius: 999px; padding: 5px 12px; }
+  .engine-filters button { padding: 5px 12px; }
   .installed-filter { display: flex; align-items: center; gap: 8px; }
   .model-copy .recommendation { display: flex; align-items: center; gap: 4px; color: var(--accent); }
   .model-copy small { display: block; }
-  .model-result { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+  .language-overflow {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  .model-result {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
   .item-download, .download-error { grid-column: 1 / -1; min-width: 0; }
   .download-detail { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
   .download-detail bdi { font-variant-numeric: tabular-nums; }
-  progress { display: block; position: static; inset: auto; width: 100%; margin-block: 8px 0; height: 5px; }
+  progress {
+    --fill: repeating-linear-gradient(90deg, var(--range-blue) 0 8px, transparent 8px 11px);
+    display: block;
+    width: 100%;
+    margin-top: 8px;
+    height: 16px;
+    appearance: none;
+    border: 0;
+    padding: 2px;
+    background: var(--bevel-mid);
+    box-shadow: var(--sunken-edge);
+  }
+  progress::-webkit-progress-bar { background: none; }
+  progress::-webkit-progress-value { background: var(--fill); }
+  progress::-moz-progress-bar { background: var(--fill); }
+  progress:indeterminate {
+    --fill: none;
+    background-image: repeating-linear-gradient(135deg, transparent 0 5px, var(--line) 5px 10px);
+  }
   pre { white-space: pre-wrap; overflow-wrap: anywhere; }
   @media (max-width: 600px) {
     .feature-catalogs { gap: 4px; }

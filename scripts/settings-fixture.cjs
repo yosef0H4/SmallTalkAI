@@ -493,7 +493,14 @@ function publishEvent(kind, values = {}, text) {
   }
   return event.seq;
 }
+async function setChoice(control, value) {
+  const list = await control.getAttribute("aria-controls");
+  await control.click();
+  await control.page().locator(`[id=${JSON.stringify(list)}] [data-value=${JSON.stringify(value)}]`).click();
+}
+
 module.exports = {
+  setChoice,
   publishEvent,
   options,
   eventWaiters,

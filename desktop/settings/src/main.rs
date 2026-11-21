@@ -80,16 +80,22 @@ fn open_window(settings: DesktopSettings) -> Result<()> {
                     }
                     NewWindowResponse::Deny
                 })
-                .on_page_load(move |_, payload| {
+                .on_page_load(move |window, payload| {
                     use tauri::webview::PageLoadEvent;
-                    page_loaded.store(
-                        payload.event() == PageLoadEvent::Finished,
-                        Ordering::Relaxed,
-                    );
+                    let finished = payload.event() == PageLoadEvent::Finished;
+                    page_loaded.store(finished, Ordering::Relaxed);
+                    if finished {
+                        publish_maximized(&window);
+                    }
                 })
                 .build()?;
             let target = window.clone();
             window.on_window_event(move |event| {
+                if matches!(event, WindowEvent::Resized(_) | WindowEvent::Focused(true))
+                    && loaded.load(Ordering::Relaxed)
+                {
+                    publish_maximized(&target);
+                }
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     if loaded.load(Ordering::Relaxed)
                         && target
@@ -118,6 +124,15 @@ fn open_window(settings: DesktopSettings) -> Result<()> {
         .build(tauri::generate_context!())?
         .run_return(|_, _| {});
     Ok(())
+}
+
+fn publish_maximized(window: &tauri::WebviewWindow) {
+    if let Ok(maximized) = window.is_maximized() {
+        let _ = window.eval(format!(
+            "document.documentElement.dataset.maximized = '{maximized}'; \
+            window.dispatchEvent(new Event('settings-window-state'));"
+        ));
+    }
 }
 
 fn frame_action(window: &tauri::WebviewWindow, action: &str) -> tauri::Result<()> {

@@ -1,3 +1,4 @@
+const { setChoice } = require("./settings-fixture.cjs");
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -45,9 +46,9 @@ const f = require('./settings-fixture.cjs');
     assert.deepEqual(requested, [], 'first opening must not download automatically');
     const dir = path.resolve('artifacts/model-setup'); fs.mkdirSync(dir, {recursive:true});
     for (const language of ['en','ar']) {
-      await page.locator('[data-setting-path="general.ui_language"] select').selectOption(language);
+      await setChoice(page.locator('[data-setting-path="general.ui_language"] [role=combobox]'), language);
       for (const theme of ['light','dark']) {
-        await page.locator('[data-setting-path="general.ui_theme"] select').selectOption(theme);
+        await setChoice(page.locator('[data-setting-path="general.ui_theme"] [role=combobox]'), theme);
         for (const width of [360,768,1280]) {
           await page.setViewportSize({width,height:900});
           const box = await prompt.boundingBox();
@@ -56,7 +57,7 @@ const f = require('./settings-fixture.cjs');
         }
       }
     }
-    await page.locator('[data-setting-path="general.ui_language"] select').selectOption('en');
+    await setChoice(page.locator('[data-setting-path="general.ui_language"] [role=combobox]'), 'en');
     await boxes.nth(0).uncheck();
     failDownload = true;
     await prompt.getByRole('button', {name:'Download', exact:true}).click();
@@ -94,7 +95,7 @@ const f = require('./settings-fixture.cjs');
     assert.deepEqual(choices, [{english:false,arabic:true},{english:false,arabic:false},{english:true,arabic:true}], 'post the selected routing choices, including Skip');
     // A completed download refresh applies routing without discarding another settings draft.
     await page.locator('nav button[data-page="general"]').click();
-    await page.locator('[data-setting-path="general.ui_language"] select').selectOption('ar');
+    await setChoice(page.locator('[data-setting-path="general.ui_language"] [role=combobox]'), 'ar');
     installed = true; pending = false;
     const completed = f.getConfig();
     completed.speech.selection_mode = 'follow_keyboard';
@@ -102,9 +103,9 @@ const f = require('./settings-fixture.cjs');
     f.setConfig(completed);
     f.publishEvent('model_download_complete', {filename:'arabic-q8.gguf'});
     await page.locator('nav button[data-page="audio"]').click();
-    await page.waitForFunction(() => document.querySelector('[data-setting-path="speech.selection_mode"] select')?.value === 'follow_keyboard');
+    await page.waitForFunction(() => document.querySelector('[data-setting-path="speech.selection_mode"] [role=combobox]')?.value === 'follow_keyboard');
     await page.locator('nav button[data-page="general"]').click();
-    assert.equal(await page.locator('[data-setting-path="general.ui_language"] select').inputValue(), 'ar', 'model setup must preserve another unsaved draft');
+    assert.equal(await page.locator('[data-setting-path="general.ui_language"] [role=combobox]').getAttribute("data-value"), 'ar', 'model setup must preserve another unsaved draft');
 
     handled = false;
     f.options.online = false;

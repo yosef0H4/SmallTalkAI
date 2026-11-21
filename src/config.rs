@@ -360,6 +360,8 @@ pub struct SpeechConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RemoteSttConfig {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub prompt: String,
     #[serde(
         default = "remote_uses_feature_key",
         skip_serializing_if = "remote_feature_key_default"
@@ -408,6 +410,7 @@ impl SpeechConfig {
             {
                 let connection = &route.primary;
                 return RemoteSttConfig {
+                    prompt: connection.prompt.clone(),
                     base_url: connection.base_url.clone(),
                     model: connection.model.clone(),
                     key_slot: connection.key_slot.clone(),
@@ -547,6 +550,7 @@ impl Default for AppConfig {
                 remote_languages: Default::default(),
                 provider: SpeechProvider::Local,
                 remote_openai_compatible: RemoteSttConfig {
+                    prompt: String::new(),
                     key_slot: None,
                     use_feature_key: true,
                     base_url: String::new(),
@@ -751,6 +755,7 @@ impl AppConfig {
             "remote STT timeout_ms must be in [1000, 300000]"
         );
         if self.speech.provider == SpeechProvider::RemoteOpenAiCompatible {
+            reader_core::provider_prompts::validate(&self.speech.remote_openai_compatible.prompt)?;
             anyhow::ensure!(
                 self.speech.remote_openai_compatible.model.len() <= 256,
                 "remote STT model must contain at most 256 characters"

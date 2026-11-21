@@ -177,6 +177,11 @@ Audio service error — see log
 
 Routine unload stays in logs unless diagnostic overlay is enabled.
 
+Windows and Linux use the same overlay model for localized text, read-along
+progress, shortcut reminders, and notice priority and expiry. The Win32
+tooltip and Wayland layer surface handle placement, text shaping, and their
+own waveform update cadence.
+
 ## Install-relative runtime paths
 
 Relative runtime and model directories resolve against the runtime root. Checkout builds under `target\debug` or `target\release` walk back to the repository root. Packaged shortcuts target `simple-stt.cmd`, which launches `runtime\AutoHotkey64.exe` with `runtime\simple-stt.ahk`; the shell then resolves relative paths against the installed runtime directory. The bundled smoke fixture is `fixtures\parakeet-smoke.wav`.

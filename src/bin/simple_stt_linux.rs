@@ -758,7 +758,7 @@ impl ksni::Tray for LinuxTray {
 fn activate_tray_action(action: &str) -> Result<()> {
     match action {
         "record" => toggle_recording(RecordingSource::Tray, 90.0, false),
-        "read_selection" | "read_region" | "read_along" | "copy_region" => {
+        "read_region" | "read_along" | "copy_region" => {
             simple_stt::reader::action(action, "").map(drop)
         }
         "abort" => cancel(),
@@ -3364,12 +3364,11 @@ mod tests {
                 _ => panic!("unexpected tray item"),
             })
             .collect();
-        assert_eq!(labels.len(), 12);
+        assert_eq!(labels.len(), 11);
         assert_eq!(
             &labels[1..],
             &[
                 "|",
-                "Read selection",
                 "Read screen",
                 "Start read-along",
                 "Copy screen text",

@@ -14,6 +14,7 @@
 
 <input
   type="range"
+  dir="ltr"
   class="segmented-range"
   {id} {min} {max} {step} {value} {disabled}
   aria-valuetext={valueText}

@@ -200,13 +200,8 @@ input[type="range"] {
   min-width: 30px;
 }
 input[type="checkbox"] {
-  accent-color: var(--accent);
-  width: 17px;
-  height: 17px;
   margin: 4px;
   flex-shrink: 0;
-}
-input[role="switch"] {
   appearance: none;
   width: 15px;
   height: 15px;
@@ -215,7 +210,7 @@ input[role="switch"] {
   position: relative;
   margin-inline-end: 0;
 }
-input[role="switch"]:checked::after {
+input[type="checkbox"]:checked::after {
   content: "";
   position: absolute;
   inset-inline-start: 5px;
@@ -225,6 +220,13 @@ input[role="switch"]:checked::after {
   border: solid var(--ink);
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
+}
+input[type="checkbox"]:indeterminate::after {
+  content: "";
+  position: absolute;
+  inset: 7px 4px auto;
+  height: 2px;
+  background: var(--ink);
 }
 code {
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
@@ -269,13 +271,10 @@ svg {
 }
 .sidebar-grip::before {
   content: "";
-  width: 4px;
-  height: 40px;
-  border-radius: 2px;
-  background: var(--frame);
-}
-.sidebar-grip:hover::before {
-  background: var(--focus);
+  width: 10px;
+  height: 32px;
+  background: var(--paper);
+  box-shadow: var(--raised-edge);
 }
 .brand {
   display: flex;
@@ -302,9 +301,12 @@ svg {
 }
 .settings-search-results {
   position: absolute;
-  top: 42px;
+  inset-block-start: calc(100% + 4px);
   inset-inline-start: 0;
   width: 285px;
+  max-block-size: 65dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   z-index: 30;
   border: 1px solid var(--line);
   background: var(--raised);
@@ -337,7 +339,7 @@ nav {
   margin: -5px;
   padding: 5px;
 }
-nav button {
+:root nav button {
   display: flex;
   align-items: flex-start;
   flex: none;
@@ -484,15 +486,15 @@ h2 {
   flex-shrink: 0;
   white-space: nowrap;
   font-size: 12px;
-  min-width: 68px;
   font-variant-numeric: tabular-nums;
 }
+output.range-value { min-inline-size: 7ch; }
 .admin-sign-in {
   width: min(100% - 32px, 360px);
   margin: min(18vh, 120px) auto 0;
   padding: 24px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--surface);
 }
 .admin-sign-in h1 {
@@ -566,6 +568,7 @@ h2 {
   position: fixed;
   z-index: 40;
   overflow: auto;
+  overscroll-behavior: contain;
   background: var(--raised);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -679,14 +682,6 @@ details code {
 }
 .status-mark.installed {
   color: var(--success);
-}
-progress {
-  accent-color: var(--accent);
-  height: 4px;
-  width: 85px;
-  position: absolute;
-  inset-inline-end: 0;
-  bottom: -8px;
 }
 .app-override-row {
   display: grid;
@@ -828,7 +823,7 @@ dialog {
   background: var(--raised);
   color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 28px;
   text-align: center;
 }
@@ -842,7 +837,7 @@ dialog::backdrop {
 .loading-skeleton span {
   height: 40px;
   background: var(--rail);
-  border-radius: 7px;
+  border-radius: var(--radius);
 }
 @media (max-width: 1120px), (max-height: 720px) {
   .rail { padding: 12px 10px; gap: 10px; }
@@ -852,16 +847,16 @@ dialog::backdrop {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-content: start;
   }
-  nav button {
+  :root nav button {
     flex-direction: column;
     align-items: center;
     justify-content: center;
     min-height: 50px;
     gap: 3px;
-    padding: 4px 2px;
+    padding: 6px 3px;
     font-size: 13px;
   }
-  nav button .nav-copy { text-align: center; }
+  nav button .nav-copy { text-align: center; overflow-wrap: anywhere; }
   nav button .nav-copy small { display: none; }
   .group-head { min-height: 34px; }
   .field {
@@ -912,7 +907,7 @@ dialog::backdrop {
   .app-override-row input {
     grid-column: 1;
   }
-  .app-override-row select {
+  .app-override-row .inline-combo {
     grid-column: 1;
   }
   .app-override-row .icon-button {
@@ -947,7 +942,42 @@ dialog::backdrop {
 .nav-copy small {font-size:12px;line-height:1.35;color:var(--muted);font-weight:400;}
 nav button>svg {margin-top:2px;flex-shrink:0;}
 .range-control input[type=range] {flex:1;min-width:40px;}
-.control .range-number {flex:0 0 76px;width:76px;min-width:0;text-align:center;}
+.number-field {
+  display: grid;
+  flex: none;
+  grid-template-columns: calc(max(var(--number-columns), var(--number-min-columns, 0ch)) + 8px) 17px;
+  height: 28px;
+}
+:root .number-field .range-number {
+  appearance: textfield;
+  min-height: 0;
+  height: 100%;
+  padding: 2px 4px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.number-field .range-number::-webkit-inner-spin-button,
+.number-field .range-number::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+.number-arrows { display: grid; grid-template-rows: 1fr 1fr; }
+:root .number-arrows button {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  padding: 0;
+}
+.number-arrows button:focus-visible { outline-offset: -3px; }
+.number-arrows button::before {
+  content: "";
+  border-inline: 4px solid transparent;
+  border-bottom: 4px solid currentColor;
+}
+.number-arrows button:last-child::before {
+  border-bottom: 0;
+  border-top: 4px solid currentColor;
+}
 @media (max-width:700px) {
  .app-shell {grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;}
  .rail {grid-row:1;padding:6px 9px;gap:5px;border-inline-end:0;border-block-end:1px solid var(--frame);}
@@ -959,10 +989,10 @@ nav button>svg {margin-top:2px;flex-shrink:0;}
  [dir=rtl] .settings-search input {padding:7px 34px 7px 10px!important;}
  .settings-search input::placeholder {color:var(--muted);}
  .settings-search:focus-within>svg {display:block;}
- .settings-search-results {top:40px;width:100%;}
+ .settings-search-results {width:100%;}
  .sidebar-grip {display:none;}
  nav {grid-template-columns:repeat(3,minmax(0,1fr));}
- nav button {min-height:32px;flex-direction:row;}
+ :root nav button {min-height:32px;flex-direction:row;}
  nav button > svg {width:14px;height:14px;margin:0;}
  .rail:has(.rail-bottom) .settings-search {width:calc(100% - 42px);}
  .rail-bottom {position:absolute;inset-inline-end:8px;top:6px;}

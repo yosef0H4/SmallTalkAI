@@ -12,8 +12,9 @@ use std::sync::OnceLock;
 
 /// Bundled font: JetBrains Mono (SIL OFL 1.1). See assets/fonts/LICENSE-JetBrainsMono.txt.
 const FONT_BYTES: &[u8] = include_bytes!("../../assets/fonts/JetBrainsMono-Regular.ttf");
-const BUNDLED_FAMILY: &str = "JetBrains Mono + Noto Sans Arabic";
 const ARABIC_BYTES: &[u8] = include_bytes!("../../assets/fonts/NotoSansArabic-Regular.ttf");
+const ICON_BYTES: &[u8] = include_bytes!("../../assets/fonts/SimpleSTTOverlayIcons-Regular.ttf");
+pub(super) const ICON_FAMILY: &str = "Simple STT Overlay Icons";
 
 static REGISTERED: OnceLock<bool> = OnceLock::new();
 
@@ -22,7 +23,7 @@ static REGISTERED: OnceLock<bool> = OnceLock::new();
 pub fn ensure_registered() -> bool {
     *REGISTERED.get_or_init(|| match register() {
         Ok(()) => {
-            tracing::debug!("overlay: registered bundled font '{BUNDLED_FAMILY}'");
+            tracing::debug!("overlay: registered bundled fonts");
             true
         }
         Err(error) => {
@@ -44,20 +45,24 @@ fn cache_path(filename: &str) -> anyhow::Result<PathBuf> {
 
 fn register() -> anyhow::Result<()> {
     register_font("JetBrainsMono-Regular.ttf", FONT_BYTES)?;
-    register_font("NotoSansArabic-Regular.ttf", ARABIC_BYTES)
+    register_font("NotoSansArabic-Regular.ttf", ARABIC_BYTES)?;
+    register_font("SimpleSTTOverlayIcons-Regular.ttf", ICON_BYTES)
 }
 
 fn register_font(filename: &str, bytes: &[u8]) -> anyhow::Result<()> {
     let path = cache_path(filename)?;
-    let needs_write = match std::fs::metadata(&path) {
-        Ok(meta) => meta.len() != bytes.len() as u64,
-        Err(_) => true,
-    };
-    if needs_write {
+    if !std::fs::read(&path).is_ok_and(|cached| cached == bytes) {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&path, bytes)?;
+        let staging = crate::config::unique_atomic_temp_path(&path);
+        if let Err(error) = std::fs::write(&staging, bytes)
+            .map_err(anyhow::Error::from)
+            .and_then(|()| crate::config::replace_file_atomic(&staging, &path))
+        {
+            let _ = std::fs::remove_file(staging);
+            return Err(error);
+        }
     }
 
     // FcBool FcConfigAppFontAddFile(FcConfig *config, const FcChar8 *file)

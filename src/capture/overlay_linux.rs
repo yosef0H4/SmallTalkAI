@@ -1,11 +1,9 @@
 use super::overlay_model::{
-    empty_visualizer_levels, set_visualizer_level, NoticeLevel, OverlayPrimary,
-    RecordingIndicators, VisualizerLevels,
+    empty_visualizer_levels, set_visualizer_level, OverlayCommand, OverlayContent, OverlayPrimary,
+    VisualizerLevels,
 };
-use super::overlay_render::{
-    plan_with_shortcuts, render_surface, LayoutPlan, MAX_HEIGHT, MAX_WIDTH,
-};
-use crate::localization::Locale;
+use super::overlay_render::{plan_text, render_surface, LayoutPlan, MAX_HEIGHT, MAX_WIDTH};
+use crate::config::UiTheme;
 use anyhow::{Context, Result};
 use smithay_client_toolkit::reexports::calloop::{
     channel::{self, Event},
@@ -30,7 +28,7 @@ use smithay_client_toolkit::{
 };
 use std::sync::{
     atomic::{AtomicU32, Ordering},
-    Arc,
+    Arc, Once, Weak,
 };
 use std::time::{Duration, Instant};
 use wayland_client::{
@@ -43,42 +41,12 @@ use wayland_client::{
 const INITIAL_WIDTH: u32 = 220;
 const INITIAL_HEIGHT: u32 = 44;
 const MARGIN_TOP: i32 = 36;
-const MARGIN_RIGHT: i32 = 36;
 
 #[derive(Debug, Clone)]
 pub struct OverlayHandle {
-    tx: channel::Sender<OverlayCommand>,
+    tx: Arc<channel::Sender<OverlayCommand>>,
+    system_theme_watch: Arc<Once>,
     level: Arc<AtomicU32>,
-}
-
-#[derive(Debug, Clone)]
-enum OverlayCommand {
-    SetLocale(Locale),
-    SetShortcuts(String, bool),
-    StartRecording(RecordingIndicators),
-    SetPrimary(OverlayPrimary),
-    Notify {
-        level: NoticeLevel,
-        text: String,
-        duration: Option<Duration>,
-    },
-    ClearNotice,
-    Hide,
-}
-
-#[derive(Debug, Clone)]
-struct Notice {
-    level: NoticeLevel,
-    text: String,
-    expires_at: Option<Instant>,
-}
-
-impl Notice {
-    fn is_expired(&self) -> bool {
-        self.expires_at
-            .map(|expires_at| Instant::now() >= expires_at)
-            .unwrap_or(false)
-    }
 }
 
 impl OverlayHandle {
@@ -94,56 +62,70 @@ impl OverlayHandle {
                 }
             })
             .context("spawning linux overlay thread")?;
-        Ok(Self { tx, level })
+        Ok(Self {
+            tx: Arc::new(tx),
+            system_theme_watch: Arc::new(Once::new()),
+            level,
+        })
     }
 
-    pub fn start_recording(&self, _: isize, indicators: RecordingIndicators) {
-        let _ = self.tx.send(OverlayCommand::StartRecording(indicators));
+    pub(super) fn send(&self, command: OverlayCommand) {
+        let _ = self.tx.send(command);
     }
 
-    pub fn set_shortcuts(&self, text: String, enabled: bool) {
-        let _ = self.tx.send(OverlayCommand::SetShortcuts(text, enabled));
-    }
-
-    pub fn set_locale(&self, locale: Locale) {
-        let _ = self.tx.send(OverlayCommand::SetLocale(locale));
-    }
-
-    pub fn set_primary(&self, primary: OverlayPrimary) {
-        let _ = self.tx.send(OverlayCommand::SetPrimary(primary));
-    }
-
-    pub fn notify_info(&self, text: impl Into<String>, duration: Option<Duration>) {
-        self.notify(NoticeLevel::Info, text, duration);
-    }
-
-    pub fn notify_warning(&self, text: impl Into<String>, duration: Duration) {
-        self.notify(NoticeLevel::Warning, text, Some(duration));
-    }
-
-    pub fn notify_error(&self, text: impl Into<String>, duration: Duration) {
-        self.notify(NoticeLevel::Error, text, Some(duration));
-    }
-
-    pub fn clear_notice(&self) {
-        let _ = self.tx.send(OverlayCommand::ClearNotice);
+    pub fn set_theme(&self, theme: UiTheme) {
+        self.send(OverlayCommand::SetTheme(theme));
+        if theme == UiTheme::Auto {
+            self.system_theme_watch.call_once(|| {
+                let tx = Arc::downgrade(&self.tx);
+                let _ = std::thread::Builder::new()
+                    .name("simple-stt-overlay-theme".into())
+                    .spawn(move || watch_system_theme(tx));
+            });
+        }
     }
 
     pub fn level_cell(&self) -> Arc<AtomicU32> {
         Arc::clone(&self.level)
     }
+}
 
-    pub fn hide(&self) {
-        let _ = self.tx.send(OverlayCommand::Hide);
-    }
+fn watch_system_theme(tx: Weak<channel::Sender<OverlayCommand>>) {
+    use ashpd::desktop::settings::{ColorScheme, Settings};
+    use futures_lite::{future::race, StreamExt};
 
-    fn notify(&self, level: NoticeLevel, text: impl Into<String>, duration: Option<Duration>) {
-        let _ = self.tx.send(OverlayCommand::Notify {
-            level,
-            text: text.into(),
-            duration,
-        });
-    }
+    async_io::block_on(race(
+        async {
+            let Ok(settings) = Settings::new().await else {
+                return;
+            };
+            let Ok(mut changes) = settings.receive_color_scheme_changed().await else {
+                return;
+            };
+            let update = |scheme| {
+                tx.upgrade().is_some_and(|sender| {
+                    sender
+                        .send(OverlayCommand::SystemDark(
+                            scheme == ColorScheme::PreferDark,
+                        ))
+                        .is_ok()
+                })
+            };
+            if let Ok(scheme) = settings.color_scheme().await {
+                update(scheme);
+            }
+            while let Some(scheme) = changes.next().await {
+                if !update(scheme) {
+                    break;
+                }
+            }
+        },
+        async {
+            while tx.strong_count() > 0 {
+                async_io::Timer::after(Duration::from_secs(10)).await;
+            }
+        },
+    ));
 }
 
 fn overlay_thread(rx: channel::Channel<OverlayCommand>, level: Arc<AtomicU32>) -> Result<()> {
@@ -186,15 +168,10 @@ fn overlay_thread(rx: channel::Channel<OverlayCommand>, level: Arc<AtomicU32>) -
         pending_size: None,
         configured: false,
         mapped: false,
-        primary: OverlayPrimary::Hidden,
-        locale: Locale::En,
-        shortcuts: String::new(),
-        shortcut_reminders: true,
-        notice: None,
+        content: OverlayContent::default(),
         target_level: 0.0,
         display_level: 0.0,
         visualizer_levels: empty_visualizer_levels(),
-        indicators: RecordingIndicators::default(),
         level_sample_tick: 0,
         last_signature: String::new(),
         needs_redraw: true,
@@ -245,15 +222,10 @@ struct LayerOverlay {
     pending_size: Option<(u32, u32)>,
     configured: bool,
     mapped: bool,
-    primary: OverlayPrimary,
-    locale: Locale,
-    shortcuts: String,
-    shortcut_reminders: bool,
-    notice: Option<Notice>,
+    content: OverlayContent,
     target_level: f32,
     display_level: f32,
     visualizer_levels: VisualizerLevels,
-    indicators: RecordingIndicators,
     level_sample_tick: usize,
     last_signature: String,
     needs_redraw: bool,
@@ -263,83 +235,22 @@ struct LayerOverlay {
 
 impl LayerOverlay {
     fn handle_command(&mut self, command: OverlayCommand) {
-        match command {
-            OverlayCommand::SetShortcuts(text, enabled) => {
-                self.shortcuts = text;
-                self.shortcut_reminders = enabled;
-            }
-            OverlayCommand::SetLocale(locale) => {
-                if self.locale != locale {
-                    self.locale = locale;
-                    self.notice = None;
-                    self.last_signature.clear();
-                }
-            }
-            OverlayCommand::StartRecording(indicators) => {
-                self.primary = OverlayPrimary::Recording;
-                self.notice = None;
-                self.target_level = 0.0;
-                self.display_level = 0.0;
-                self.visualizer_levels = empty_visualizer_levels();
-                self.level_sample_tick = 0;
-                self.indicators = indicators;
-            }
-            OverlayCommand::SetPrimary(primary) => {
-                self.primary = primary;
-                if primary != OverlayPrimary::Recording {
-                    self.target_level = 0.0;
-                    self.display_level = 0.0;
-                    self.visualizer_levels = empty_visualizer_levels();
-                    self.level_sample_tick = 0;
-                }
-            }
-            OverlayCommand::Notify {
-                level,
-                text,
-                duration,
-            } => self.notify(level, text, duration),
-            OverlayCommand::ClearNotice => self.notice = None,
-            OverlayCommand::Hide => self.hide(),
+        if command.resets_waveform() {
+            self.target_level = 0.0;
+            self.display_level = 0.0;
+            self.visualizer_levels = empty_visualizer_levels();
+            self.level_sample_tick = 0;
         }
+        self.content.apply(command, Instant::now());
         self.needs_redraw = true;
         self.draw_if_ready();
     }
 
-    fn notify(&mut self, level: NoticeLevel, text: String, duration: Option<Duration>) {
-        let text = text.trim().to_owned();
-        if text.is_empty() {
-            return;
-        }
-        if let Some(current) = self.notice.as_ref().filter(|notice| !notice.is_expired()) {
-            if current.level == level && current.text == text {
-                return;
-            }
-            if current.level > level {
-                return;
-            }
-        }
-        self.notice = Some(Notice {
-            level,
-            text,
-            expires_at: duration.map(|duration| Instant::now() + duration),
-        });
-    }
-
-    fn hide(&mut self) {
-        self.primary = OverlayPrimary::Hidden;
-        self.notice = None;
-        self.target_level = 0.0;
-        self.display_level = 0.0;
-        self.visualizer_levels = empty_visualizer_levels();
-        self.level_sample_tick = 0;
-    }
-
     fn tick(&mut self) {
-        if self.notice.as_ref().is_some_and(Notice::is_expired) {
-            self.notice = None;
+        if self.content.expire_notice(Instant::now()) {
             self.needs_redraw = true;
         }
-        if self.primary == OverlayPrimary::Recording {
+        if self.content.primary == OverlayPrimary::Recording {
             self.target_level = f32::from_bits(self.level.load(Ordering::Relaxed)).clamp(0.0, 1.0);
             // The meter already applies attack/release ballistics, so follow it
             // closely here to avoid adding visible lag.
@@ -434,7 +345,7 @@ impl LayerOverlay {
         layer.set_anchor(Anchor::TOP | Anchor::RIGHT);
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
         layer.set_exclusive_zone(-1);
-        layer.set_margin(MARGIN_TOP, MARGIN_RIGHT, 0, 0);
+        layer.set_margin(MARGIN_TOP, 0, 0, 0);
         layer.set_size(width, height);
         layer.commit();
         self.layer = Some(layer);
@@ -443,7 +354,6 @@ impl LayerOverlay {
         self.height = height;
         self.pending_size = None;
         self.configured = false;
-        self.pending_size = None;
         self.mapped = false;
         self.last_signature.clear();
         tracing::debug!(width, height, "overlay: created layer surface");
@@ -496,14 +406,10 @@ impl LayerOverlay {
 
     /// Build the lines to render plus the surface size needed to fit them.
     fn build_plan(&self) -> Option<LayoutPlan> {
-        plan_with_shortcuts(
-            self.primary,
-            self.notice.as_ref().map(|notice| notice.text.as_str()),
-            &self.visualizer_levels,
-            self.indicators,
-            self.locale,
-            &self.shortcuts,
-            self.shortcut_reminders,
+        plan_text(
+            self.content.text(&self.visualizer_levels, false),
+            self.content.locale,
+            self.content.dark_theme(),
         )
     }
 }

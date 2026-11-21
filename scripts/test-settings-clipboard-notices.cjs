@@ -1,3 +1,4 @@
+const { setChoice } = require("./settings-fixture.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -72,7 +73,7 @@ const f = require("./settings-fixture.cjs");
     );
 
     await page.locator('nav button[data-page="general"]').click();
-    await page.locator("#ui-language").selectOption("ar");
+    await setChoice(page.locator("#ui-language"), "ar");
     await page.locator("#savebar button[type=submit]").click();
     await page.locator("#savebar").waitFor({ state: "detached" });
     await page.locator("#settings-search").fill("إشعارات الحافظة");

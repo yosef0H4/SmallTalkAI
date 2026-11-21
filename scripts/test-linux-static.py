@@ -63,7 +63,7 @@ linux_shell = need(
     'wl-copy',
 )
 need("src/capture/overlay_model.rs", 'ascii_visualizer', 'render_overlay_text', 'OverlayPrimary', 'RecordingIndicators')
-need("src/capture/overlay_windows.rs", 'render_overlay_text', 'crate::capture::overlay::overlay_model::ascii_visualizer')
+need("src/capture/overlay_windows.rs", 'windows_tooltip_text', 'crate::capture::overlay::overlay_model::ascii_visualizer')
 need("resources/linux-fast-paste.c", 'adapted from OpenWhispr', 'PASTE_MODE_SHIFT_INSERT', '--detect-terminal', '--active-app', 'active_app_atspi', 'RemoteDesktop', '--ctrl-v', 'force_ctrl_v ? PASTE_MODE_CTRL_V')
 need("src/bin/simple_stt_linux.rs", 'desktop_input', 'send_paste_key', '"kind":"text"')
 need("reader/crates/readerd/src/read_along_capture/kde_backend.rs", 'workspace.stackingOrder', 'crate::portal_input::run', 'fn input_ready', 'simple-stt-kwin-query.lock', 'unload_script')

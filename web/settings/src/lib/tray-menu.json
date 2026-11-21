@@ -3,7 +3,6 @@
     { "action": "record", "label": "menu.start", "alternate": "menu.stop", "linux_icon": "media-record" }
   ],
   [
-    { "action": "read_selection", "label": "menu.readSelection", "linux_icon": "audio-volume-high", "windows_icon": "speaker" },
     { "action": "read_region", "label": "menu.readRegion", "linux_icon": "edit-select", "windows_icon": "camera" },
     { "action": "read_along", "label": "reading.read_along_start", "linux_icon": "view-paged", "windows_icon": "book" },
     { "action": "copy_region", "label": "menu.copyRegion", "linux_icon": "edit-copy", "windows_icon": "clipboard" },

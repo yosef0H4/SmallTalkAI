@@ -1,3 +1,4 @@
+const { setChoice } = require("./settings-fixture.cjs");
 const assert = require('node:assert/strict');
 const {chromium} = require('playwright');
 const f = require('./settings-fixture.cjs');
@@ -26,7 +27,7 @@ const f = require('./settings-fixture.cjs');
     await input('tts.en.runtime').click();
     await page.locator('[data-combo-list="tts.en.runtime"]').getByRole('option',{name:'Processor',exact:true}).click();
     await page.locator('[data-page=general]').click();
-    await page.locator('#ui-language').selectOption('en');
+    await setChoice(page.locator('#ui-language'), 'en');
     await page.locator('[data-page=models]').click();
     const saved=f.getReaderConfig();saved.revision++;
     saved.speech.selection.languages.ar={runtime:'sherpa-cuda',model:'supertonic3',device:'auto'};

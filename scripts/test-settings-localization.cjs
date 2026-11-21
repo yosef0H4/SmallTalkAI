@@ -1,3 +1,4 @@
+const { setChoice } = require("./settings-fixture.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -33,14 +34,14 @@ const widths = [360, 768, 1280];
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${f.server.address().port}/#token=${f.token}`);
-    await page.locator('[data-setting-path="general.ui_language"] select').waitFor();
+    await page.locator('[data-setting-path="general.ui_language"] [role=combobox]').waitFor();
 
-    const language = page.locator('[data-setting-path="general.ui_language"] select');
+    const language = page.locator('[data-setting-path="general.ui_language"] [role=combobox]');
     assert.equal(await page.locator("html").getAttribute("lang"), "ar", "auto should follow mocked Arabic system locale");
     await page.reload();
-    await page.locator('[data-setting-path="general.ui_language"] select').waitFor();
+    await page.locator('[data-setting-path="general.ui_language"] [role=combobox]').waitFor();
     assert.equal(await page.locator("html").getAttribute("lang"), "ar", "auto locale should survive reload");
-    await language.selectOption("ar");
+    await setChoice(language, "ar");
     await page.waitForFunction(() => document.documentElement.lang === "ar");
     assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
     await page.getByRole("heading", { name: "عام" }).waitFor();
@@ -54,10 +55,10 @@ const widths = [360, 768, 1280];
     await search.fill("microphone");
     await page.getByRole("option", { name: /الميكروفون/ }).waitFor();
     await search.fill("");
-    await language.selectOption("en");
+    await setChoice(language, "en");
     await page.waitForFunction(() => document.documentElement.dir === "ltr");
     await page.getByRole("heading", { name: "General" }).waitFor();
-    await language.selectOption("ar");
+    await setChoice(language, "ar");
     await page.locator("#savebar").waitFor();
     for (const width of [1280, 360]) {
       await page.setViewportSize({ width, height: 900 });
@@ -75,7 +76,7 @@ const widths = [360, 768, 1280];
     assert.equal(f.getConfig().general.ui_language, "ar", "locale should persist when saved");
     const savedSpeech = structuredClone(f.getConfig().speech);
     await page.reload();
-    await page.locator('[data-setting-path="general.ui_language"] select').waitFor();
+    await page.locator('[data-setting-path="general.ui_language"] [role=combobox]').waitFor();
     assert.equal(await page.locator("html").getAttribute("lang"), "ar", "saved locale should be restored on reopen");
     assert.deepEqual(f.getConfig().speech, savedSpeech, "locale changes must not alter speech model settings");
 
@@ -83,7 +84,7 @@ const widths = [360, 768, 1280];
       fs.mkdirSync(path.resolve("artifacts/localization"), { recursive: true });
     for (const locale of locales) {
       await page.locator('nav button[data-page="general"]').click();
-      await language.selectOption(locale);
+      await setChoice(language, locale);
       for (const theme of themes) {
         await page.locator('nav button[data-page="general"]').click();
         await chooseTheme(theme);
@@ -125,10 +126,10 @@ const widths = [360, 768, 1280];
     // Check automatic reset and imported-config previews preserve locale behavior.
     await openConfig();
     await page.locator(".config-toolbar button:last-of-type").click();
-    await page.locator('[data-setting-path="general.ui_language"] select').waitFor({ state: "detached" }).catch(() => {});
+    await page.locator('[data-setting-path="general.ui_language"] [role=combobox]').waitFor({ state: "detached" }).catch(() => {});
     await page.locator('nav button[data-page="general"]').click();
-    await page.locator('[data-setting-path="general.ui_language"] select').waitFor();
-    assert.equal(await page.locator('[data-setting-path="general.ui_language"] select').inputValue(), "auto");
+    await page.locator('[data-setting-path="general.ui_language"] [role=combobox]').waitFor();
+    assert.equal(await page.locator('[data-setting-path="general.ui_language"] [role=combobox]').getAttribute("data-value"), "auto");
     assert.equal(await page.locator("html").getAttribute("lang"), "ar", "reset to auto should use system locale");
     const imported = structuredClone(f.getConfig());
     imported.general.ui_language = "ar";
@@ -146,7 +147,7 @@ const widths = [360, 768, 1280];
     if (await combo.count()) await combo.focus();
     await page.locator('nav button[data-page="models"]').click();
     await page.locator('[data-catalog-feature="stt"]').click();
-    await page.locator('#stt-mode').selectOption('single_model');
+    await setChoice(page.locator('#stt-mode'), 'single_model');
     const modelCombo = page.locator('[data-setting-path="stt.single.model"] input[role="combobox"]');
     await modelCombo.fill("missing-saved-model.gguf");
     assert.match(await modelCombo.inputValue(), /\.gguf$/, "technical model identifiers should remain intact in Arabic UI");
@@ -178,7 +179,7 @@ const widths = [360, 768, 1280];
     }
     const general = page.locator('nav button[data-page="general"]');
     await general.click();
-    await page.locator('[data-setting-path="general.ui_language"] select').selectOption("ar");
+    await setChoice(page.locator('[data-setting-path="general.ui_language"] [role=combobox]'), "ar");
     await chooseTheme("dark");
     if (process.env.SETTINGS_VISUAL_REVIEW === "1") {
       await page.evaluate(async () => {

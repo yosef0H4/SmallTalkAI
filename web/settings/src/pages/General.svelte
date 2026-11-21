@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Combo from "../components/Combo.svelte";
   import { ui, platformAction, run, set, markDirty, resetPaths } from "../lib/state.svelte";
   import { t } from "../lib/i18n";
   import { onMount } from "svelte";
@@ -176,14 +177,15 @@
     "general.ui_language",
   ]}
 >
-  {#if ui.state?.platform !== "linux"}<Field spec={fields.caps} />{/if}<div class="field" data-setting-path="general.ui_language">
-    <label for="ui-language">{t("ui.language.89b86a")}</label>
-    <div class="control"><select id="ui-language" value={ui.config?.general.ui_language || "auto"} onchange={(event) => set("general.ui_language", event.currentTarget.value)}>
-      <option value="auto">{t("ui.system.bc0792")}</option>
-      <option value="en">{t("ui.english.649df0")}</option>
-      <option value="ar">{t("ui.label.997063")}</option>
-    </select></div>
-  </div><Field
+  {#if ui.state?.platform !== "linux"}<Field spec={fields.caps} />{/if}<Combo selectOnly id="ui-language" path="general.ui_language" label="ui.language.89b86a"
+    value={ui.config?.general.ui_language || "auto"}
+    items={[
+      { value: "auto", label: "ui.system.bc0792" },
+      { value: "en", label: "ui.english.649df0" },
+      { value: "ar", label: "ui.label.997063" },
+    ]}
+    onselect={value => set("general.ui_language", value)}
+  /><Field
     spec={fields.startup}
   /><Field spec={fields.theme} />
 </Group>

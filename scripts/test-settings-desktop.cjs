@@ -1,3 +1,4 @@
+const { setChoice } = require("./settings-fixture.cjs");
 // Exercise the real Tauri/WebView2 window with an isolated Settings profile.
 const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
@@ -153,7 +154,7 @@ async function main() {
     assert.equal(await closeSettings.count(), 1);
     assert.equal(await frame.getByRole("button", { name: "Close Settings" }).count(), 1);
     const language = page.locator("#ui-language");
-    await language.selectOption("en");
+    await setChoice(language, "en");
     await page.locator("[data-page=models]").click();
     await page.getByText("Custom model locations", { exact: true }).filter({ visible: true }).first().click();
     const unload = page.getByRole("button", { name: "Unload speech model" });
@@ -201,7 +202,7 @@ async function main() {
     `);
     assert.ok(webviews.length, "No WebView2 processes identified for the isolated profile");
     const origin = new URL(page.url()).origin;
-    await language.selectOption("auto");
+    await setChoice(language, "auto");
     let dialog = page.waitForEvent("dialog");
     const cancelClose = closeSettings.click();
     await (await dialog).dismiss();
@@ -220,7 +221,7 @@ async function main() {
 
     launch("simple-stt-settings");
     const { page: fresh, pid: reopened } = await settingsPage();
-    assert.equal(await fresh.locator("#ui-language").inputValue(), "en");
+    assert.equal(await fresh.locator("#ui-language").getAttribute("data-value"), "en");
     assert.equal(await fresh.getByRole("button", { name: "Close Settings" }).count(), 1);
     assert.equal(nativeWindow(reopened, "close"), "visible");
     await waitFor("clean titlebar Close to exit Settings", () => !processAlive(reopened));

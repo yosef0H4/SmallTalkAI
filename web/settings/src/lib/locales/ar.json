@@ -1,4 +1,9 @@
 {
+  "agent_skills.title": "مهارات الوكلاء",
+  "agent_skills.detected": "تم العثور عليه",
+  "agent_skills.undetected": "لم يتم العثور عليه",
+  "agent_skills.install": "تثبيت",
+  "agent_skills.update": "تحديث",
   "ui.smalltalkai.d84a2c": "SmallTalkAI",
   "ui.general.9239ee": "عام",
   "ui.models.f3798f": "النماذج",

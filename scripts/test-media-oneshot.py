@@ -207,6 +207,14 @@ pcm.fixture_headphones {{
         run(['speak'], '/v1/audio/speech', 'saved-tts', worker='smalltalkai-tts', stdin='play this')
         assert any(played.read_bytes()), 'playback returned without draining nonzero audio'
         assert not default_audio.exists(), 'playback used the default instead of the saved device'
+        brief = root / 'brief.txt'
+        brief.write_text('The checks passed.', encoding='utf-8')
+        submitted = subprocess.run(
+            [str(bins / 'smalltalkai-ctl'), 'media', 'speak', '--file', str(brief), '--background'],
+            env=dict(env, SIMPLE_STT_READER_DATA=str(root / 'closed-reader')),
+            capture_output=True, text=True, timeout=5)
+        assert submitted.returncode != 0 and 'running SmallTalkAI Reader' in submitted.stderr, submitted.stderr
+        assert incoming.empty() and not list(profile.glob('.media-*'))
         original = target.read_bytes()
         run(['speak', 'keep the old file', '--output', target], '/v1/audio/speech', 'saved-tts',
             status=1, worker='smalltalkai-tts')

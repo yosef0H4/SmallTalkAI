@@ -16,6 +16,20 @@ const READY: &str = "ready";
 const SPEECH_OUTPUT: &str = "speech.wav";
 
 pub fn run_media(command: MediaCommand) -> Result<()> {
+    if let MediaCommand::Speak {
+        text,
+        file,
+        stdin,
+        background: true,
+        ..
+    } = command
+    {
+        let text = super::speech_input(text, file, stdin)?;
+        // The desktop Reader survives the lifetime of the caller's shell.
+        crate::reader::read_in_background(&text)?;
+        println!("Speech queued for background playback");
+        return Ok(());
+    }
     if let Some(workspace) = std::env::var_os(WORKSPACE_ENV) {
         let workspace = PathBuf::from(workspace);
         let started = Instant::now();

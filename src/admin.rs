@@ -30,6 +30,11 @@ pub enum Command {
         #[command(subcommand)]
         command: CredentialCommand,
     },
+    /// Discover local agents or install the SmallTalkAI media skill.
+    Skills {
+        #[command(subcommand)]
+        command: SkillCommand,
+    },
     /// Run the installed headless API controller (no audio device or desktop shell).
     Serve {
         /// Start the managed Windows API controller in the background.
@@ -38,6 +43,18 @@ pub enum Command {
         /// Stop the managed Windows API controller.
         #[arg(long)]
         stop: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SkillCommand {
+    List,
+    Install {
+        #[arg(value_enum)]
+        agent: crate::agent_skills::Agent,
+        /// Install for the current project.
+        #[arg(long)]
+        project: bool,
     },
 }
 
@@ -160,6 +177,12 @@ pub fn dispatch(command: Command) -> Result<()> {
         Command::Config { scope, command } => config(scope, command),
         Command::Assets { command } => assets(command),
         Command::Credentials { command } => credentials(command),
+        Command::Skills { command } => match command {
+            SkillCommand::List => print(&serde_json::to_value(crate::agent_skills::list()?)?),
+            SkillCommand::Install { agent, project } => print(&serde_json::to_value(
+                crate::agent_skills::install(agent, project)?,
+            )?),
+        },
         Command::Serve { background, stop } => {
             if background || stop {
                 #[cfg(windows)]

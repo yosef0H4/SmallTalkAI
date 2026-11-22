@@ -26,7 +26,7 @@ continue using their own workers. These commands do not modify settings.
 smalltalkai-linux media transcribe recording.mp4 [--language english|arabic] [--json]
 smalltalkai-ctl media transcribe recording.mp4 [--language english|arabic] [--json]
 smalltalkai-linux media speak "Text to read" [--output speech.wav]
-smalltalkai-linux media speak --file text.txt [--output speech.wav]
+smalltalkai-linux media speak --file text.txt [--output speech.wav | --background]
 cat text.txt | smalltalkai-linux media speak [--output speech.wav]
 smalltalkai-linux media ocr scan.png [--json]
 ```
@@ -56,6 +56,35 @@ bounded before allocating more. Without `--output`, the command plays through
 your saved output device and waits for playback to finish. With `--output`, it
 publishes a complete WAV file and preserves any existing file at the
 destination.
+
+`--background` hands the text to SmallTalkAI's desktop Reader as a new read and
+returns after it is accepted. The Reader plays chunks as they are ready through
+your saved output device. Use Read aloud in SmallTalkAI to start the Reader if
+it is closed. A remote or hosted agent needs local shell access to play audio
+on your computer.
+
+## Agent skills
+
+Open **Settings → System → Agent skills** to install or update the skill for
+Codex, Claude Code, Cursor, or OpenCode. The installed skill includes the full
+path to your copy of SmallTalkAI.
+
+You can also ask an agent to run the install command. Replace `codex` with
+`claude-code`, `cursor`, or `opencode` if needed.
+
+```sh
+smalltalkai skills install codex
+```
+
+On Windows, the default installer location works from PowerShell:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\SmallTalkAI\runtime\smalltalkai-ctl.exe" skills install codex
+```
+
+Use `--project` to install only in the current project. Run `skills list` to
+check detection and installation. If the agent does not see a newly installed
+skill, start a new session. Try “Tell me the result out loud when you’re done.”
 
 On Linux, `python3 scripts/test-media-oneshot.py --bin-dir target/debug` checks
 these lifetimes with the built CLI, Reader, speech and OCR workers, and the

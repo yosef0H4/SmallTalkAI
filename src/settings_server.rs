@@ -60,6 +60,7 @@ struct CaptureConnection {
 }
 
 struct AppState {
+    local_agent_skills: bool,
     build_id: String,
     assets: crate::assets::Manager,
     web_token: String,
@@ -241,6 +242,7 @@ pub fn run(args: Args, window: Option<fn(DesktopSettings) -> Result<()>>) -> Res
             token: args.service_token,
         });
     let state = Arc::new(AppState {
+        local_agent_skills: !remote,
         build_id: build_id.clone(),
         assets: crate::assets::Manager::default(),
         web_token: web_token.clone(),
@@ -421,6 +423,31 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
     validate_origin(request, state)?;
     match (request.method(), path) {
         (&Method::Get, "/api/state") => state_response(state),
+        (&Method::Get, "/api/agent-skills") => {
+            let agents = if state.local_agent_skills {
+                crate::agent_skills::list()?
+            } else {
+                Vec::new()
+            };
+            Ok(json_response(
+                StatusCode(200),
+                &serde_json::to_value(agents)?,
+                state,
+            ))
+        }
+        (&Method::Post, "/api/agent-skills") => {
+            anyhow::ensure!(
+                state.local_agent_skills,
+                "agent skills must be installed from local Settings"
+            );
+            let agent = serde_json::from_slice(&read_body(request)?)?;
+            let installed = crate::agent_skills::install(agent, false)?;
+            Ok(json_response(
+                StatusCode(200),
+                &serde_json::to_value(installed)?,
+                state,
+            ))
+        }
         (&Method::Get, "/api/modules") => Ok(json_response(
             StatusCode(200),
             &crate::modules::inventory(&AppConfig::load()?),

@@ -57,6 +57,9 @@ pub enum MediaCommand {
         /// Save audio to a WAV file instead of reader playback.
         #[arg(long, value_name = "PATH")]
         output: Option<PathBuf>,
+        /// Play in the background and return after handing off the text.
+        #[arg(long, conflicts_with = "output")]
+        background: bool,
     },
     /// Extract text from an image file.
     Ocr {
@@ -83,23 +86,9 @@ pub fn dispatch_media<B: Backend>(command: MediaCommand, backend: &mut B) -> Res
             file,
             stdin,
             output,
+            ..
         } => {
-            let text = match (text, file, stdin) {
-                (Some(text), None, false) => text,
-                (None, Some(path), false) => {
-                    let file = File::open(&path)
-                        .with_context(|| format!("opening text file {}", path.display()))?;
-                    read_limited(file, "text file")?
-                }
-                (None, None, true) => read_limited(io::stdin(), "stdin")?,
-                (None, None, false) if !io::stdin().is_terminal() => {
-                    read_limited(io::stdin(), "stdin")?
-                }
-                (None, None, false) => bail!("provide text, --file, or pipe text to stdin"),
-                _ => bail!("provide exactly one of positional text, --file, or --stdin"),
-            };
-            anyhow::ensure!(text.len() <= MAX_TEXT_BYTES, "text exceeds 1 MiB");
-            anyhow::ensure!(!text.trim().is_empty(), "text is empty");
+            let text = speech_input(text, file, stdin)?;
             backend.speak_text(&text, output.as_deref())
         }
         MediaCommand::Ocr { image, json } => {
@@ -112,6 +101,24 @@ pub fn dispatch_media<B: Backend>(command: MediaCommand, backend: &mut B) -> Res
             print_text(&text, json)
         }
     }
+}
+
+fn speech_input(text: Option<String>, file: Option<PathBuf>, stdin: bool) -> Result<String> {
+    let text = match (text, file, stdin) {
+        (Some(text), None, false) => text,
+        (None, Some(path), false) => {
+            let file = File::open(&path)
+                .with_context(|| format!("opening text file {}", path.display()))?;
+            read_limited(file, "text file")?
+        }
+        (None, None, true) => read_limited(io::stdin(), "stdin")?,
+        (None, None, false) if !io::stdin().is_terminal() => read_limited(io::stdin(), "stdin")?,
+        (None, None, false) => bail!("provide text, --file, or pipe text to stdin"),
+        _ => bail!("provide exactly one of positional text, --file, or --stdin"),
+    };
+    anyhow::ensure!(text.len() <= MAX_TEXT_BYTES, "text exceeds 1 MiB");
+    anyhow::ensure!(!text.trim().is_empty(), "text is empty");
+    Ok(text)
 }
 
 /// Transcribe an audio or video file without writing a CLI representation.

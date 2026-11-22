@@ -1,4 +1,9 @@
 {
+  "agent_skills.title": "Agent skills",
+  "agent_skills.detected": "Detected",
+  "agent_skills.undetected": "Not detected",
+  "agent_skills.install": "Install",
+  "agent_skills.update": "Update",
   "ui.smalltalkai.d84a2c": "SmallTalkAI",
   "ui.general.9239ee": "General",
   "ui.models.f3798f": "Models",

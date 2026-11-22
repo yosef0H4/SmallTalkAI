@@ -36,6 +36,8 @@ enum CommandKind {
     ReadText {
         #[arg(long)]
         text: Option<String>,
+        #[arg(long, hide = true)]
+        existing: bool,
     },
     ReadFile {
         path: PathBuf,
@@ -147,8 +149,12 @@ fn send(request: &LocalRequest, start_daemon: bool) -> Result<LocalReply> {
     if start_daemon {
         ensure_daemon()?
     }
-    let mut stream = reader_core::local_ipc::connect(&data_dir())
-        .context("connecting to the resident controller")?;
+    let mut stream = reader_core::local_ipc::connect(&data_dir()).context(match request {
+        LocalRequest::ReadStart { .. } if !start_daemon => {
+            "background playback needs a running SmallTalkAI Reader; use Read aloud in the app first, or omit --background for terminal playback"
+        }
+        _ => "connecting to the resident controller",
+    })?;
     #[cfg(unix)]
     stream.set_read_timeout(Some(Duration::from_secs(90)))?;
     write_json_frame(&mut stream, request)?;
@@ -158,7 +164,7 @@ fn send(request: &LocalRequest, start_daemon: bool) -> Result<LocalReply> {
     }
     Ok(response)
 }
-fn read_text(source: &str, text: &str) -> Result<()> {
+fn read_text(source: &str, text: &str, start_daemon: bool) -> Result<()> {
     if text.len() > MAX_TEXT_BYTES {
         bail!("reading text is limited to 1 MiB")
     }
@@ -168,7 +174,7 @@ fn read_text(source: &str, text: &str) -> Result<()> {
             id: id.clone(),
             source: source.to_owned(),
         },
-        true,
+        start_daemon,
     )?;
     // Keep control messages under 64 KiB and only split on UTF-8 boundaries.
     let mut start = 0;
@@ -333,7 +339,7 @@ fn dispatch(command: CommandKind, json: bool) -> Result<()> {
             },
             true,
         )?),
-        CommandKind::ReadClipboard => read_text("clipboard", &clipboard(false)?),
+        CommandKind::ReadClipboard => read_text("clipboard", &clipboard(false)?, true),
         CommandKind::ListenClipboard => show_reply(send(
             &LocalRequest::Action {
                 action: "toggle-clipboard-listening".into(),
@@ -394,16 +400,16 @@ fn read_region() -> Result<()> {
 
 fn read_input(command: CommandKind) -> Result<()> {
     match command {
-        CommandKind::ReadText { text } => {
+        CommandKind::ReadText { text, existing } => {
             let mut value = text.unwrap_or_default();
             if value.is_empty() {
                 std::io::stdin().read_to_string(&mut value)?;
             }
-            read_text("command", &value)
+            read_text("command", &value, !existing)
         }
         CommandKind::ReadFile { path } => {
             let text = std::fs::read_to_string(path).context("reading UTF-8 text file")?;
-            read_text("file", &text)
+            read_text("file", &text, true)
         }
         _ => unreachable!("dispatch only sends text inputs here"),
     }
@@ -483,6 +489,7 @@ fn run_utility(command: CommandKind) -> Result<()> {
         CommandKind::TestSpeech => read_text(
             "test",
             "Simple TTS is ready. This is a short local voice check.",
+            true,
         ),
         CommandKind::TestOcr { image } => {
             let path = image.context("provide --image with a screenshot crop")?;

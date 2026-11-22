@@ -5,12 +5,25 @@
   import Config from "./Config.svelte";
   onMount(()=>{void loadReading().catch(()=>{});});
   import { t } from "../lib/i18n";
-  import { ui, action } from "../lib/state.svelte";
+  import { ui, action, run } from "../lib/state.svelte";
   import { fields } from "../lib/settings";
   import Group from "../components/Group.svelte";
   import Field from "../components/Field.svelte";
   import IconButton from "../components/IconButton.svelte";
   import RangeInput from "../components/RangeInput.svelte";
+  import { api } from "../lib/api";
+  type Agent = { id: string; name: string; detected: boolean; installed: boolean };
+  let agents = $state<Agent[]>([]);
+  let installing = $state("");
+  onMount(() => { void api<Agent[]>("/api/agent-skills").then((items) => agents = items).catch(() => {}); });
+  async function install(agent: Agent) {
+    installing = agent.id;
+    await run(async () => {
+      await api("/api/agent-skills", agent.id);
+      agent.installed = true;
+    });
+    installing = "";
+  }
 </script>
 
 <Group title="settings.memory" icon="advanced" paths={["speech.idle_worker_timeout_secs","speech.worker_shutdown_grace_ms"]}>
@@ -28,6 +41,16 @@
  {/if}
 </Group>
 <ReaderAdmin/>
+{#if agents.length}
+<details class="guide">
+  <summary>{t("agent_skills.title")}</summary>
+  {#each agents as agent (agent.id)}
+    <div class="field"><span>{agent.name} · {t(agent.installed ? "ui.installed.7bb440" : agent.detected ? "agent_skills.detected" : "agent_skills.undetected")}</span>
+      <div class="control"><button type="button" disabled={!!installing} onclick={() => install(agent)}>{t(agent.installed ? "agent_skills.update" : "agent_skills.install")}</button></div>
+    </div>
+  {/each}
+</details>
+{/if}
 <Group
   title="ui.diagnostics.3af227"
   icon="diagnostics"

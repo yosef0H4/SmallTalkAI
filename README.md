@@ -16,6 +16,9 @@ Download the latest version from the releases page:
 
 [Download SmallTalk](https://github.com/yosef0H4/SmallTalkAI/releases/latest)
 
+To let an agent read aloud or give spoken updates, open **Settings → System →
+Agent skills** or ask the agent to install the bundled skill. [Agent setup](docs/cli.md#agent-skills)
+
 For Fedora and Arch/Omarchy installation and local package builds, see
 [Linux packages](docs/linux-installation.md). The Linux release includes a Fedora
 44 RPM and an Arch Linux package shared by Arch and Omarchy.

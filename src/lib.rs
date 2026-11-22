@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod agent_skills;
 pub mod assets;
 pub mod capture;
 pub mod cleanup;

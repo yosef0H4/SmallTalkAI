@@ -64,6 +64,10 @@ fn command_input(args: &[&str], input: Option<&[u8]>) -> Result<String> {
     command_in_profile(args, input, &data_dir(), false)
 }
 
+pub fn read_in_background(text: &str) -> Result<String> {
+    command_input(&["read-text", "--existing"], Some(text.as_bytes()))
+}
+
 fn command_in_profile(
     args: &[&str],
     input: Option<&[u8]>,

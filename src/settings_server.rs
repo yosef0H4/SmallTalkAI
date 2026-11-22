@@ -448,6 +448,18 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
                 state,
             ))
         }
+        (method @ (&Method::Get | &Method::Post), "/api/agent-skills/export") => {
+            anyhow::ensure!(
+                state.local_agent_skills,
+                "agent skills must be exported from local Settings"
+            );
+            let result = if method == &Method::Get {
+                json!(crate::agent_skills::markdown()?)
+            } else {
+                json!(crate::agent_skills::export()?.to_string_lossy())
+            };
+            Ok(json_response(StatusCode(200), &result, state))
+        }
         (&Method::Get, "/api/modules") => Ok(json_response(
             StatusCode(200),
             &crate::modules::inventory(&AppConfig::load()?),

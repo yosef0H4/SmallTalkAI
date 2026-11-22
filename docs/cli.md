@@ -69,6 +69,11 @@ Open **Settings → System → Agent skills** to install or update the skill for
 Codex, Claude Code, Cursor, or OpenCode. The installed skill includes the full
 path to your copy of SmallTalkAI.
 
+The same section previews the personalized Markdown for manual setup.
+**Copy Markdown** copies the text to the clipboard. **Save SKILL.md** writes
+it to Downloads. Place the file in the agent’s `skills/smalltalkai/` folder
+as `SKILL.md`.
+
 You can also ask an agent to run the install command. Replace `codex` with
 `claude-code`, `cursor`, or `opencode` if needed.
 

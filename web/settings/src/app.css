@@ -770,6 +770,18 @@ details code {
 .json-editor + button {
   margin-top: 10px;
 }
+.skill-export {
+  margin-block-start: 16px;
+  border-block-start: 1px solid var(--line);
+  padding-block-start: 12px;
+}
+.skill-export textarea {
+  font: 12px/1.5 ui-monospace, monospace;
+}
+.skill-actions {
+  flex-wrap: wrap;
+  margin-block-start: 8px;
+}
 .settings-feedback {
   grid-column: 2;
   grid-row: 2;

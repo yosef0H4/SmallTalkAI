@@ -110,8 +110,7 @@ pub fn list() -> Result<Vec<AgentInfo>> {
         .collect())
 }
 
-pub fn install(agent: Agent, project: bool) -> Result<InstalledSkill> {
-    let home = dirs::home_dir().context("user home directory is unavailable")?;
+fn cli_executable() -> Result<PathBuf> {
     let executable = std::env::current_exe()?
         .with_file_name(format!("smalltalkai-ctl{}", std::env::consts::EXE_SUFFIX));
     ensure!(
@@ -119,6 +118,42 @@ pub fn install(agent: Agent, project: bool) -> Result<InstalledSkill> {
         "SmallTalkAI CLI was not found at {}",
         executable.display()
     );
+    Ok(executable)
+}
+
+pub fn markdown() -> Result<String> {
+    render(&cli_executable()?, false)
+}
+
+pub fn export() -> Result<PathBuf> {
+    let content = markdown()?;
+    let downloads = dirs::download_dir()
+        .or_else(|| dirs::home_dir().map(|home| home.join("Downloads")))
+        .context("Downloads directory is unavailable")?;
+    fs::create_dir_all(&downloads).context("creating the Downloads directory")?;
+    let mut temporary = tempfile::NamedTempFile::new_in(&downloads)?;
+    temporary.write_all(content.as_bytes())?;
+    for index in 0..1000 {
+        let name = if index == 0 {
+            "SKILL.md".to_owned()
+        } else {
+            format!("SKILL ({index}).md")
+        };
+        let path = downloads.join(name);
+        match temporary.persist_noclobber(&path) {
+            Ok(_) => return Ok(path),
+            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+                temporary = error.file;
+            }
+            Err(error) => return Err(error).context("saving skill to Downloads"),
+        }
+    }
+    bail!("Downloads has too many copies of SKILL.md")
+}
+
+pub fn install(agent: Agent, project: bool) -> Result<InstalledSkill> {
+    let home = dirs::home_dir().context("user home directory is unavailable")?;
+    let executable = cli_executable()?;
     let destination = if project {
         std::env::current_dir()?.join(match agent {
             Agent::Codex => ".agents/skills",
@@ -131,7 +166,7 @@ pub fn install(agent: Agent, project: bool) -> Result<InstalledSkill> {
     };
     let folder = destination.join("smalltalkai");
     let path = folder.join("SKILL.md");
-    let content = render(&executable)?;
+    let content = render(&executable, true)?;
     let existing = match fs::symlink_metadata(&path) {
         Ok(metadata) => {
             ensure!(
@@ -164,7 +199,7 @@ pub fn install(agent: Agent, project: bool) -> Result<InstalledSkill> {
     Ok(InstalledSkill { path, executable })
 }
 
-fn render(executable: &Path) -> Result<String> {
+fn render(executable: &Path, managed: bool) -> Result<String> {
     let path = executable.to_str().context("CLI path is not valid UTF-8")?;
     ensure!(
         !path.chars().any(char::is_control) && !path.contains("```"),
@@ -176,5 +211,10 @@ fn render(executable: &Path) -> Result<String> {
     let (_, after) = executable_section
         .split_once(PATH_END)
         .context("bundled skill is incomplete")?;
-    Ok(format!("{before}{OWNED}\n{PATH_START}\nUse this absolute executable path:\n\n```text\n{path}\n```\n{PATH_END}{after}"))
+    let owner = if managed {
+        format!("{OWNED}\n")
+    } else {
+        String::new()
+    };
+    Ok(format!("{before}{owner}{PATH_START}\nUse this absolute executable path:\n\n```text\n{path}\n```\n{PATH_END}{after}"))
 }

@@ -5,16 +5,19 @@
   import Config from "./Config.svelte";
   onMount(()=>{void loadReading().catch(()=>{});});
   import { t } from "../lib/i18n";
-  import { ui, action, run } from "../lib/state.svelte";
+  import { ui, notice, run } from "../lib/state.svelte";
   import { fields } from "../lib/settings";
   import Group from "../components/Group.svelte";
   import Field from "../components/Field.svelte";
-  import IconButton from "../components/IconButton.svelte";
   import RangeInput from "../components/RangeInput.svelte";
   import { api } from "../lib/api";
   type Agent = { id: string; name: string; detected: boolean; installed: boolean };
   let agents = $state<Agent[]>([]);
   let installing = $state("");
+  let markdown = $state("");
+  let preview: HTMLTextAreaElement;
+  let saving = $state(false);
+  const skillExport = "/api/agent-skills/export";
   onMount(() => { void api<Agent[]>("/api/agent-skills").then((items) => agents = items).catch(() => {}); });
   async function install(agent: Agent) {
     installing = agent.id;
@@ -23,6 +26,27 @@
       agent.installed = true;
     });
     installing = "";
+  }
+  async function copySkill() {
+    try {
+      await navigator.clipboard.writeText(markdown);
+    } catch {
+      preview.focus();
+      preview.select();
+      if (!document.execCommand("copy")) {
+        notice(t("agent_skills.copy_failed"), "error");
+        return;
+      }
+    }
+    notice(t("agent_skills.copied"));
+  }
+  async function saveSkill() {
+    saving = true;
+    await run(async () => {
+      const path = await api<string>(skillExport, {});
+      notice(t("agent_skills.saved", { path }));
+    });
+    saving = false;
   }
 </script>
 
@@ -42,13 +66,27 @@
 </Group>
 <ReaderAdmin/>
 {#if agents.length}
-<details class="guide">
+<details class="guide" ontoggle={(event) => {
+  if (event.currentTarget.open && !markdown)
+    void run(async () => { markdown = await api<string>(skillExport); });
+}}>
   <summary>{t("agent_skills.title")}</summary>
   {#each agents as agent (agent.id)}
     <div class="field"><span>{agent.name} · {t(agent.installed ? "ui.installed.7bb440" : agent.detected ? "agent_skills.detected" : "agent_skills.undetected")}</span>
       <div class="control"><button type="button" disabled={!!installing} onclick={() => install(agent)}>{t(agent.installed ? "agent_skills.update" : "agent_skills.install")}</button></div>
     </div>
   {/each}
+  {#if markdown}
+    <div class="skill-export">
+      <label for="skill-markdown" class="json-label">SKILL.md</label>
+      <textarea id="skill-markdown" bind:this={preview} dir="ltr" rows="9"
+        value={markdown} readonly spellcheck="false"></textarea>
+      <div class="control skill-actions">
+        <button type="button" onclick={copySkill}>{t("agent_skills.copy")}</button>
+        <button type="button" disabled={saving} onclick={saveSkill}>{t("agent_skills.save")}</button>
+      </div>
+    </div>
+  {/if}
 </details>
 {/if}
 <Group

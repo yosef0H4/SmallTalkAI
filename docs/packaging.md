@@ -8,7 +8,7 @@ From the repository root, run:
 build-distribution.cmd
 ```
 
-This is the supported release command. It runs Rust tests, builds the release binaries, uses the AutoHotkey script compiler to build `SmallTalkAI.exe`, and creates the installer and ZIP archive with SHA-256 hashes.
+This command runs Rust tests, builds the release binaries and the `SmallTalkAI.exe` launcher, and creates the installer and ZIP archive with SHA-256 hashes.
 
 Windows setup installs the app. Download inference runtimes and models explicitly in Settings > Models, as on Linux. Upgrades preserve existing models, runtimes, settings, and startup shortcuts. The installer version comes from Cargo.toml.
 
@@ -70,13 +70,15 @@ The portable archive contains the same runtime payload used by the installer:
 
 ```text
 smalltalkai-portable\
-    smalltalkai.cmd
+    SmallTalkAI.exe                         native Windows launcher
+    smalltalkai.cmd                         compatibility launcher
+    simple-stt.cmd                          compatibility launcher
     LICENSE
     START_HERE.txt
     THIRD_PARTY_NOTICES.md
     runtime\
-        SmallTalkAI.exe                     branded desktop process
-        AutoHotkey64.exe                    bundled interpreter for helper scripts
+        SmallTalkAI.exe                     compatibility copy for older shortcuts
+        AutoHotkey64.exe                    bundled interpreter for the desktop and helper scripts
         smalltalkai.ahk                      readable AutoHotkey shell entry point
         lib\                                shell support scripts
         smalltalkai-capture.exe
@@ -85,7 +87,7 @@ smalltalkai-portable\
         fixtures\parakeet-smoke.wav
 ```
 
-Installer-created Start Menu, Desktop, and Startup shortcuts open `runtime\SmallTalkAI.exe`. The portable launcher `smalltalkai.cmd` opens the same executable. Upgrades reuse the existing install directory and support shortcuts to the legacy command file.
+Installer-created Start Menu, Desktop, and Startup shortcuts open the top-level `SmallTalkAI.exe`. It starts the bundled AutoHotkey interpreter with `runtime\smalltalkai.ahk` and exits. Open the same executable from the portable ZIP. Upgrades reuse the existing install directory and retain the older launcher paths.
 
 ## Prerequisites
 
@@ -94,7 +96,6 @@ The distribution builder expects these tools and files on the Windows developer 
 ```text
 Rust stable toolchain with Cargo
 AutoHotkey v2 runtime (AutoHotkey64.exe)
-AutoHotkey script compiler (Ahk2Exe.exe)
 Inno Setup 6 compiler (ISCC.exe)
 fixtures\parakeet-smoke.wav
 ```

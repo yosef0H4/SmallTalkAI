@@ -1,0 +1,22 @@
+1 VERSIONINFO
+FILEVERSION LAUNCHER_VERSION
+PRODUCTVERSION LAUNCHER_VERSION
+FILEOS 0x00040004
+FILETYPE 0x00000001
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "SmallTalkAI"
+            VALUE "FileVersion", LAUNCHER_VERSION_STRING
+            VALUE "ProductName", "SmallTalkAI"
+            VALUE "ProductVersion", LAUNCHER_VERSION_STRING
+            VALUE "OriginalFilename", "SmallTalkAI.exe"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

@@ -44,7 +44,7 @@ See the [Linux startup instructions](docs/linux-installation.md#start-at-login-a
 On Windows:
 
 1. Install or unzip SmallTalk.
-2. Launch `smalltalkai.cmd`.
+2. Launch `SmallTalkAI.exe`.
 3. Hold the record shortcut, speak, then release it.
 4. The transcript is inserted into the app that was active when you started recording.
 
@@ -76,7 +76,7 @@ Problems I had with other voice typing apps, and how this one tries to solve the
 | Some apps still use Whisper, which is not always the best fit for quick voice typing. | Use Parakeet, which has been faster, lighter, and often more accurate for this use case in my experience. |
 | Many apps load the model only after recording ends, so you wait after speaking. | Start warming the selected model as soon as recording begins, so it is often ready by the time you release the hotkey. |
 | Unloading only the model often still leaves heavy runtime memory behind. | Put Parakeet and the model in a disposable inference process that can fully exit after the idle timeout. |
-| Compiled AutoHotkey apps can upset antivirus tools. | Ship the `.ahk` scripts with a bundled AutoHotkey binary and launch through `smalltalkai.cmd`. It is less tidy, but easier to inspect and less likely to look like a packed script executable. |
+| Windows needs a desktop entry point. | Ship a small Rust launcher alongside the bundled AutoHotkey v2 runtime and readable AHK scripts. |
 | Cross-platform settings easily become heavy or inconsistent. | Open the same Settings UI in Tauri on Windows and Linux. Close the window to exit its webview and authenticated loopback server. |
 
 Loaded memory use is still not tiny, roughly hundreds of MB depending on CPU/GPU mode, but the idle state is the part that matters most for an always-running background tool.
@@ -84,7 +84,7 @@ Loaded memory use is still not tiny, roughly hundreds of MB depending on CPU/GPU
 ### Architecture
 
 ```text
-smalltalkai.cmd
+SmallTalkAI.exe
   └── bundled AutoHotkey64.exe runs smalltalkai.ahk
   └── smalltalkai-capture.exe      persistent CPAL capture + fast overlay
         └── smalltalkai-infer.exe  disposable Parakeet DLL/model process

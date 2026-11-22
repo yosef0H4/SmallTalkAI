@@ -222,10 +222,32 @@ fn main() {
     #[cfg(target_os = "windows")]
     {
         println!("cargo:rerun-if-changed=resources/windows.rc");
+        println!("cargo:rerun-if-changed=resources/launcher.rc");
         println!("cargo:rerun-if-changed=resources/smalltalkai.exe.manifest");
         println!("cargo:rerun-if-changed=ahk/icons/smalltalkai.ico");
         embed_resource::compile("resources/windows.rc", embed_resource::NONE)
             .manifest_required()
             .expect("compile Windows resources");
+        let version = concat!(
+            "LAUNCHER_VERSION=",
+            env!("CARGO_PKG_VERSION_MAJOR"),
+            ",",
+            env!("CARGO_PKG_VERSION_MINOR"),
+            ",",
+            env!("CARGO_PKG_VERSION_PATCH"),
+            ",0"
+        );
+        let version_string = concat!(
+            "LAUNCHER_VERSION_STRING=\"",
+            env!("CARGO_PKG_VERSION"),
+            "\""
+        );
+        embed_resource::compile_for(
+            "resources/launcher.rc",
+            ["smalltalkai-launcher"],
+            [version, version_string],
+        )
+        .manifest_required()
+        .expect("compile launcher version information");
     }
 }

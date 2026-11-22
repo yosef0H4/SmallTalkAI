@@ -3,7 +3,7 @@
 ## Process boundaries
 
 ```text
-smalltalkai.cmd
+SmallTalkAI.exe
     launches bundled AutoHotkey64.exe with smalltalkai.ahk
     thin AutoHotkey v2 desktop shell
     ├── tray icon and stateful menu
@@ -184,7 +184,7 @@ own waveform update cadence.
 
 ## Install-relative runtime paths
 
-Relative runtime and model directories resolve against the runtime root. Checkout builds under `target\debug` or `target\release` walk back to the repository root. Packaged shortcuts target `smalltalkai.cmd`, which launches `runtime\AutoHotkey64.exe` with `runtime\smalltalkai.ahk`; the shell then resolves relative paths against the installed runtime directory. The bundled smoke fixture is `fixtures\parakeet-smoke.wav`.
+Relative runtime and model directories resolve against the runtime root. Checkout builds under `target\debug` or `target\release` walk back to the repository root. Packaged shortcuts target `SmallTalkAI.exe`, which launches `runtime\AutoHotkey64.exe` with `runtime\smalltalkai.ahk`. The shell resolves relative paths against the installed runtime directory. The bundled smoke fixture is `fixtures\parakeet-smoke.wav`.
 
 ## Helper subprocess completion
 

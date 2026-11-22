@@ -24,8 +24,10 @@ if "'runtime\\action-replay.ahk'" not in builder:
     errors.append("recorded keyboard action helper is not required in the package")
 if "'runtime\\smalltalkai-settings-window.exe'" not in builder:
     errors.append("the native Settings window is not required in the package")
-if "'runtime\\SmallTalkAI.exe'" not in builder or "VersionInfo.FileDescription" not in builder:
-    errors.append("the branded process and its Windows metadata must be verified")
+if not all(part in builder for part in ("'SmallTalkAI.exe'", "'runtime\\SmallTalkAI.exe'", "smalltalkai-launcher.exe", "VersionInfo.FileDescription")):
+    errors.append("the native launcher, compatibility copy and Windows metadata must be verified")
+if "Ahk2Exe" in builder:
+    errors.append("the Windows package still compiles the AutoHotkey script")
 if "AppName=SmallTalkAI" not in setup or "UsePreviousAppDir=yes" not in setup:
     errors.append("the installer must carry the new name and reuse the existing profile's install directory")
 icon = r"runtime\icons\smalltalkai.ico"
@@ -33,6 +35,9 @@ if f"'{icon}'" not in builder or f"SetupIconFile=smalltalkai-portable\\{icon}" n
     errors.append("the branded Windows icon is missing from the package or setup")
 if not all(f"IconFilename: \"{{app}}\\{icon}\"" in line for line in setup.splitlines() if line.startswith('Name: "{') and 'Filename:' in line):
     errors.append("an installed shortcut is missing the branded Windows icon")
+entry_points = [line for line in setup.splitlines() if line.startswith('Filename:') or (line.startswith('Name: "{') and 'Filename:' in line)]
+if len(entry_points) != 4 or any(r'Filename: "{app}\SmallTalkAI.exe"' not in line for line in entry_points):
+    errors.append("installed shortcuts and post-install launch must use the native launcher")
 if errors:
     raise SystemExit("FAIL Windows package policy:\n - " + "\n - ".join(errors))
 print("PASS Windows installer: no model downloads/bundles, user data preserved, Cargo version and recorded-action helper required")

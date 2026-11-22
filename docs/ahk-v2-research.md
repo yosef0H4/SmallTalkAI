@@ -51,7 +51,7 @@ Official sources:
 | `FileOpen()` and file objects | v2 uses file objects for reads, writes, and flushes. Pipe names can be opened as paths, but a direct pipe client would still add Win32 edge cases on the UI side. | Shell uses small UTF-8 response files written by disposable helpers. Rust owns socket and stream handling. |
 | `DllCall()` | Calls native functions with explicit types. The DLL/function separator is a single backslash. | Used only for `SystemFunction036` random token generation in the shell. Avoided for direct IPC. |
 | `Persistent()` | Keeps the script alive after its startup thread completes; v2 also automatically persists scripts with hotkeys, timers, or a GUI. | The shell calls `Persistent` explicitly after initialization for clarity. |
-| `FileCreateShortcut()` and `A_Startup` | A shortcut in the Startup folder is the documented simple login-start option. | `ApplyStartupRegistration()` creates or deletes `A_Startup\SmallTalkAI.lnk`, targeting the script in development and the packaged `smalltalkai.cmd` launcher in distribution. |
+| `FileCreateShortcut()` and `A_Startup` | A shortcut in the Startup folder is the documented simple login-start option. | `ApplyStartupRegistration()` creates or deletes `A_Startup\SmallTalkAI.lnk`, targeting the script in development and `SmallTalkAI.exe` in distribution. |
 | String escaping | AutoHotkey uses the backtick as its escape character; a backslash is an ordinary literal character. | Path strings use one backslash. The helper tab codec explicitly maps one backslash to two for transport. |
 | `InputHook()` | v2 replacement for older input command patterns. | Hotkey recorder captures a final non-modifier key while sampling physical modifiers. |
 
@@ -103,7 +103,7 @@ A direct AHK named-pipe implementation was prototyped on paper but rejected: ope
 
 ## Distribution runtime
 
-Development can run `ahk/smalltalkai.ahk` with AutoHotkey v2 installed. Distribution packages the readable AHK scripts together with `AutoHotkey64.exe` and exposes `smalltalkai.cmd` as the launcher. End users do not need a separate AHK installation, and the release avoids an opaque compiled AHK blob.
+Development can run `ahk/smalltalkai.ahk` with AutoHotkey v2 installed. The Windows package ships the AHK scripts and `AutoHotkey64.exe` together. Its `SmallTalkAI.exe` launcher starts the bundled runtime.
 
 Official sources:
 
@@ -116,4 +116,4 @@ Two common per-user Windows options were considered:
 1. HKCU `Software\\Microsoft\\Windows\\CurrentVersion\\Run`
 2. a shortcut in `A_Startup`
 
-The shell chooses a per-user `A_Startup\\SmallTalkAI.lnk` shortcut through `FileCreateShortcut()`. This visibly targets the AHK shell in development or the packaged `smalltalkai.cmd` launcher in distribution and avoids carrying forward the old monolith registry registration code. Packaging must launch the AHK shell, not a Rust executable.
+The shell creates a per-user `A_Startup\SmallTalkAI.lnk` shortcut through `FileCreateShortcut()`. It targets the AHK script in development and the native launcher in distribution. The launcher starts the AHK shell and exits.

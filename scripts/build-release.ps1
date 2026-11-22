@@ -33,11 +33,11 @@ $env:CARGO_TARGET_DIR = $ResolvedTargetDir
 if (-not $SkipTests) {
     cargo test --workspace --all-targets
 }
-cargo build --release -p smalltalkai -p smalltalkai-settings-window --bin smalltalkai-capture --bin smalltalkai-infer --bin smalltalkai-ctl --bin smalltalkai-settings --bin smalltalkai-settings-window --bin smalltalkai-reader-hud
+cargo build --release -p smalltalkai -p smalltalkai-settings-window --bin smalltalkai-launcher --bin smalltalkai-capture --bin smalltalkai-infer --bin smalltalkai-ctl --bin smalltalkai-settings --bin smalltalkai-settings-window --bin smalltalkai-reader-hud
 if ($LASTEXITCODE -ne 0) { throw "Core binary build failed" }
 cargo build --release -p smalltalkai-reader -p smalltalkai-readerctl -p smalltalkai-tts -p smalltalkai-ocr
 if ($LASTEXITCODE -ne 0) { throw "Reader binary build failed" }
-$Expected = @("smalltalkai-capture.exe", "smalltalkai-infer.exe", "smalltalkai-ctl.exe", "smalltalkai-settings.exe", "smalltalkai-settings-window.exe", "smalltalkai-reader.exe", "smalltalkai-readerctl.exe", "smalltalkai-tts.exe", "smalltalkai-ocr.exe", "smalltalkai-reader-hud.exe")
+$Expected = @("smalltalkai-launcher.exe", "smalltalkai-capture.exe", "smalltalkai-infer.exe", "smalltalkai-ctl.exe", "smalltalkai-settings.exe", "smalltalkai-settings-window.exe", "smalltalkai-reader.exe", "smalltalkai-readerctl.exe", "smalltalkai-tts.exe", "smalltalkai-ocr.exe", "smalltalkai-reader-hud.exe")
 foreach ($Name in $Expected) {
     $Path = Join-Path $ResolvedTargetDir "release\$Name"
     if (-not (Test-Path -LiteralPath $Path)) { throw "Expected binary was not built: $Path" }

@@ -105,6 +105,10 @@ name = "smalltalkai-settings"
 path = "src/bin/smalltalkai_settings.rs"
 
 [[bin]]
+name = "smalltalkai-launcher"
+path = "src/bin/smalltalkai_launcher.rs"
+
+[[bin]]
 name = "smalltalkai_mock_infer"
 path = "src/bin/smalltalkai_mock_infer.rs"
 

@@ -529,7 +529,7 @@ class SimpleSttShell {
                 if A_IsCompiled
                     FileCreateShortcut(A_ScriptFullPath, shortcut, A_ScriptDir,,, TrayController.IconDirectory . "\smalltalkai.ico")
                 else {
-                    packagedLauncher := A_ScriptDir . "\..\smalltalkai.cmd"
+                    packagedLauncher := A_ScriptDir . "\..\SmallTalkAI.exe"
                     if FileExist(packagedLauncher)
                         FileCreateShortcut(packagedLauncher, shortcut, A_ScriptDir . "\..",,, TrayController.IconDirectory . "\smalltalkai.ico")
                     else

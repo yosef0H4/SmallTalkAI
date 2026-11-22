@@ -36,9 +36,9 @@ Type: files; Name: "{app}\runtime\simple-stt.ahk"
 Source: "smalltalkai-portable\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\SmallTalkAI"; Filename: "{app}\runtime\SmallTalkAI.exe"; WorkingDir: "{app}"; IconFilename: "{app}\runtime\icons\smalltalkai.ico"
-Name: "{autodesktop}\SmallTalkAI"; Filename: "{app}\runtime\SmallTalkAI.exe"; WorkingDir: "{app}"; IconFilename: "{app}\runtime\icons\smalltalkai.ico"; Tasks: desktopicon
-Name: "{userstartup}\SmallTalkAI"; Filename: "{app}\runtime\SmallTalkAI.exe"; WorkingDir: "{app}"; IconFilename: "{app}\runtime\icons\smalltalkai.ico"; Tasks: startup
+Name: "{group}\SmallTalkAI"; Filename: "{app}\SmallTalkAI.exe"; WorkingDir: "{app}"; IconFilename: "{app}\runtime\icons\smalltalkai.ico"
+Name: "{autodesktop}\SmallTalkAI"; Filename: "{app}\SmallTalkAI.exe"; WorkingDir: "{app}"; IconFilename: "{app}\runtime\icons\smalltalkai.ico"; Tasks: desktopicon
+Name: "{userstartup}\SmallTalkAI"; Filename: "{app}\SmallTalkAI.exe"; WorkingDir: "{app}"; IconFilename: "{app}\runtime\icons\smalltalkai.ico"; Tasks: startup
 
 [Run]
-Filename: "{app}\runtime\SmallTalkAI.exe"; WorkingDir: "{app}"; Description: "Launch SmallTalkAI"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\SmallTalkAI.exe"; WorkingDir: "{app}"; Description: "Launch SmallTalkAI"; Flags: postinstall nowait skipifsilent

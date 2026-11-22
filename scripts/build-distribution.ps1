@@ -1,7 +1,6 @@
 param(
     [switch]$SkipTests,
     [string]$AhkBase,
-    [string]$AhkCompiler,
     [string]$Iscc,
     [string]$CargoTargetDir
 )
@@ -49,10 +48,6 @@ $AhkBase = Resolve-Tool $AhkBase @(
     "$env:LOCALAPPDATA\Programs\AutoHotkey\v2\AutoHotkey64.exe",
     "$env:LOCALAPPDATA\Programs\AutoHotkey\v2\AutoHotkey.exe"
 ) 'AutoHotkey v2 base runtime'
-$AhkCompiler = Resolve-Tool $AhkCompiler @(
-    "$env:ProgramFiles\AutoHotkey\Compiler\Ahk2Exe.exe",
-    "$env:LOCALAPPDATA\Programs\AutoHotkey\Compiler\Ahk2Exe.exe"
-) 'AutoHotkey script compiler (Ahk2Exe.exe)'
 $Iscc = Resolve-Tool $Iscc @(
     "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
@@ -78,12 +73,10 @@ Copy-Item -LiteralPath (Join-Path $Root 'ahk\action-replay.ahk') -Destination $R
 Copy-Item -LiteralPath (Join-Path $Root 'ahk\lib') -Destination (Join-Path $Runtime 'lib') -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $Root 'ahk\icons') -Destination (Join-Path $Runtime 'icons') -Recurse -Force
 Copy-Item -LiteralPath $AhkBase -Destination (Join-Path $Runtime 'AutoHotkey64.exe') -Force
-$DesktopExe = Join-Path $Runtime 'SmallTalkAI.exe'
-$DesktopScript = Join-Path $Runtime 'smalltalkai.ahk'
-$DesktopIcon = Join-Path $Runtime 'icons\smalltalkai.ico'
-$CompileArgs = "/in `"$DesktopScript`" /out `"$DesktopExe`" /base `"$AhkBase`" /icon `"$DesktopIcon`" /silent verbose"
-$CompilerProcess = Start-Process -FilePath $AhkCompiler -ArgumentList $CompileArgs -Wait -PassThru
-if ($CompilerProcess.ExitCode -ne 0) { throw "Ahk2Exe exited with $($CompilerProcess.ExitCode)" }
+$DesktopExe = Join-Path $Portable 'SmallTalkAI.exe'
+Copy-Item -LiteralPath (Join-Path $ResolvedTargetDir 'release\smalltalkai-launcher.exe') -Destination $DesktopExe -Force
+# Replace the old compiled script at the path used by existing shortcuts.
+Copy-Item -LiteralPath $DesktopExe -Destination (Join-Path $Runtime 'SmallTalkAI.exe') -Force
 Require-File $DesktopExe
 if ((Get-Item -LiteralPath $DesktopExe).VersionInfo.FileDescription -ne 'SmallTalkAI') {
     throw 'SmallTalkAI.exe has incorrect process metadata'
@@ -102,7 +95,7 @@ Copy-Item -LiteralPath (Join-Path $Root 'web\settings\public\settings-sans-licen
 Copy-Item -LiteralPath (Join-Path $Root 'assets\fonts\LICENSE-JetBrainsMono.txt') -Destination (Join-Path $Portable 'licenses') -Force
 Copy-Item -LiteralPath (Join-Path $Root 'THIRD_PARTY_NOTICES.md') -Destination $Portable -Force
 Copy-Item -LiteralPath (Join-Path $Root 'START_HERE.txt') -Destination $Portable -Force
-Set-Content -LiteralPath (Join-Path $Portable 'smalltalkai.cmd') -Encoding ASCII -Value '@echo off','start "" "%~dp0runtime\SmallTalkAI.exe"'
+Set-Content -LiteralPath (Join-Path $Portable 'smalltalkai.cmd') -Encoding ASCII -Value '@echo off','start "" "%~dp0SmallTalkAI.exe"'
 Set-Content -LiteralPath (Join-Path $Portable 'simple-stt.cmd') -Encoding ASCII -Value '@echo off','call "%~dp0smalltalkai.cmd"'
 New-Item -ItemType Directory -Path (Join-Path $Runtime 'fixtures') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $Root 'fixtures\parakeet-smoke.wav') -Destination (Join-Path $Runtime 'fixtures') -Force
@@ -119,6 +112,7 @@ $Required = @(
     'runtime\icons\book.ico',
     'runtime\icons\LICENSE-NOTO-EMOJI.txt',
     'runtime\AutoHotkey64.exe',
+    'SmallTalkAI.exe',
     'runtime\SmallTalkAI.exe',
     'runtime\smalltalkai-capture.exe',
     'runtime\smalltalkai-infer.exe',

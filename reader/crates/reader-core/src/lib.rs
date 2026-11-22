@@ -15,6 +15,8 @@ pub mod residency;
 pub mod secrets;
 pub mod text;
 pub mod text_prep;
+#[cfg(windows)]
+pub mod windows_job;
 pub mod wire;
 
 pub use config::{

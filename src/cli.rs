@@ -1,5 +1,8 @@
 //! Non-interactive media commands. Service access is supplied by the host so
 //! this module never loads speech models or sends text through a shell.
+mod one_shot;
+pub use one_shot::run_media;
+
 use crate::config::SpeechLanguage;
 use anyhow::{bail, Context, Result};
 use clap::Subcommand;
@@ -369,7 +372,9 @@ struct TempWav {
 }
 impl TempWav {
     fn create() -> Result<Self> {
-        let root = std::env::temp_dir();
+        let root = std::env::var_os(one_shot::WORKSPACE_ENV)
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
         for attempt in 0..32_u32 {
             let stamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)

@@ -62,6 +62,8 @@ enum Mode {
         no_desktop: bool,
     },
     Server,
+    #[command(hide = true)]
+    Media,
     ListOutputDevices,
     #[cfg(windows)]
     #[command(hide = true)]
@@ -80,6 +82,14 @@ enum Mode {
         height: u32,
         path: PathBuf,
     },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+enum MediaRequest {
+    Render { input: String, output: String },
+    Play { input: String },
+    Ocr { path: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -258,13 +268,8 @@ struct MediaBridge {
     child: Child,
     requests: Sender<MediaBridgeRequest>,
     #[cfg(windows)]
-    job: windows_sys::Win32::Foundation::HANDLE,
+    job: reader_core::windows_job::Job,
 }
-
-// Windows job handles are process-wide and may move between threads. The bridge
-// owns this handle exclusively, is held under a Mutex, and closes it only in Drop.
-#[cfg(windows)]
-unsafe impl Send for MediaBridge {}
 
 struct MediaBridgeRequest {
     value: serde_json::Value,
@@ -279,48 +284,11 @@ impl Drop for MediaBridge {
                 libc::kill(-(self.child.id() as i32), libc::SIGKILL);
             }
             #[cfg(windows)]
-            unsafe {
-                windows_sys::Win32::System::JobObjects::TerminateJobObject(self.job, 1);
-            }
+            self.job.terminate();
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
-        #[cfg(windows)]
-        unsafe {
-            windows_sys::Win32::Foundation::CloseHandle(self.job);
-        }
     }
-}
-
-#[cfg(windows)]
-fn create_media_bridge_job(child: &mut Child) -> Result<windows_sys::Win32::Foundation::HANDLE> {
-    use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
-        SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    };
-    let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
-    anyhow::ensure!(!job.is_null(), "creating media bridge job object failed");
-    let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
-    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-    let configured = unsafe {
-        SetInformationJobObject(
-            job,
-            JobObjectExtendedLimitInformation,
-            (&mut limits as *mut JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
-            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-        )
-    };
-    let assigned = configured != 0
-        && unsafe {
-            AssignProcessToJobObject(job, child.as_raw_handle().cast::<std::ffi::c_void>().cast())
-        } != 0;
-    if !assigned {
-        unsafe { windows_sys::Win32::Foundation::CloseHandle(job) };
-        anyhow::bail!("assigning media bridge to its private job object failed");
-    }
-    Ok(job)
 }
 fn read_along_input(
     settings: &reader_core::config::ReadAlongSettings,
@@ -6015,6 +5983,71 @@ impl App {
         }
         unreachable!()
     }
+    fn file_speech_route(&self, input: &str) -> Result<(String, AppConfig)> {
+        anyhow::ensure!(
+            std::fs::metadata(input)?.len() <= MAX_TEXT_BYTES as u64,
+            "Text file exceeds limit"
+        );
+        let text = std::fs::read_to_string(input)?;
+        let saved = self.inner.store.load()?;
+        let language =
+            if saved.speech.selection.mode == reader_core::routing::SelectionMode::FollowKeyboard {
+                query_keyboard_language().ok()
+            } else {
+                None
+            };
+        let config = saved.routed_text(&text, language.as_deref())?;
+        Ok((text, config))
+    }
+
+    fn play_file(&self, input: &str) -> Result<LocalReply> {
+        let (text, config) = self.file_speech_route(input)?;
+        let playback = config.playback.clone();
+        let generation = self.inner.generation.current();
+        let audio = &self.inner.audio;
+        audio.replace(generation);
+        let current = || self.inner.generation.accepts(generation);
+        synthesize_media_units(
+            &self.inner.tts,
+            config.clone(),
+            &text,
+            MediaOptions {
+                voice: None,
+                speed: config.speech.speed,
+                max_samples: media_routing::MAX_SAMPLES,
+                request_id: None,
+                lifetime: None,
+                current: &current,
+            },
+            |_, pcm, rate| {
+                if !pcm.is_empty()
+                    && audio.open(
+                        playback.output_device.as_deref(),
+                        playback.max_buffer_seconds,
+                        generation,
+                        &current,
+                    )?
+                {
+                    let samples = resample(pcm, rate, audio.output_rate());
+                    audio.push(
+                        AudioFrame {
+                            generation,
+                            sentence: 0,
+                            unit: 0,
+                            samples: &samples,
+                        },
+                        &playback,
+                        current,
+                    )?;
+                }
+                Ok(())
+            },
+        )?;
+        audio.finish(generation);
+        audio.wait_drained(generation)?;
+        Ok(LocalReply::ok("Playback complete"))
+    }
+
     fn handle(&self, request: LocalRequest) -> Result<LocalReply> {
         privacy::set_content_logging(self.inner.store.load()?.privacy.log_content);
         match request {
@@ -6138,20 +6171,7 @@ impl App {
             }
             LocalRequest::RenderFile { input, output } => {
                 let abort_epoch = self.inner.server_unload_epoch.load(Ordering::Acquire);
-                anyhow::ensure!(
-                    std::fs::metadata(&input)?.len() <= MAX_TEXT_BYTES as u64,
-                    "Text file exceeds limit"
-                );
-                let text = std::fs::read_to_string(input)?;
-                let saved = self.inner.store.load()?;
-                let language = if saved.speech.selection.mode
-                    == reader_core::routing::SelectionMode::FollowKeyboard
-                {
-                    query_keyboard_language().ok()
-                } else {
-                    None
-                };
-                let config = saved.routed_text(&text, language.as_deref())?;
+                let (text, config) = self.file_speech_route(&input)?;
                 {
                     let _intent = self
                         .inner
@@ -6801,9 +6821,26 @@ fn collect_routed_media(
     options: MediaOptions<'_>,
     mut on_unit: impl FnMut(&SpeechUnit, usize, usize),
 ) -> Result<(Vec<i16>, AppConfig)> {
+    let mut samples = Vec::new();
+    let max_samples = options.max_samples;
+    let route = synthesize_media_units(worker, config, text, options, |unit, pcm, rate| {
+        let start = samples.len();
+        media_routing::append_pcm(&mut samples, pcm, rate, max_samples)?;
+        on_unit(unit, start, samples.len() - start);
+        Ok(())
+    })?;
+    Ok((samples, route))
+}
+
+fn synthesize_media_units(
+    worker: &Arc<WorkerSupervisor>,
+    config: AppConfig,
+    text: &str,
+    options: MediaOptions<'_>,
+    mut on_unit: impl FnMut(&SpeechUnit, &[i16], u32) -> Result<()>,
+) -> Result<AppConfig> {
     privacy::text_metadata("tts", text);
     let mut route = config;
-    let mut samples = Vec::new();
     for unit in plan_units(text, 240)? {
         anyhow::ensure!((options.current)(), "speech rendering was cancelled");
         route = media_routing::unit_route(&route, &unit.text)?;
@@ -6827,11 +6864,9 @@ fn collect_routed_media(
             },
         )?;
         anyhow::ensure!((options.current)(), "speech rendering was cancelled");
-        let start = samples.len();
-        media_routing::append_pcm(&mut samples, &pcm, rate, options.max_samples)?;
-        on_unit(&unit, start, samples.len() - start);
+        on_unit(&unit, &pcm, rate)?;
     }
-    Ok((samples, route))
+    Ok(route)
 }
 
 fn server_tts_models() -> Vec<serde_json::Value> {
@@ -10272,12 +10307,12 @@ fn start_media_bridge_command(mut command: Command) -> Result<MediaBridge> {
         .spawn()
         .context("starting persistent media transcription bridge")?;
     #[cfg(windows)]
-    let job = match create_media_bridge_job(&mut child) {
+    let job = match reader_core::windows_job::Job::attach(&child) {
         Ok(job) => job,
         Err(error) => {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(error);
+            return Err(error).context("assigning media bridge to its private job object");
         }
     };
     let input = child
@@ -10317,10 +10352,7 @@ fn start_media_bridge_command(mut command: Command) -> Result<MediaBridge> {
         });
     if let Err(error) = worker {
         #[cfg(windows)]
-        unsafe {
-            windows_sys::Win32::System::JobObjects::TerminateJobObject(job, 1);
-            windows_sys::Win32::Foundation::CloseHandle(job);
-        }
+        job.terminate();
         #[cfg(target_os = "linux")]
         unsafe {
             libc::kill(-(child.id() as i32), libc::SIGKILL);
@@ -10335,6 +10367,29 @@ fn start_media_bridge_command(mut command: Command) -> Result<MediaBridge> {
         #[cfg(windows)]
         job,
     })
+}
+
+fn run_media_request(store: ConfigStore) -> Result<()> {
+    let request: MediaRequest = read_json_frame(&mut std::io::stdin().lock())?;
+    let app = App::new(store);
+    app.inner.desktop_enabled.store(false, Ordering::Release);
+    let result = match request {
+        MediaRequest::Render { input, output } => {
+            app.handle(LocalRequest::RenderFile { input, output })
+        }
+        MediaRequest::Play { input } => app.play_file(&input),
+        MediaRequest::Ocr { path } => app.handle(LocalRequest::OcrFile { path }),
+    };
+    let speech_cleanup = app.inner.tts.shutdown();
+    app.inner
+        .ocr_worker
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take();
+    let reply = result
+        .and_then(|reply| speech_cleanup.map(|_| reply))
+        .unwrap_or_else(|error| LocalReply::error(format!("{error:#}")));
+    write_json_frame(&mut std::io::stdout().lock(), &reply)
 }
 
 fn main() -> Result<()> {
@@ -10380,19 +10435,24 @@ fn main() -> Result<()> {
             .map(|config| config.privacy.log_content)
             .unwrap_or(false),
     );
-    tracing_subscriber::fmt()
+    let logger = tracing_subscriber::fmt()
         .event_format(privacy::LogFormat::default())
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+        );
+    if matches!(args.command, Mode::Media) {
+        logger.with_writer(std::io::stderr).init();
+    } else {
+        logger.init();
+    }
     match args.command {
         Mode::Daemon { no_desktop, .. } => {
             let app = App::new(store);
             serve_daemon(app, no_desktop)
         }
         Mode::Server => run_server(store),
+        Mode::Media => run_media_request(store),
         Mode::ListOutputDevices => unreachable!("dispatched before loading configuration"),
         #[cfg(windows)]
         Mode::CaptureWindow { .. } | Mode::CaptureFrame { .. } => {

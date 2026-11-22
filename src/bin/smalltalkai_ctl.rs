@@ -161,10 +161,7 @@ fn main() {
                 );
                 std::process::exit(2);
             }
-            if let Err(error) = smalltalkai::cli::dispatch_media(
-                command,
-                &mut smalltalkai::reader::ConfiguredBackend::default(),
-            ) {
+            if let Err(error) = smalltalkai::cli::run_media(command) {
                 eprintln!("smalltalkai-ctl: {error:#}");
                 std::process::exit(1);
             }

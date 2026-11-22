@@ -33,9 +33,24 @@ impl Transcriber {
             }
             return transcribe(wav, language);
         }
+        self.transcribe_owned(wav, language)
+    }
+
+    pub(crate) fn transcribe_owned(
+        &mut self,
+        wav: &Path,
+        language: Option<&str>,
+    ) -> Result<String> {
         let config = AppConfig::load()?;
         let normalized = normalized_language(language)?;
-        let language = normalized.as_deref();
+        let keyboard = if normalized.is_none()
+            && config.speech.selection_mode == crate::config::ModelSelectionMode::FollowKeyboard
+        {
+            crate::capture::input_language::active_keyboard_language().ok()
+        } else {
+            None
+        };
+        let language = normalized.as_deref().or(keyboard.as_deref());
         let route_language = language.unwrap_or("single");
         if config.speech.provider_for(route_language)
             == crate::config::SpeechProvider::RemoteOpenAiCompatible

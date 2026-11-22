@@ -18,7 +18,9 @@ port to a browser on another machine.
 
 On Linux, `smalltalkai-linux` exposes non-interactive media operations under
 `smalltalkai-linux media`. They use the same saved model, voice, device, and provider
-configuration as the desktop services. These commands do not modify settings.
+configuration as the desktop services. Each command owns its inference workers
+and releases them on completion, error, or Ctrl+C. The desktop and HTTP API can
+continue using their own workers. These commands do not modify settings.
 
 ```text
 smalltalkai-linux media transcribe recording.mp4 [--language english|arabic] [--json]
@@ -30,8 +32,9 @@ smalltalkai-linux media ocr scan.png [--json]
 ```
 
 Transcription accepts audio or video understood by `ffmpeg`. The CLI converts
-the audio stream to a temporary 16 kHz mono PCM WAV, then sends sequential
-chunks to the existing inference service. Chunks target 25 seconds, choosing
+the audio stream to a temporary 16 kHz mono PCM WAV, then transcribes sequential
+chunks with the saved provider. A local worker is reused for all chunks of the
+command. Chunks target 25 seconds, choosing
 the quietest 100 ms window in a nearby search range as their boundary; no
 samples are overlapped or discarded. Each chunk is capped at 35 seconds. If a
 recording has no quiet pause near a boundary, a word can still be split across
@@ -49,9 +52,14 @@ exit status. Speak accepts positional text, `--file`, or stdin. With no
 explicit source, piped stdin is read automatically; an interactive terminal
 with no text source exits with an error instead of waiting. `--stdin` forces
 stdin input. Input is UTF-8 and limited to 1 MiB, with file and stdin reads
-bounded before allocating more. Without `--output`, speech uses the installed
-reader playback service. With `--output`, the service writes a WAV file. Text
-is passed as data to the service API, never interpolated into a shell command.
+bounded before allocating more. Without `--output`, the command plays through
+your saved output device and waits for playback to finish. With `--output`, it
+publishes a complete WAV file and preserves any existing file at the
+destination.
+
+On Linux, `python3 scripts/test-media-oneshot.py --bin-dir target/debug` checks
+these lifetimes with the built CLI, Reader, speech and OCR workers, and the
+test-only `smalltalkai_mock_infer` binary.
 
 When automatic language selection is enabled, file speech rendering routes
 each detected text unit through its saved language assignment. Ambiguous units

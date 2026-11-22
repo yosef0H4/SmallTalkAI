@@ -169,10 +169,7 @@ fn main() -> Result<()> {
     });
     match Args::parse().command {
         LinuxCommand::Administration(command) => smalltalkai::admin::dispatch(command),
-        LinuxCommand::Media { command } => smalltalkai::cli::dispatch_media(
-            command,
-            &mut smalltalkai::reader::ConfiguredBackend::default(),
-        ),
+        LinuxCommand::Media { command } => smalltalkai::cli::run_media(command),
         LinuxCommand::Daemon { config } => daemon(config),
         LinuxCommand::Toggle {
             timeout,

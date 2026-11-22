@@ -356,4 +356,6 @@ for check in checks:
     print(" - " + check)
 need("src/capture/state.rs", "authentication_token", "PublishedCaptureToken", "delete_capture_token")
 need("src/capture_cli.rs", "state.authentication_token()")
+need("src/cli/one_shot.rs", "process_group(0)", "windows_job::Job::attach", "transcribe_owned", "persist_noclobber")
+need("scripts/test-media-oneshot.py", "desktop_reader", "desktop_capture", "signal.SIGINT")
 need("reader/crates/reader-core/src/secrets.rs", "capture-auth-{instance}-{pid}", "capture_credentials_are_scoped_to_profile_and_process")

@@ -12,12 +12,12 @@ from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
-BINARY = ROOT / 'target/debug' / ('simple-stt-settings.exe' if os.name == 'nt' else 'simple-stt-settings')
+BINARY = ROOT / 'target/debug' / ('smalltalkai-settings.exe' if os.name == 'nt' else 'smalltalkai-settings')
 
 
 def main():
     processes = []
-    with tempfile.TemporaryDirectory(prefix='simple-stt-settings-singleton-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-settings-singleton-') as temporary:
         directory = Path(temporary)
         env = dict(os.environ, SIMPLE_STT_CONFIG=str(directory / 'config.json'),
                    SIMPLE_STT_RUNTIME_ROOT=str(directory / 'runtime'),

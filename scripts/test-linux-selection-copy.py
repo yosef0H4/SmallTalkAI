@@ -3,7 +3,7 @@
 
 No host display, clipboard, session bus, microphone, or installed settings are used.
 Requires Xvfb, dbus-run-session, xdotool, xclip, gdbus, GTK3 Python GI and
-AT-SPI runtime components. Run after building resources/bin/linux-fast-paste.
+AT-SPI runtime components. Run after building resources/bin/smalltalkai-paste.
 """
 import argparse
 import ast
@@ -20,13 +20,13 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER = ROOT / 'resources/bin/linux-fast-paste'
+HELPER = ROOT / 'resources/bin/smalltalkai-paste'
 TARGET = ROOT / 'scripts/fixtures/selection-copy-target.py'
 EXPECTED = 'مرحبا بالعالم Hello world'.encode()
 ARTIFACT = ROOT / 'artifacts/combined-app/selection-copy-timings.json'
 LAUNCHER = Path('/usr/libexec/at-spi-bus-launcher')
 REGISTRY = Path('/usr/libexec/at-spi2-registryd')
-READERD = ROOT / 'target/debug/readerd'
+READERD = ROOT / 'target/debug/smalltalkai-reader'
 
 
 def wait_for(fn, description, seconds=6):
@@ -91,7 +91,7 @@ def session(folder):
             (root / 'command').write_text(f'{mode}:{sequence}')
             wait_for(lambda: (root / 'ready').exists() and (root / 'ready').read_text() == str(sequence),
                      'GTK target ' + mode)
-            search = run(['xdotool', 'search', '--name', 'Simple STT private selection target'], env)
+            search = run(['xdotool', 'search', '--name', 'SmallTalkAI private selection target'], env)
             if search.returncode:
                 raise RuntimeError('GTK target window unavailable')
             focus = run(['xdotool', 'windowfocus', '--sync', search.stdout.decode().splitlines()[0]], env)
@@ -101,13 +101,13 @@ def session(folder):
         set_mode('selected')
         sentinel = b'private-binary\0clipboard'
         owner = subprocess.Popen(['xclip', '-quiet', '-selection', 'clipboard', '-target',
-                                  'application/x-simple-stt-test'], env=env, stdin=subprocess.PIPE,
+                                  'application/x-smalltalkai-test'], env=env, stdin=subprocess.PIPE,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         owner.stdin.write(sentinel)
         owner.stdin.close()
         def clipboard(mime):
             return run(['xclip', '-selection', 'clipboard', '-out', '-target', mime], env)
-        wait_for(lambda: clipboard('application/x-simple-stt-test').stdout == sentinel, 'binary clipboard')
+        wait_for(lambda: clipboard('application/x-smalltalkai-test').stdout == sentinel, 'binary clipboard')
         direct = []
         for _ in range(10):
             start = time.monotonic()
@@ -115,7 +115,7 @@ def session(folder):
             direct.append((time.monotonic() - start) * 1000)
             if result.returncode != 0 or result.stdout != EXPECTED:
                 raise AssertionError(f'AT-SPI selection failed: {result.returncode} {result.stdout!r} {result.stderr!r}')
-        assert clipboard('application/x-simple-stt-test').stdout == sentinel, 'direct selection altered binary clipboard'
+        assert clipboard('application/x-smalltalkai-test').stdout == sentinel, 'direct selection altered binary clipboard'
         report['cases']['atspi'] = statistics_ms(direct)
         for mode, expected_exit in [('empty', 2), ('password', 1), ('button', 1)]:
             set_mode(mode)
@@ -211,18 +211,18 @@ def session(folder):
             nonlocal owner
             stop(owner)
             owner = subprocess.Popen(['xclip', '-quiet', '-selection', 'clipboard', '-target',
-                                      'application/x-simple-stt-test'], env=env, stdin=subprocess.PIPE,
+                                      'application/x-smalltalkai-test'], env=env, stdin=subprocess.PIPE,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             owner.stdin.write(sentinel)
             owner.stdin.close()
-            wait_for(lambda: clipboard('application/x-simple-stt-test').stdout == sentinel,
+            wait_for(lambda: clipboard('application/x-smalltalkai-test').stdout == sentinel,
                      'private binary clipboard')
 
         set_mode('selected')
         binary_clipboard()
         notice = action()
         assert 'missing' in notice.lower(), notice  # Selection reached TTS routing.
-        assert clipboard('application/x-simple-stt-test').stdout == sentinel, 'auto modified clipboard'
+        assert clipboard('application/x-smalltalkai-test').stdout == sentinel, 'auto modified clipboard'
         report['cases']['controller_auto_binary_preserved'] = 'pass'
 
         config('native')
@@ -284,7 +284,7 @@ def main():
     if probe.returncode:
         print('SKIP GTK3 Python GI unavailable')
         return
-    with tempfile.TemporaryDirectory(prefix='simple-stt-selection-x11-') as folder:
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-selection-x11-') as folder:
         root = Path(folder)
         runtime = root / 'runtime'
         runtime.mkdir(mode=0o700)

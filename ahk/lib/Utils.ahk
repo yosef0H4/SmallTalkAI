@@ -24,8 +24,8 @@ SimpleSttResolveExe(stem) {
     return sameDir
 }
 
-SimpleSttTempFile(prefix := "simple-stt") {
-    dir := A_Temp . "\simple-stt-shell"
+SimpleSttTempFile(prefix := "smalltalkai") {
+    dir := A_Temp . "\smalltalkai-shell"
     DirCreate(dir)
     return dir . "\" . prefix . "-" . A_TickCount . "-" . Random(100000, 999999) . ".txt"
 }

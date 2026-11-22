@@ -16,12 +16,12 @@ from pathlib import Path
 
 
 def main():
-    default_launcher = '/usr/lib/simple-stt/simple-stt-settings'
+    default_launcher = '/usr/lib/smalltalkai/smalltalkai-settings'
     launcher = Path(sys.argv[1] if len(sys.argv) > 1 else default_launcher).resolve()
     if not os.environ.get('DISPLAY'):
         raise SystemExit('Run this test on a private Xvfb display')
 
-    with tempfile.TemporaryDirectory(prefix='simple-stt-native-profile-') as temp:
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-native-profile-') as temp:
         root = Path(temp)
         env = os.environ.copy()
         for key in ('SIMPLE_STT_CONFIG', 'SIMPLE_STT_SETTINGS_DEV_ORIGIN',
@@ -57,7 +57,7 @@ def main():
         def window_id(pid):
             try:
                 windows = run('xdotool', 'search', '--onlyvisible', '--all', '--pid', str(pid),
-                              '--name', '^Simple STT Settings$').splitlines()
+                              '--name', '^SmallTalk$').splitlines()
                 return windows[0] if windows else None
             except subprocess.CalledProcessError:
                 return None

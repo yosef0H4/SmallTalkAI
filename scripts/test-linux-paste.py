@@ -14,7 +14,7 @@ def main():
     for command in ("Xvfb", "xclip", "xdotool", "python3"):
         if not shutil.which(command):
             raise SystemExit(f"Missing paste regression dependency: {command}")
-    with tempfile.TemporaryDirectory(prefix="simple-stt-paste-x11-") as folder:
+    with tempfile.TemporaryDirectory(prefix="smalltalkai-paste-x11-") as folder:
         display_file = Path(folder) / "display"
         with display_file.open("w+") as display:
             server = subprocess.Popen(
@@ -41,11 +41,11 @@ def main():
                            XDG_RUNTIME_DIR=str(runtime), GDK_BACKEND="x11", QT_QPA_PLATFORM="xcb",
                            DBUS_SESSION_BUS_ADDRESS=f"unix:path={runtime}/no-session-bus")
                 subprocess.run(
-                    ["cargo", "test", "--bin", "simple-stt-linux", "x11_delayed_paste_end_to_end", "--", "--nocapture"],
+                    ["cargo", "test", "--bin", "smalltalkai-linux", "x11_delayed_paste_end_to_end", "--", "--nocapture"],
                     cwd=ROOT, env=env, check=True, timeout=120,
                 )
                 subprocess.run(
-                    ["cargo", "test", "--bin", "simple-stt-linux", "x11_global_shortcut_end_to_end", "--", "--nocapture"],
+                    ["cargo", "test", "--bin", "smalltalkai-linux", "x11_global_shortcut_end_to_end", "--", "--nocapture"],
                     cwd=ROOT, env=dict(env, SIMPLE_STT_X11_E2E="1"), check=True, timeout=30,
                 )
                 subprocess.run(

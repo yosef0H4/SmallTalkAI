@@ -12,8 +12,8 @@ class TrayFixture {
 TrayController.IconDirectory := A_ScriptDir . "\..\icons"
 UiSetLanguage("en")
 tray := TrayController(TrayFixture())
-if !InStr(A_IconFile, "simple-stt.ico")
-    throw Error("Simple STT tray icon was not set",, A_IconFile)
+if !InStr(A_IconFile, "smalltalkai.ico")
+    throw Error("SmallTalkAI tray icon was not set",, A_IconFile)
 
 for language in ["en", "ar"] {
     UiSetLanguage(language)
@@ -41,7 +41,7 @@ for language in ["en", "ar"] {
     if !readAlongFound || bitmapCount < 10
         throw Error("Incomplete localized tray menu",, language)
 }
-FileAppend("PASS: Simple STT tray icon and localized native menu bitmaps`n", "*")
+FileAppend("PASS: SmallTalkAI tray icon and localized native menu bitmaps`n", "*")
 if A_Args.Length && A_Args[1] = "--show" {
     UiSetLanguage("en")
     tray.Rebuild()

@@ -10,7 +10,7 @@ E2E, static verification, and IPC tests:
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --all-targets
-cargo build --bin simple-stt-settings
+cargo build --bin smalltalkai-settings
 python scripts/test-settings-single-instance.py
 python scripts/test-settings-upgrade.py
 python scripts/test-settings-selection-api.py
@@ -47,7 +47,7 @@ The command runs:
 
 ```text
 cargo test --all-targets
-cargo build --bin simple-stt-settings
+cargo build --bin smalltalkai-settings
 python scripts\test-settings-selection-api.py
 python scripts\test-cleanup-settings-e2e.py
 python scripts\verify-static.py
@@ -64,7 +64,7 @@ Set `SIMPLE_STT_SKIP_MODEL_SMOKE=1` to skip only the AHK smoke that loads real s
 If a Windows host is unavailable, report native Windows runtime checks as
 unvalidated. They do not block committing changes validated on Linux.
 
-The cleanup E2E launches the real `simple-stt-settings` process against a
+The cleanup E2E launches the real `smalltalkai-settings` process against a
 deterministic OpenAI-compatible HTTP server, then exercises bootstrap and
 **Test cleanup** across the authenticated browser API. Debug-only provider
 values can be supplied through the ignored `.env` file documented by
@@ -99,7 +99,7 @@ Ctrl+Shift+V paste delivery
 restoration of a custom non-text clipboard format
 ```
 
-The end-to-end smoke uses isolated temporary config and state files. It does not overwrite `%APPDATA%\simple-stt\config.json` or reuse the live shell discovery file.
+The end-to-end smoke uses isolated temporary config and state files. It does not overwrite `%APPDATA%\smalltalkai\config.json` or reuse the live shell discovery file.
 
 The Windows AHK full smoke also uses a controlled edit window to switch the foreground thread between installed English and Arabic keyboard layouts. It checks the recording-start language event, runs the Arabic model test, and restores the original layout. The native inference check runs both English and Arabic models on CPU and Vulkan:
 
@@ -142,7 +142,7 @@ stationary compact Unicode waveform behavior
 new-recording supersession and delivery-completion acknowledgement
 ```
 
-`src/bin/simple_stt_mock_infer.rs` is a deterministic test-only worker. `tests/worker_lifecycle.rs` launches it as a real child process and covers:
+`src/bin/smalltalkai_mock_infer.rs` is a deterministic test-only worker. `tests/worker_lifecycle.rs` launches it as a real child process and covers:
 
 ```text
 lazy worker launch
@@ -154,7 +154,7 @@ blocked inference exact-PID termination fallback
 Unicode transcript transport across child pipes
 ```
 
-The release build script names `simple-stt-capture`, `simple-stt-infer`, `simple-stt-ctl`, and `simple-stt-settings`, so the mock binary is not staged.
+The release build script names `smalltalkai-capture`, `smalltalkai-infer`, `smalltalkai-ctl`, and `smalltalkai-settings`, so the mock binary is not staged.
 
 ## Run source and IPC checks only
 
@@ -174,7 +174,7 @@ The static verifier checks architectural invariants that are easy to regress dur
 ```text
 AHK v2 directives on every executable entry point
 split Rust binary structure
-Parakeet DLL isolation in simple-stt-infer
+Parakeet DLL isolation in smalltalkai-infer
 Common Controls v6 manifest embedding for modern tooltips
 loopback-only versioned control IPC
 framed Rust-to-Rust PCM protocol
@@ -215,7 +215,7 @@ with the same explicit `--listen` address and set `SIMPLE_STT_SETTINGS_DEV_ORIGI
 to Vite's HTTP loopback origin. Use a temporary config and data directory for previews.
 
 On Windows, build the desktop targets with
-`cargo build -p simple-stt -p simple-stt-settings-window --bin simple-stt-settings --bin simple-stt-settings-window --bin simple-stt-capture --bin simple-stt-ctl`.
+`cargo build -p smalltalkai -p smalltalkai-settings-window --bin smalltalkai-settings --bin smalltalkai-settings-window --bin smalltalkai-capture --bin smalltalkai-ctl`.
 Run `node scripts/test-settings-desktop.cjs` with Playwright and Python
 available. The test opens the native window, restores it on a second launch,
 suspends the page while capture restarts, saves a draft and verifies that
@@ -275,7 +275,7 @@ The native X11 shortcut listener has an opt-in end-to-end test. It needs `Xvfb`,
 
 ```bash
 Xvfb :99 -screen 0 1024x768x24 -nolisten tcp
-DISPLAY=:99 SIMPLE_STT_X11_E2E=1 cargo test --bin simple-stt-linux x11_global_shortcut_end_to_end -- --nocapture
+DISPLAY=:99 SIMPLE_STT_X11_E2E=1 cargo test --bin smalltalkai-linux x11_global_shortcut_end_to_end -- --nocapture
 ```
 
 The test registers `Meta+Z` through the production X11 parser and passive-grab path, synthesizes the chord with `xdotool`, and requires the corresponding X11 key event. The ordinary test suite skips external X-server interaction unless `SIMPLE_STT_X11_E2E` is set.
@@ -304,7 +304,7 @@ That sends AHK load errors to stderr instead of opening modal GUI error dialogs.
 Validated entry points:
 
 ```text
-ahk\simple-stt.ahk
+ahk\smalltalkai.ahk
 ahk\tests\hotkeys-manual.ahk
 ahk\tests\ipc-smoke.ahk
 ahk\tests\typing-smoke.ahk
@@ -344,7 +344,7 @@ The typing and paste checks intentionally use only `hello world` in controlled t
 
 `python scripts/test-recording-worker-reuse.py` uses the real capture service and
 microphone with an isolated copy of the test-only worker (never delivered through
-the desktop shell). Build `simple-stt-capture` and `simple_stt_mock_infer` in debug
+the desktop shell). Build `smalltalkai-capture` and `smalltalkai_mock_infer` in debug
 first. It checks interruption of a blocked transcription, replacement warm-up
 during the new recording, repeated ready-worker reuse without model notices,
 and rapid model switches with no obsolete transcript. The Rust lifecycle tests
@@ -380,7 +380,7 @@ For memory-specific measurements, see `docs/memory-cleanup-validation.md`.
 
 Linux desktop regression: `python scripts/test-linux-language.py --switch-layouts` briefly switches configured KDE English/Arabic layouts, verifies recording-start selection through authenticated capture IPC, tests both real models, unloads the worker, and restores the layout. For NVIDIA verification use `python scripts/test-inference-devices.py --mode both --language both --expect-gpu "NVIDIA GeForce RTX 3050 Ti"`; it requires the native selected-device log and an exact worker PID with NVIDIA VRAM allocation.
 
-Model selection regressions: `python scripts/test-settings-selection-api.py` exercises the real Settings HTTP server's current-format normalization, nullable selections, authenticated read-only discovery, unavailable Wayland, Save, and draft-only reset/import. Build the debug Settings binary first with `cargo build --bin simple-stt-settings`. `node scripts/test-settings-model-selection.cjs` exercises the browser UI using Playwright; install Playwright or set `NODE_PATH` to the bundled Node packages. It tests searchable mouse/keyboard selection, deterministic matches, preserved None, unavailable files, saved removal guards, download events, Save/Reset/import, and narrow layouts.
+Model selection regressions: `python scripts/test-settings-selection-api.py` exercises the real Settings HTTP server's current-format normalization, nullable selections, authenticated read-only discovery, unavailable Wayland, Save, and draft-only reset/import. Build the debug Settings binary first with `cargo build --bin smalltalkai-settings`. `node scripts/test-settings-model-selection.cjs` exercises the browser UI using Playwright; install Playwright or set `NODE_PATH` to the bundled Node packages. It tests searchable mouse/keyboard selection, deterministic matches, preserved None, unavailable files, saved removal guards, download events, Save/Reset/import, and narrow layouts.
 
 The Linux language regression also checks silent skipped starts, real shell toggle/stop state and clipboard preservation, and worker PID reuse when English and Arabic share a model. The Windows full smoke checks skipped starts and explicitly selects its installed fixture models; run `scripts\test-full.cmd` when validating on Windows. Windows cross-compilation verifies build compatibility but does not replace native keyboard, AHK, or Vulkan desktop tests; report those checks as unvalidated when no Windows host is available.
 
@@ -406,7 +406,7 @@ RAM is separate. Background shell/capture code is outside this UI overhaul.
 
 ### Retry and clean clipboard delivery
 
-Historical X11 direct-insertion coverage (retired with portal-only injection): `scripts/test-linux-paste.py`. Use `test-portal-input-e2e.py` for current input. The original suite ran after building `simple-stt-linux` and running `python scripts/build-linux-fast-paste.py`. The wrapper invokes `test-linux-clean-clipboard.py` under an isolated X server and accessibility bus, never the user's desktop; the helper must not be run standalone. In addition to delayed paste consumption, these check real Unicode direct insertion while preserving a custom binary clipboard format; large X11 INCR transfers and history-exclusion hints; yielding to user copies; and the real retry CLI against an authenticated capture fixture. Retry must use exact cached final text in the current editor, never retransform it, never start recording/inference, never persist the cache, and leave ongoing work alone when no cache exists. Option-off must leave an ordinary copy with no exclusion hint.
+Historical X11 direct-insertion coverage (retired with portal-only injection): `scripts/test-linux-paste.py`. Use `test-portal-input-e2e.py` for current input. The original suite ran after building `smalltalkai-linux` and running `python scripts/build-smalltalkai-paste.py`. The wrapper invokes `test-linux-clean-clipboard.py` under an isolated X server and accessibility bus, never the user's desktop; the helper must not be run standalone. In addition to delayed paste consumption, these check real Unicode direct insertion while preserving a custom binary clipboard format; large X11 INCR transfers and history-exclusion hints; yielding to user copies; and the real retry CLI against an authenticated capture fixture. Retry must use exact cached final text in the current editor, never retransform it, never start recording/inference, never persist the cache, and leave ongoing work alone when no cache exists. Option-off must leave an ordinary copy with no exclusion hint.
 
 The retry fixture holds Meta/Ctrl on that private display and requires the CLI to wait, then insert exactly once after release. It asserts progress, submission, empty-cache and failure notices. Rust tests also cover arming on press, quick release, duplicate press/release events, and accepting the next deliberate retry. The wrapper removes inherited Wayland/accessibility connections and uses a private runtime directory and D-Bus session. Render the English/Arabic retry notices with `overlay-e2e --offscreen`; live KDE portal timing still requires a user desktop pass.
 
@@ -418,7 +418,7 @@ Run `node scripts/test-settings-localization.cjs` with Playwright available. Set
 
 ## Isolated Wayland clipboard restoration
 
-Build `simple-stt-linux` and the native paste helper, then run:
+Build `smalltalkai-linux` and the native paste helper, then run:
 
 ```sh
 python scripts/test-linux-unicode-input.py
@@ -430,13 +430,13 @@ The Wayland harness also offers 37 image MIME types and three serialized slow
 image conversions. It verifies paste completion and byte-exact restoration of
 every format, plus failure before selection replacement for a stalled source.
 For an isolated old/new regression comparison, supply the previous installed
-Linux binary via `SIMPLE_STT_OLD_SHELL=/usr/lib/simple-stt/simple-stt-linux`;
+Linux binary via `SIMPLE_STT_OLD_SHELL=/usr/lib/smalltalkai/smalltalkai-linux`;
 that binary is launched only inside the private compositor.
 
 ### Resident current clipboard buffer
 
 Run `python scripts/test-linux-unicode-input.py --cache-only` after building
-`simple-stt-linux` and the production paste helper. It starts the resident
+`smalltalkai-linux` and the production paste helper. It starts the resident
 buffer on a private KWin compositor, warms a slow multi-format image once, and
 requires paste readiness within 1.5 seconds without rereading the original
 image provider. It checks repeated warm reuse, exact full-format restoration,
@@ -512,7 +512,7 @@ Settings single-instance reuse is scoped to the executable build, not just the i
 
 ## RemoteDesktop default delivery
 
-On the KDE Wayland desktop, after compiling `simple-stt-linux`, `simple-stt-ctl` and the native helper, run `/usr/bin/python3 scripts/test-linux-portal-input.py`. It creates a temporary editor and isolated settings, and may show the keyboard-control permission dialog. It exercises real default Unicode paste twice, including portal restoration; cached transcription is a fixture. Logs stay in its printed temporary artifacts directory.
+On the KDE Wayland desktop, after compiling `smalltalkai-linux`, `smalltalkai-ctl` and the native helper, run `/usr/bin/python3 scripts/test-linux-portal-input.py`. It creates a temporary editor and isolated settings, and may show the keyboard-control permission dialog. It exercises real default Unicode paste twice, including portal restoration; cached transcription is a fixture. Logs stay in its printed temporary artifacts directory.
 
 Add `--typing` to the same live harness to exercise selectable Type mode instead. This checks exact repeated multilingual insertion and compares clipboard formats and bytes before/after. Current Type uses the shared EIS text broker. Historical AT-SPI results do not validate this path; use the private portal-input E2E above for unattended checks.
 
@@ -565,7 +565,7 @@ speech providers. Portal support depends on the compositor/backend; see
 [recorded-action research](research/recorded-actions.md). Native Windows and
 compositor playback are not established by browser or fake-backend tests.
 
-Read-along streaming: `cargo test -p readerd chunk_stream::tests` verifies early
+Read-along streaming: `cargo test -p smalltalkai-reader chunk_stream::tests` verifies early
 first-chunk delivery, FIFO metadata, and cancellation of a full producer queue.
 `cargo test -p reader-core text_prep::tests` covers literal English/Arabic
 exclusions, case folding, phrases and word boundaries. Run
@@ -596,15 +596,15 @@ A native desktop run is still required for region selection and hotkey input.
 
 HUD regression: `cargo test --workspace normal_and_read_along_huds_share_visible_chunk_progress`
 checks the same visible counter in both reading modes and locales.
-`cargo test -p readerd failed_new_read_does_not_publish` checks stale-session
+`cargo test -p smalltalkai-reader failed_new_read_does_not_publish` checks stale-session
 cleanup and saved-area retry eligibility after an initial OCR failure.
 
-Portal session ownership: after `cargo build -p readerd`, run
+Portal session ownership: after `cargo build -p smalltalkai-reader`, run
 `python scripts/test-portal-session-lifecycle.py` with `dbus-next` and
 `dbus-run-session` installed. It uses a private bus and no desktop/input devices.
 Ten setup attempts cover denied starts, granted sessions with failed EIS setup,
 canceled consent and cancellation while CreateSession is pending. Require ten
 explicit closes and zero live sessions. The unchanged installed binary provides
-a differential baseline via `SIMPLE_STT_TEST_READERD=/usr/lib/simple-stt/readerd`.
+a differential baseline via `SIMPLE_STT_TEST_READERD=/usr/lib/smalltalkai/smalltalkai-reader`.
 Run the existing `scripts/test-portal-input-e2e.py` private KWin pass to check
 normal Unicode input, cancellation, macros, pointer use and clipboard recovery.

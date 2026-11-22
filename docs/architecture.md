@@ -1,19 +1,19 @@
-# Simple STT architecture after overhaul
+# SmallTalkAI architecture after overhaul
 
 ## Process boundaries
 
 ```text
-simple-stt.cmd
-    launches bundled AutoHotkey64.exe with simple-stt.ahk
+smalltalkai.cmd
+    launches bundled AutoHotkey64.exe with smalltalkai.ahk
     thin AutoHotkey v2 desktop shell
     ├── tray icon and stateful menu
     ├── runtime hold/toggle recording hotkeys and Caps Lock tap behavior
     ├── foreground target capture and Unicode transcript typing
     ├── start-with-Windows shortcut
     ├── user-facing notices and shell log
-    └── exact-PID supervision of simple-stt-capture.exe
+    └── exact-PID supervision of smalltalkai-capture.exe
 
-simple-stt-ctl.exe
+smalltalkai-ctl.exe
     disposable one-shot control helper
     ├── reads discovery state file
     ├── performs protocol/token handshake
@@ -21,7 +21,7 @@ simple-stt-ctl.exe
     ├── translates JSON response to escaped UTF-8 tab records
     └── exits
 
-simple-stt-capture.exe
+smalltalkai-capture.exe
     persistent lightweight Rust service
     ├── CPAL microphone capture
     ├── gain, mono downmix, linear 16 kHz resampling
@@ -31,9 +31,9 @@ simple-stt-capture.exe
     ├── model downloads and tests off the control thread
     ├── optional asynchronous AI transcript cleanup and in-memory history
     ├── optional bounded, in-memory screen context capture
-    └── lazy supervision of simple-stt-infer.exe
+    └── lazy supervision of smalltalkai-infer.exe
 
-simple-stt-settings.exe → simple-stt-settings-window.exe
+smalltalkai-settings.exe → smalltalkai-settings-window.exe
     Settings launcher and on-demand native Settings process
     ├── the Tauri window and authenticated loopback server share one process
     ├── one OS-locked desktop session per installation; reopening focuses its window
@@ -45,7 +45,7 @@ simple-stt-settings.exe → simple-stt-settings-window.exe
     ├── stores provider credentials only in the operating-system vault
     └── exits when the desktop window closes; only local browser sessions use an idle timeout
 
-simple-stt-infer.exe
+smalltalkai-infer.exe
     disposable Rust inference worker
     ├── only active component allowed to load parakeet.dll
     ├── only active component allowed to load GGUF models
@@ -59,9 +59,9 @@ simple-stt-infer.exe
 | Feature | Owner | Notes |
 | --- | --- | --- |
 | Tray icon/menu | AHK shell | `A_TrayMenu`, menu object APIs, `TraySetIcon()`. |
-| Linux global shortcuts | `simple-stt-linux` | Automatic backend selection uses GlobalShortcuts on Wayland, native X11 passive grabs on X11, and documented compositor commands when no Wayland portal exists. KDE Plasma on Fedora Wayland is the only real-hardware-tested Linux environment; other desktops remain experimental. |
-| Linux dictation output | `simple-stt-linux` + local reader controller | Action-only delivery settings. The controller serializes RemoteDesktop EIS typing, shortcuts and clicks with persistent grants, bounded cancellation and KDE foreground checks. Clipboard transactions preserve full formats. No legacy injector fallback; HTTP inference never exposes desktop input. |
-| Settings UI | `simple-stt-settings` and `simple-stt-settings-window` | A shared Tauri window on Windows and Linux with the embedded Svelte/TypeScript UI. Explicit browser mode uses the same server without loading the desktop helper. Node is a build-time dependency only. |
+| Linux global shortcuts | `smalltalkai-linux` | Automatic backend selection uses GlobalShortcuts on Wayland, native X11 passive grabs on X11, and documented compositor commands when no Wayland portal exists. KDE Plasma on Fedora Wayland is the only real-hardware-tested Linux environment; other desktops remain experimental. |
+| Linux dictation output | `smalltalkai-linux` + local reader controller | Action-only delivery settings. The controller serializes RemoteDesktop EIS typing, shortcuts and clicks with persistent grants, bounded cancellation and KDE foreground checks. Clipboard transactions preserve full formats. No legacy injector fallback; HTTP inference never exposes desktop input. |
+| Settings UI | `smalltalkai-settings` and `smalltalkai-settings-window` | A shared Tauri window on Windows and Linux with the embedded Svelte/TypeScript UI. Explicit browser mode uses the same server without loading the desktop helper. Node is a build-time dependency only. |
 | User hotkeys | AHK shell | Runtime `Hotkey()` bindings; CapsLock custom combination path. |
 | Final typing | AHK shell | Variable-paced per-character `SendText()`; target HWND checked before every character. |
 | Service PID supervision | AHK shell | PID from `Run()`; graceful request then `ProcessWaitClose()` and exact-PID `ProcessClose()` fallback. |
@@ -92,7 +92,7 @@ mutex, so queued obsolete requests cannot start inference later.
 AHK hotkey down
   capture foreground HWND
   assign session id
-  asynchronously launch: simple-stt-ctl start-recording
+  asynchronously launch: smalltalkai-ctl start-recording
 
 capture service
   resolve fixed speech language or the foreground window's keyboard layout
@@ -102,16 +102,16 @@ capture service
   append future 16 kHz PCM frames to active session buffer
 
 AHK hotkey up
-  asynchronously launch: simple-stt-ctl stop-recording
+  asynchronously launch: smalltalkai-ctl stop-recording
 
 capture service
   stop buffer
   reject clips shorter than 100 ms
   set Transcribing overlay state
-  lazily launch or reuse simple-stt-infer
+  lazily launch or reuse smalltalkai-infer
   send framed PCM request on child stdin
 
-simple-stt-infer
+smalltalkai-infer
   lazy-load the selected Parakeet runtime and GGUF model if needed
   transcribe PCM
   return framed Unicode transcript on stdout
@@ -123,7 +123,7 @@ capture service
   keep the Transcribing overlay visible while awaiting desktop delivery acknowledgement
 
 AHK poll timer
-  launch simple-stt-ctl poll-events
+  launch smalltalkai-ctl poll-events
   receive transcript event
   deliver the newest transcript by typing, paste, or clipboard
   verify same HWND before every chunk
@@ -153,7 +153,7 @@ system memory pressure OR idle timeout reached OR Unload Speech Model OR model/r
   operating system reclaims worker RAM and VRAM allocations with process exit
 ```
 
-`simple-stt-capture.exe` never links or imports the active native loader module. Static verification checks that `libloading` appears only in `src/infer/parakeet_native.rs`. Capture control handlers read the child PID from an atomic tracker rather than waiting on the worker mutex, preserving responsiveness even when inference is blocked.
+`smalltalkai-capture.exe` never links or imports the active native loader module. Static verification checks that `libloading` appears only in `src/infer/parakeet_native.rs`. Capture control handlers read the child PID from an atomic tracker rather than waiting on the worker mutex, preserving responsiveness even when inference is blocked.
 
 ## Overlay state model
 
@@ -184,11 +184,11 @@ own waveform update cadence.
 
 ## Install-relative runtime paths
 
-Relative runtime and model directories resolve against the runtime root. Checkout builds under `target\debug` or `target\release` walk back to the repository root. Packaged shortcuts target `simple-stt.cmd`, which launches `runtime\AutoHotkey64.exe` with `runtime\simple-stt.ahk`; the shell then resolves relative paths against the installed runtime directory. The bundled smoke fixture is `fixtures\parakeet-smoke.wav`.
+Relative runtime and model directories resolve against the runtime root. Checkout builds under `target\debug` or `target\release` walk back to the repository root. Packaged shortcuts target `smalltalkai.cmd`, which launches `runtime\AutoHotkey64.exe` with `runtime\smalltalkai.ahk`; the shell then resolves relative paths against the installed runtime directory. The bundled smoke fixture is `fixtures\parakeet-smoke.wav`.
 
 ## Helper subprocess completion
 
-The AHK shell does not trust helper PID disappearance alone. `simple-stt-ctl` publishes its response file atomically; the shell timer accepts that file as completion, applies a bounded helper timeout, and terminates only the tracked helper PID on timeout. Readiness probes are de-duplicated.
+The AHK shell does not trust helper PID disappearance alone. `smalltalkai-ctl` publishes its response file atomically; the shell timer accepts that file as completion, applies a bounded helper timeout, and terminates only the tracked helper PID on timeout. Readiness probes are de-duplicated.
 
 ## Structured log prefix
 
@@ -198,7 +198,7 @@ Every Rust log writer prefixes each emitted line with `component=<capture|infer>
 
 The shell remembers one final, transformed dictation (including trailing space) in memory before attempting delivery. Windows keeps it in the AHK shell; Linux sends it through authenticated IPC to a bounded 1 MiB capture-service cache. `RememberDelivery` accepts only a pending delivery session, and an older completion cannot replace newer cached text. Empty dictations and config reloads retain the previous cache. Closing/restarting the owning process clears it; no retry-cache file is written.
 
-`Repeat last action` chooses the latest reader or dictation action using timestamps, without sharing its payload between processes. Dictation repeats the cached final transcript using current delivery settings, without recording, inference, cleanup, or applying text transforms again. Text-only reading reruns the saved source text with current reading settings. Screenshot reading and OCR copy recapture the saved window-relative region and run OCR again; they never reopen selection or send a page-advance key. Active read-along repeats its current sentence. Source text, transcript caches, and saved regions remain in memory only. Empty cache is a no-op. Unsupported region backends show a clear error instead of guessing coordinates. Windows defaults to CapsLock+V; Linux defaults to Meta+Ctrl+V. Wayland portal users assign Repeat through their desktop shortcut dialog; compositor bindings can run `simple-stt-linux repeat`. The legacy `retry-delivery` CLI alias is preserved.
+`Repeat last action` chooses the latest reader or dictation action using timestamps, without sharing its payload between processes. Dictation repeats the cached final transcript using current delivery settings, without recording, inference, cleanup, or applying text transforms again. Text-only reading reruns the saved source text with current reading settings. Screenshot reading and OCR copy recapture the saved window-relative region and run OCR again; they never reopen selection or send a page-advance key. Active read-along repeats its current sentence. Source text, transcript caches, and saved regions remain in memory only. Empty cache is a no-op. Unsupported region backends show a clear error instead of guessing coordinates. Windows defaults to CapsLock+V; Linux defaults to Meta+Ctrl+V. Wayland portal users assign Repeat through their desktop shortcut dialog; compositor bindings can run `smalltalkai-linux repeat`. The legacy `retry-delivery` CLI alias is preserved.
 
 Linux portal and X11 retries arm on press and deliver once on release. A tooltip asks the user to release the keys, then reports progress, submission, clipboard fallback, empty cache, or failure. X11 additionally waits for shortcut modifiers to be released; Wayland allows a brief settling period because the portal does not expose global physical key state. X11 releases are matched to the pressed trigger even when a modifier is released first, and detectable autorepeat prevents a held chord from queuing retries. Submission feedback means the paste chord was sent, not that the target acknowledged insertion.
 
@@ -218,7 +218,7 @@ The base Linux package contains no optional speech or OCR inference runtimes or 
 
 Parakeet Vulkan and CUDA 13 are separate downloads. Runtime selection retains the existing `speech.runtime_dir` contract, previews in Settings and takes effect on Save. The native worker chooses a physical device exposed by that runtime (CUDA or Vulkan); explicit CPU remains available inside either runtime. The source checkout and sibling Simple TTS checkout are never runtime dependencies.
 
-Reader components live in `reader/crates/` and are built as workspace members. `reader-core` owns dependency-light settings and framed IPC. On-demand `readerd` owns bounded speech chunking, playback, replacement/cancellation generations, clipboard listening and optional authenticated APIs. Only `reader-tts` loads Sherpa/Kokoro/Supertonic; only `reader-ocr` loads PaddleOCR through ONNX Runtime or performs the independent vision-provider request. Both are disposable processes. `reader-hud` uses Simple STT's native overlay, fonts and shortcut footer. The embedded controller skips its standalone tray and shortcut registrations; the Simple STT shell owns all ten actions. Reading controls and provider drafts share the existing Settings Save bar. Reading settings have their own revision-checked JSON file under the installed profile's `reader/` directory; credentials use the separate `simple-stt-reader` vault namespace. Accessing Settings does not start a reader/audio device.
+Reader components live in `reader/crates/` and are built as workspace members. `reader-core` owns dependency-light settings and framed IPC. On-demand `smalltalkai-reader` owns bounded speech chunking, playback, replacement/cancellation generations, clipboard listening and optional authenticated APIs. Only `smalltalkai-tts` loads Sherpa/Kokoro/Supertonic; only `smalltalkai-ocr` loads PaddleOCR through ONNX Runtime or performs the independent vision-provider request. Both are disposable processes. `smalltalkai-reader-hud` uses SmallTalkAI's native overlay, fonts and shortcut footer. The embedded controller skips its standalone tray and shortcut registrations; the SmallTalkAI shell owns all ten actions. Reading controls and provider drafts share the existing Settings Save bar. Reading settings have their own revision-checked JSON file under the installed profile's `reader/` directory; credentials use the separate `smalltalkai-reader` vault namespace. Accessing Settings does not start a reader/audio device.
 
 Read-aloud and OCR share the Sherpa ONNX processor/NVIDIA runtime downloads. Model weights are installed separately. Each Paddle text model declares its detector, recognizer, dictionary and decoding preset in the central registry; shared detector/dictionary files are verified once and hard-linked into each model bundle. Only the selected bundle loads in the disposable OCR worker. Legacy Arabic dictionaries opt into their required reversal rule; other dictionaries retain their own text order. PP-OCRv6 bundles use their matching detector size and detection defaults. The existing Arabic/English bundle remains recommended. No Python interpreter is required for downloads or runtime operation. The existing Simple TTS installation/configuration is left untouched. Native Windows runtime/desktop qualification remains outstanding.
 

@@ -1,4 +1,4 @@
-# Design — Simple STT Settings
+# Design — SmallTalkAI Settings
 
 The settings editor is a quiet workbench: fast to scan, explicit about pending changes, and friendly to both first-time and technical users.
 

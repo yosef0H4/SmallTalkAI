@@ -563,22 +563,20 @@ where
     }
 }
 
-pub fn remove_model(config: &AppConfig, filename: &str) -> Result<()> {
+pub fn remove_model(filename: &str) -> Result<AppConfig> {
+    let _lock = crate::config::lock_config()?;
+    let mut config = AppConfig::load()?;
+    let path = AppConfig::config_path();
+    remove_model_from(&mut config, filename, |next| next.save_to(&path))?;
+    Ok(config)
+}
+
+fn remove_model_from(
+    config: &mut AppConfig,
+    filename: &str,
+    save: impl FnOnce(&AppConfig) -> Result<()>,
+) -> Result<()> {
     validate_model_filename(filename)?;
-    let mut usages = Vec::new();
-    if config.speech.single_model_filename.as_deref() == Some(filename) {
-        usages.push("Use one model".to_owned());
-    }
-    for (language, assigned) in &config.speech.language_models {
-        if assigned.as_deref() == Some(filename) {
-            usages.push(format!("{language} keyboard language"));
-        }
-    }
-    anyhow::ensure!(
-        usages.is_empty(),
-        "model is assigned to {}; save another choice before removing it",
-        usages.join(", ")
-    );
     anyhow::ensure!(
         catalog_for_config(config)
             .iter()
@@ -586,8 +584,28 @@ pub fn remove_model(config: &AppConfig, filename: &str) -> Result<()> {
         "model is not in the approved catalog"
     );
     let path = config.model_dir_path().join(filename);
-    anyhow::ensure!(path.is_file(), "model is not installed");
-    fs::remove_file(&path).with_context(|| format!("removing model {}", path.display()))
+    let mut next = config.clone();
+    let speech = &mut next.speech;
+    for assigned in std::iter::once(&mut speech.single_model_filename)
+        .chain(speech.language_models.values_mut())
+    {
+        if assigned.as_deref() == Some(filename) {
+            *assigned = None;
+        }
+    }
+    anyhow::ensure!(!path.is_dir(), "model path is a directory");
+    crate::assets::remove_download(
+        &path,
+        |path| fs::remove_file(path),
+        || {
+            if next.speech != config.speech {
+                save(&next)?;
+            }
+            Ok(())
+        },
+    )?;
+    *config = next;
+    Ok(())
 }
 
 pub fn smoke_audio_path() -> PathBuf {
@@ -761,22 +779,45 @@ mod tests {
         let removable = "tdt_ctc-110m-q4_k.gguf";
         let path = temp.path().join(removable);
         fs::write(&path, b"fixture").unwrap();
-        remove_model(&config, removable).unwrap();
+        remove_model_from(&mut config, removable, |_| panic!("no assignments changed")).unwrap();
         assert!(!path.exists());
     }
     #[test]
-    fn selected_model_is_not_removed() {
+    fn removal_clears_single_and_keyboard_assignments_and_rolls_back_on_save_error() {
         let temp = tempfile::tempdir().unwrap();
         let mut config = AppConfig::default();
         config.speech.model_dir = temp.path().display().to_string();
         let selected = "tdt_ctc-110m-q8_0.gguf".to_owned();
+        config.speech.single_model_filename = Some(selected.clone());
         config
             .speech
             .language_models
             .insert("fr".into(), Some(selected.clone()));
+        config
+            .speech
+            .language_models
+            .insert("en".into(), Some("tdt_ctc-110m-f16.gguf".into()));
         let path = temp.path().join(&selected);
         fs::write(&path, b"fixture").unwrap();
-        assert!(remove_model(&config, &selected).is_err());
+        assert!(remove_model_from(&mut config, &selected, |_| {
+            anyhow::bail!("failed to save")
+        })
+        .is_err());
         assert!(path.exists());
+        assert_eq!(
+            config.speech.single_model_filename.as_ref(),
+            Some(&selected)
+        );
+
+        let saved = temp.path().join("config.json");
+        remove_model_from(&mut config, &selected, |next| next.save_to(&saved)).unwrap();
+        assert!(!path.exists());
+        let reloaded = AppConfig::load_from(&saved).unwrap();
+        assert_eq!(reloaded.speech.single_model_filename, None);
+        assert_eq!(reloaded.speech.language_models["fr"], None);
+        assert_eq!(
+            reloaded.speech.language_models["en"].as_deref(),
+            Some("tdt_ctc-110m-f16.gguf")
+        );
     }
 }

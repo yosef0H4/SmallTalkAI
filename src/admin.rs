@@ -173,9 +173,9 @@ pub fn dispatch(command: Command) -> Result<()> {
             }
             crate::reader::initialize()?;
             let executable = std::env::current_exe()?.with_file_name(if cfg!(windows) {
-                "readerd.exe"
+                "smalltalkai-reader.exe"
             } else {
-                "readerd"
+                "smalltalkai-reader"
             });
             let status = std::process::Command::new(executable)
                 .args(["--config"])
@@ -507,10 +507,10 @@ fn activate_server_token(token: &str) -> Result<()> {
             .join("simple-stt/server.env");
         write_server_token(&path, token)?;
         let status = std::process::Command::new("systemctl")
-            .args(["--user", "restart", "simple-stt-server.service"])
+            .args(["--user", "restart", "smalltalkai-server.service"])
             .status()
-            .context("token saved; could not restart simple-stt-server.service")?;
-        anyhow::ensure!(status.success(), "token saved, but server restart failed; run systemctl --user restart simple-stt-server.service");
+            .context("token saved; could not restart smalltalkai-server.service")?;
+        anyhow::ensure!(status.success(), "token saved, but server restart failed; run systemctl --user restart smalltalkai-server.service");
         Ok(())
     }
     #[cfg(windows)]
@@ -655,13 +655,11 @@ fn assets(command: AssetCommand) -> Result<()> {
             }
         }
         AssetCommand::Remove { id } => {
-            let stt = load_app_config()?;
-            let reader = crate::reader::load()?;
-            anyhow::ensure!(
-                !is_assigned_or_dependency(&id, &stt, &reader),
-                "asset is assigned; change its selection before removing it"
-            );
-            crate::assets::Manager::default().remove(&id)?;
+            if id.ends_with(".gguf") {
+                crate::models::remove_model(&id)?;
+            } else {
+                crate::assets::Manager::default().remove(&id)?;
+            }
             print(&json!({"removed": id}))
         }
         AssetCommand::Select {
@@ -677,29 +675,6 @@ fn install_job(jobs: Vec<crate::assets::Progress>, id: &str) -> Result<crate::as
     jobs.into_iter()
         .find(|job| job.job_id == id)
         .context("download job disappeared")
-}
-
-fn is_assigned_or_dependency(
-    id: &str,
-    stt: &crate::config::AppConfig,
-    reader: &reader_core::AppConfig,
-) -> bool {
-    let catalog = crate::assets::catalog();
-    let mut needed = std::collections::BTreeSet::new();
-    for asset in &catalog {
-        if crate::assets::assigned(&asset.id, stt, reader) {
-            let mut pending = vec![asset.id.as_str()];
-            while let Some(current) = pending.pop() {
-                if !needed.insert(current.to_owned()) {
-                    continue;
-                }
-                if let Some(current) = catalog.iter().find(|candidate| candidate.id == current) {
-                    pending.extend(current.dependencies.iter().map(String::as_str));
-                }
-            }
-        }
-    }
-    needed.contains(id)
 }
 
 fn select(feature: Feature, model: &str, runtime: &str, language: Option<&str>) -> Result<()> {
@@ -882,19 +857,5 @@ mod tests {
         let mut value = json!({"a":[1]});
         assert!(set_value(&mut value, "a.2", json!(3)).is_err());
         assert!(set_value(&mut value, "/a/~2", json!(3)).is_err());
-    }
-
-    #[test]
-    fn dependency_removal_is_blocked_for_assigned_assets() {
-        let dependency = crate::assets::catalog()
-            .into_iter()
-            .find(|asset| !asset.dependencies.is_empty())
-            .expect("catalog includes an asset with dependencies");
-        let stt = crate::config::AppConfig::default();
-        let mut reader = crate::reader::defaults();
-        reader.speech.selection.single.model = Some(dependency.id.clone());
-        let required = dependency.dependencies.first().unwrap();
-        assert!(is_assigned_or_dependency(required, &stt, &reader));
-        assert!(!is_assigned_or_dependency("unrelated-id", &stt, &reader));
     }
 }

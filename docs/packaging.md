@@ -8,7 +8,7 @@ From the repository root, run:
 build-distribution.cmd
 ```
 
-This is the supported release command. It runs Rust tests, builds the release binaries, stages the AutoHotkey shell script with a bundled AutoHotkey v2 runtime, creates the installer, creates the ZIP archive, and prints SHA-256 hashes.
+This is the supported release command. It runs Rust tests, builds the release binaries, uses the AutoHotkey script compiler to build `SmallTalkAI.exe`, and creates the installer and ZIP archive with SHA-256 hashes.
 
 Windows setup installs the app. Download inference runtimes and models explicitly in Settings > Models, as on Linux. Upgrades preserve existing models, runtimes, settings, and startup shortcuts. The installer version comes from Cargo.toml.
 
@@ -41,7 +41,7 @@ read from Cargo rather than maintained separately.
 
 Windows and Linux download inference runtimes separately. Windows Vulkan comes
 from the upstream Parakeet release. Windows CUDA dictation uses a
-[Simple STT build for Blackwell](https://github.com/yosef0H4/simple-stt-runtimes/releases/tag/parakeet-abi6-cuda12.8-sm120-v1)
+[SmallTalkAI build for Blackwell](https://github.com/yosef0H4/simple-stt-runtimes/releases/tag/parakeet-abi6-cuda12.8-sm120-v1)
 with CUDA Runtime and cuBLAS fetched directly from NVIDIA. The Windows CUDA
 dictation runtime also requires the x64 Microsoft Visual C++ Redistributable.
 Settings can download Sherpa CUDA and its pinned dependencies for reading and
@@ -62,29 +62,30 @@ survive. Its screenshot and logs are saved under
 The one-command build writes:
 
 ```text
-artifacts\dist\simple-stt-setup.exe
-artifacts\dist\simple-stt-portable.zip
+artifacts\dist\smalltalkai-setup.exe
+artifacts\dist\smalltalkai-portable.zip
 ```
 
 The portable archive contains the same runtime payload used by the installer:
 
 ```text
-simple-stt-portable\
-    simple-stt.cmd
+smalltalkai-portable\
+    smalltalkai.cmd
     LICENSE
     START_HERE.txt
     THIRD_PARTY_NOTICES.md
     runtime\
-        AutoHotkey64.exe                    bundled AutoHotkey v2 runtime
-        simple-stt.ahk                      readable AutoHotkey shell entry point
+        SmallTalkAI.exe                     branded desktop process
+        AutoHotkey64.exe                    bundled interpreter for helper scripts
+        smalltalkai.ahk                      readable AutoHotkey shell entry point
         lib\                                shell support scripts
-        simple-stt-capture.exe
-        simple-stt-infer.exe
-        simple-stt-ctl.exe
+        smalltalkai-capture.exe
+        smalltalkai-infer.exe
+        smalltalkai-ctl.exe
         fixtures\parakeet-smoke.wav
 ```
 
-Installer-created Start Menu, Desktop, and Startup shortcuts target `simple-stt.cmd`; the command file launches the bundled AutoHotkey runtime with `runtime\simple-stt.ahk`.
+Installer-created Start Menu, Desktop, and Startup shortcuts open `runtime\SmallTalkAI.exe`. The portable launcher `smalltalkai.cmd` opens the same executable. Upgrades reuse the existing install directory and support shortcuts to the legacy command file.
 
 ## Prerequisites
 
@@ -93,6 +94,7 @@ The distribution builder expects these tools and files on the Windows developer 
 ```text
 Rust stable toolchain with Cargo
 AutoHotkey v2 runtime (AutoHotkey64.exe)
+AutoHotkey script compiler (Ahk2Exe.exe)
 Inno Setup 6 compiler (ISCC.exe)
 fixtures\parakeet-smoke.wav
 ```
@@ -123,7 +125,7 @@ For an editable source run after bootstrap:
 .\scripts\run-dev.ps1
 ```
 
-Runtime data remains under `%APPDATA%\simple-stt` and `%LOCALAPPDATA%\simple-stt`.
+Runtime data remains under `%APPDATA%\smalltalkai` and `%LOCALAPPDATA%\smalltalkai`.
 
 ## Settings GUI preview during packaging-adjacent UI work
 

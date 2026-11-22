@@ -1,5 +1,5 @@
 [package]
-name = "simple-stt"
+name = "smalltalkai"
 version = "0.3.1"
 edition = "2021"
 license = "GPL-2.0-only"
@@ -87,28 +87,28 @@ wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 x11rb = { version = "0.13", features = ["xkb"] }
 
 [[bin]]
-name = "simple-stt-capture"
-path = "src/bin/simple_stt_capture.rs"
+name = "smalltalkai-capture"
+path = "src/bin/smalltalkai_capture.rs"
 
 [[bin]]
-name = "simple-stt-infer"
-path = "src/bin/simple_stt_infer.rs"
+name = "smalltalkai-infer"
+path = "src/bin/smalltalkai_infer.rs"
 
 [[bin]]
-name = "simple-stt-ctl"
-path = "src/bin/simple_stt_ctl.rs"
+name = "smalltalkai-ctl"
+path = "src/bin/smalltalkai_ctl.rs"
 
 [[bin]]
-name = "simple-stt-linux"
-path = "src/bin/simple_stt_linux.rs"
+name = "smalltalkai-linux"
+path = "src/bin/smalltalkai_linux.rs"
 
 [[bin]]
-name = "simple-stt-settings"
-path = "src/bin/simple_stt_settings.rs"
+name = "smalltalkai-settings"
+path = "src/bin/smalltalkai_settings.rs"
 
 [[bin]]
-name = "simple_stt_mock_infer"
-path = "src/bin/simple_stt_mock_infer.rs"
+name = "smalltalkai_mock_infer"
+path = "src/bin/smalltalkai_mock_infer.rs"
 
 [[bin]]
 name = "overlay-e2e"
@@ -116,7 +116,7 @@ path = "src/bin/overlay_e2e.rs"
 
 [workspace]
 resolver = "2"
-members = ["reader/crates/reader-core", "reader/crates/reader-tts", "reader/crates/reader-ocr", "reader/crates/readerd", "reader/crates/readerctl", "desktop/settings"]
+members = ["reader/crates/reader-core", "reader/crates/smalltalkai-tts", "reader/crates/smalltalkai-ocr", "reader/crates/smalltalkai-reader", "reader/crates/smalltalkai-readerctl", "desktop/settings"]
 
 [workspace.package]
 version = "0.3.1"
@@ -143,5 +143,5 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
 [[bin]]
-name = "reader-hud"
+name = "smalltalkai-reader-hud"
 path = "src/bin/reader_hud.rs"

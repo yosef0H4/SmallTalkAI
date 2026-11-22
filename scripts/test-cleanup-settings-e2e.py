@@ -60,12 +60,12 @@ def main():
     provider = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
     threading.Thread(target=provider.serve_forever, daemon=True).start()
     binary = ROOT / "target" / "debug" / (
-        "simple-stt-settings.exe" if os.name == "nt" else "simple-stt-settings"
+        "smalltalkai-settings.exe" if os.name == "nt" else "smalltalkai-settings"
     )
     if not binary.is_file():
         raise SystemExit(f"settings binary missing: {binary}")
 
-    with tempfile.TemporaryDirectory(prefix="simple-stt-cleanup-e2e-") as temp:
+    with tempfile.TemporaryDirectory(prefix="smalltalkai-cleanup-e2e-") as temp:
         env = os.environ.copy()
         env.update(
             {

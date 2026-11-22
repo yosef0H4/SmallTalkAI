@@ -48,8 +48,8 @@ def stop_settings_server(process):
 
 
 def main():
-    binary = ROOT / 'target/debug' / ('simple-stt-settings.exe' if os.name == 'nt' else 'simple-stt-settings')
-    with tempfile.TemporaryDirectory(prefix='simple-stt-selection-api-') as temporary:
+    binary = ROOT / 'target/debug' / ('smalltalkai-settings.exe' if os.name == 'nt' else 'smalltalkai-settings')
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-selection-api-') as temporary:
         config = Path(temporary) / 'config.json'
         env = dict(os.environ, SIMPLE_STT_CONFIG=str(config),
                    SIMPLE_STT_RUNTIME_ROOT=str(Path(temporary) / "runtime"),

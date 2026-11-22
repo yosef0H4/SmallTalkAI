@@ -1,11 +1,11 @@
 {
-  "productName": "Simple STT Settings",
+  "productName": "SmallTalk",
   "identifier": "io.github.yosef0h4.simple-stt.settings",
   "app": {
     "windows": [],
     "security": { "capabilities": [] }
   },
   "bundle": {
-    "icon": ["../../ahk/icons/simple-stt.ico", "icons/icon.png"]
+    "icon": ["../../ahk/icons/smalltalkai.ico", "../../icons/hicolor/64x64/apps/smalltalkai.png"]
   }
 }

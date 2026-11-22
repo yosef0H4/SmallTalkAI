@@ -100,7 +100,7 @@ class WorkerMonitor:
 
     def _run(self):
         while not self.stop.wait(.01):
-            sample = {'reader-tts': set(), 'reader-ocr': set()}
+            sample = {'smalltalkai-tts': set(), 'smalltalkai-ocr': set()}
             for pid in children(self.pid):
                 name = executable(pid)
                 if name in sample:
@@ -172,7 +172,7 @@ def main():
             print('SKIP GPU reader integration: no usable NVIDIA GPU; use --device cpu --tts-runtime-id sherpa-cpu for CPU coverage', flush=True)
             return
     binaries = {name: (args.bin_dir / name).resolve() for name in
-                ('simple-stt-linux', 'readerd', 'readerctl', 'reader-tts', 'reader-ocr')}
+                ('smalltalkai-linux', 'smalltalkai-reader', 'smalltalkai-readerctl', 'smalltalkai-tts', 'smalltalkai-ocr')}
     for path in binaries.values():
         if not path.is_file():
             raise SystemExit(f'missing executable: {path}')
@@ -190,10 +190,10 @@ def main():
     if not args.stt_runtime:
         print('SKIP mixed GPU STT: provide --stt-runtime and --stt-model', flush=True)
 
-    with tempfile.TemporaryDirectory(prefix='simple-stt-reader-service-') as tmp:
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-reader-service-') as tmp:
         private = Path(tmp)
         data = private / 'data'
-        reader = data / 'simple-stt' / 'reader'
+        reader = data / 'smalltalkai' / 'reader'
         reader.mkdir(parents=True)
         assets = reader.parent / 'assets'
         ocr_model = catalog['paddle-ar-en']
@@ -234,7 +234,7 @@ def main():
                    XDG_CACHE_HOME=str(private / 'cache'), SIMPLE_STT_RUNTIME_ROOT=str(private / 'runtime'),
                    SIMPLE_STT_READER_DATA=str(reader), SIMPLE_TTS_CONFIG=str(reader / 'config.json'),
                    SIMPLE_TTS_NO_DESKTOP='1', DISPLAY='', WAYLAND_DISPLAY='',
-                   DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-simple-stt-test-bus')
+                   DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-smalltalkai-test-bus')
         env['SIMPLE_TTS_SERVER_TOKEN'] = 'private-reader-acceptance-token'
         if args.stt_runtime:
             if not args.stt_runtime.is_dir() or not args.stt_model.is_file() or not args.stt_input.is_file():
@@ -256,18 +256,18 @@ def main():
         config_path = reader / 'config.json'
         config_path.write_text(json.dumps(config))
         observed = set()
-        with (private / 'readerd.log').open('w+') as log:
-            daemon = subprocess.Popen([str(binaries['readerd']), 'daemon', '--foreground', '--no-desktop'],
+        with (private / 'smalltalkai-reader.log').open('w+') as log:
+            daemon = subprocess.Popen([str(binaries['smalltalkai-reader']), 'daemon', '--foreground', '--no-desktop'],
                                       env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
             monitor = WorkerMonitor(daemon.pid)
             try:
                 def socket_ready():
                     if daemon.poll() is not None:
                         log.flush()
-                        raise AssertionError(f'controller exited {daemon.returncode}: {(private / "readerd.log").read_text()}')
+                        raise AssertionError(f'controller exited {daemon.returncode}: {(private / "smalltalkai-reader.log").read_text()}')
                     return (reader / 'simple-tts.sock').exists()
                 wait_for(socket_ready, 10, 'private controller socket')
-                cli = binaries['simple-stt-linux']
+                cli = binaries['smalltalkai-linux']
                 def ocr():
                     start = time.monotonic()
                     text = run([cli, 'media', 'ocr', FIXTURE], env)
@@ -288,31 +288,31 @@ def main():
                     observed.update(pids)
                     return pids
 
-                ocr_pids = observed_operation('reader-ocr', ocr)
-                ocr_pid = wait_for(lambda: worker(daemon.pid, 'reader-ocr'), 3, 'retained OCR')
+                ocr_pids = observed_operation('smalltalkai-ocr', ocr)
+                ocr_pid = wait_for(lambda: worker(daemon.pid, 'smalltalkai-ocr'), 3, 'retained OCR')
                 assert ocr_pid in ocr_pids and monitor.owned_alive(ocr_pid)
                 ocr_tick = monitor.identities[ocr_pid]
-                observed_operation('reader-ocr', ocr)
-                assert worker(daemon.pid, 'reader-ocr') == ocr_pid and start_tick(ocr_pid) == ocr_tick, 'OCR was not reused'
+                observed_operation('smalltalkai-ocr', ocr)
+                assert worker(daemon.pid, 'smalltalkai-ocr') == ocr_pid and start_tick(ocr_pid) == ocr_tick, 'OCR was not reused'
                 wait_for(lambda: not monitor.owned_alive(ocr_pid), 9, 'OCR idle timeout')
                 print(f'PASS OCR exact-PID {ocr_pid}/{ocr_tick} reuse and idle expiry', flush=True)
                 if tts_available:
-                    file_pids = observed_operation('reader-tts', lambda: speak(private / 'first.wav'))
-                    file_pid = wait_for(lambda: worker(daemon.pid, 'reader-tts'), 3, 'retained file voice')
+                    file_pids = observed_operation('smalltalkai-tts', lambda: speak(private / 'first.wav'))
+                    file_pid = wait_for(lambda: worker(daemon.pid, 'smalltalkai-tts'), 3, 'retained file voice')
                     assert file_pid in file_pids and monitor.owned_alive(file_pid)
                     file_tick = monitor.identities[file_pid]
-                    observed_operation('reader-tts', lambda: speak(private / 'second.wav'))
-                    assert worker(daemon.pid, 'reader-tts') == file_pid and start_tick(file_pid) == file_tick, 'file voice was not reused'
+                    observed_operation('smalltalkai-tts', lambda: speak(private / 'second.wav'))
+                    assert worker(daemon.pid, 'smalltalkai-tts') == file_pid and start_tick(file_pid) == file_tick, 'file voice was not reused'
                     # An unassigned language cannot borrow the English model,
                     # even though that runtime and model are installed and warm.
                     unassigned_output = private / 'unassigned-arabic.wav'
                     missing = subprocess.run([str(cli), 'media', 'speak', 'مرحبا بالعالم.', '--output', str(unassigned_output)], env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=15)
                     assert missing.returncode != 0 and not unassigned_output.exists(), 'unassigned Arabic inherited an English assignment'
-                    assert worker(daemon.pid, 'reader-tts') == file_pid and monitor.owned_alive(file_pid), 'missing language retired the configured voice'
+                    assert worker(daemon.pid, 'smalltalkai-tts') == file_pid and monitor.owned_alive(file_pid), 'missing language retired the configured voice'
                     print('PASS unassigned Arabic is rejected without inheriting or unloading English', flush=True)
                     # OCR's shorter timeout must not retire the independent file voice.
-                    ocr_pids = observed_operation('reader-ocr', ocr)
-                    ocr_pid = wait_for(lambda: worker(daemon.pid, 'reader-ocr'), 3, 'second retained OCR')
+                    ocr_pids = observed_operation('smalltalkai-ocr', ocr)
+                    ocr_pid = wait_for(lambda: worker(daemon.pid, 'smalltalkai-ocr'), 3, 'second retained OCR')
                     assert ocr_pid in ocr_pids
                     wait_for(lambda: not monitor.owned_alive(ocr_pid), 9, 'independent OCR idle timeout')
                     assert monitor.owned_alive(file_pid), 'OCR timeout retired the voice worker'
@@ -331,9 +331,9 @@ def main():
                         stop_monitor = threading.Event()
                         def monitor_stt():
                             while not stop_monitor.wait(0.01):
-                                active = {pid for pid in children(stt.pid) if executable(pid) == 'simple-stt-infer'}
+                                active = {pid for pid in children(stt.pid) if executable(pid) == 'smalltalkai-infer'}
                                 stt_pids.update(active)
-                                if active and workers(daemon.pid, 'reader-tts') and workers(daemon.pid, 'reader-ocr'):
+                                if active and workers(daemon.pid, 'smalltalkai-tts') and workers(daemon.pid, 'smalltalkai-ocr'):
                                     triple.set()
                         monitor_thread = threading.Thread(target=monitor_stt)
                         monitor_thread.start()
@@ -352,7 +352,7 @@ def main():
                             assert stt_pids, 'did not observe actual STT worker while active'
                             assert triple.is_set(), 'did not observe STT, OCR and TTS workers concurrently'
                             wait_for(lambda: all(not alive(pid) for pid in stt_pids), 5, 'STT worker exit')
-                            for name in ('reader-tts', 'reader-ocr'):
+                            for name in ('smalltalkai-tts', 'smalltalkai-ocr'):
                                 pids = monitor.since(mark, name)
                                 observed.update(pids)
                                 assert pids, f'{name} was not observed during mixed work'
@@ -378,7 +378,7 @@ def main():
                         port = port_probe.getsockname()[1]
                     config['server'] = {'enabled': True, 'listen': f'127.0.0.1:{port}'}
                     config_path.write_text(json.dumps(config))
-                    run([binaries['readerctl'], 'server-start'], env)
+                    run([binaries['smalltalkai-readerctl'], 'server-start'], env)
                     base_url = f'http://127.0.0.1:{port}'
                     def http(path, value=None, authorized=True):
                         headers = {'Content-Type':'application/json'}
@@ -397,7 +397,7 @@ def main():
                         result = []
                         def request_speech():
                             result.append(http('/v1/audio/speech', {'input':text, 'response_format':'wav'}))
-                        pids = observed_operation('reader-tts', request_speech)
+                        pids = observed_operation('smalltalkai-tts', request_speech)
                         live = {pid for pid in pids if monitor.owned_alive(pid)}
                         assert live, 'API voice exited immediately after completion'
                         if api_pid is None:
@@ -416,16 +416,16 @@ def main():
                     def request_ocr():
                         result.append(json.loads(http('/v1/chat/completions', {'model':'simple-tts-ocr', 'messages':[
                             {'role':'user','content':[{'type':'image_url','image_url':{'url':image}}]}]})))
-                    http_ocr_pids = observed_operation('reader-ocr', request_ocr)
+                    http_ocr_pids = observed_operation('smalltalkai-ocr', request_ocr)
                     recognized = result[0]
                     assert recognized['choices'][0]['message']['content'] == EXPECTED, recognized
-                    run([binaries['readerctl'], 'unload-now'], env)
-                    wait_for(lambda: not workers(daemon.pid,'reader-tts') and not workers(daemon.pid,'reader-ocr'), 5, 'Unload all native models')
+                    run([binaries['smalltalkai-readerctl'], 'unload-now'], env)
+                    wait_for(lambda: not workers(daemon.pid,'smalltalkai-tts') and not workers(daemon.pid,'smalltalkai-ocr'), 5, 'Unload all native models')
                     assert json.loads(http('/v1/models'))['data'], 'Unload stopped the API listener'
-                    fresh_pids = observed_operation('reader-ocr', ocr)
+                    fresh_pids = observed_operation('smalltalkai-ocr', ocr)
                     assert fresh_pids.isdisjoint(http_ocr_pids), f'OCR reused an unloaded PID: {http_ocr_pids} / {fresh_pids}'
-                    run([binaries['readerctl'], 'unload-now'], env)
-                    wait_for(lambda: not workers(daemon.pid, 'reader-ocr'), 5, 'fresh OCR unload')
+                    run([binaries['smalltalkai-readerctl'], 'unload-now'], env)
+                    wait_for(lambda: not workers(daemon.pid, 'smalltalkai-ocr'), 5, 'fresh OCR unload')
                     print('PASS authenticated HTTP WAV and unload-all with listener retained', flush=True)
                 else:
                     print('PASS CLI OCR and private controller', flush=True)
@@ -436,12 +436,12 @@ def main():
                 config['ocr']['idle_timeout_secs'] = 4
                 config['playback']['keep_warm_seconds'] = 30
                 config_path.write_text(json.dumps(config))
-                cpu_pids = observed_operation('reader-ocr', ocr)
-                cpu_pid = wait_for(lambda: worker(daemon.pid, 'reader-ocr'), 5, 'cheap CPU OCR retained')
+                cpu_pids = observed_operation('smalltalkai-ocr', ocr)
+                cpu_pid = wait_for(lambda: worker(daemon.pid, 'smalltalkai-ocr'), 5, 'cheap CPU OCR retained')
                 assert cpu_pid in cpu_pids
                 for _ in range(2):
-                    observed_operation('reader-ocr', ocr)
-                    assert worker(daemon.pid, 'reader-ocr') == cpu_pid, 'CPU OCR was not reused'
+                    observed_operation('smalltalkai-ocr', ocr)
+                    assert worker(daemon.pid, 'smalltalkai-ocr') == cpu_pid, 'CPU OCR was not reused'
                 maps = Path(f'/proc/{cpu_pid}/maps').read_text()
                 assert 'libonnxruntime_providers_cuda' not in maps, 'CPU auto OCR loaded CUDA provider'
                 if shutil.which('nvidia-smi'):
@@ -455,7 +455,7 @@ def main():
                 assert after_idle['cpu_ticks'] - before_idle['cpu_ticks'] <= 2, (before_idle, after_idle)
                 print(f'PASS retained CPU OCR idle ticks: {after_idle["cpu_ticks"] - before_idle["cpu_ticks"]}', flush=True)
                 wait_for(lambda: not monitor.owned_alive(cpu_pid), 8, 'independent CPU OCR idle timeout')
-                assert not workers(daemon.pid, 'reader-ocr')
+                assert not workers(daemon.pid, 'smalltalkai-ocr')
                 print('PASS CPU auto OCR reuse and independent idle expiry', flush=True)
                 if args.device == 'gpu':
                     # CPU execution must stay cheap even when the user has only
@@ -463,8 +463,8 @@ def main():
                     config['ocr']['selection']['single'] = binding('paddle-cuda', 'paddle-ar-en')
                     config['ocr']['selection']['single']['device'] = 'auto'
                     config_path.write_text(json.dumps(config))
-                    observed_operation('reader-ocr', ocr)
-                    cpu_pid = wait_for(lambda: worker(daemon.pid, 'reader-ocr'), 5, 'CPU OCR with CUDA runtime retained')
+                    observed_operation('smalltalkai-ocr', ocr)
+                    cpu_pid = wait_for(lambda: worker(daemon.pid, 'smalltalkai-ocr'), 5, 'CPU OCR with CUDA runtime retained')
                     assert 'libonnxruntime_providers_cuda' not in Path(f'/proc/{cpu_pid}/maps').read_text()
                     gpu_list = run(['nvidia-smi', '--query-compute-apps=pid,used_gpu_memory',
                                     '--format=csv,noheader,nounits'], env, timeout=5)
@@ -474,18 +474,18 @@ def main():
                     after_idle = footprint(cpu_pid)
                     assert after_idle['cpu_ticks'] - before_idle['cpu_ticks'] <= 2, (before_idle, after_idle)
                     print(f'PASS CPU OCR with CUDA runtime idle ticks: {after_idle["cpu_ticks"] - before_idle["cpu_ticks"]}', flush=True)
-                    run([binaries['readerctl'], 'unload-now'], env)
+                    run([binaries['smalltalkai-readerctl'], 'unload-now'], env)
                     wait_for(lambda: not monitor.owned_alive(cpu_pid), 5, 'CPU OCR manual unload')
                     print('PASS automatic CPU OCR uses CUDA runtime without loading CUDA provider or allocating VRAM', flush=True)
                 assert daemon.poll() is None, 'controller exited during CLI requests'
             finally:
                 monitor.close()
-                observed.update(monitor.since(0, 'reader-tts'))
-                observed.update(monitor.since(0, 'reader-ocr'))
+                observed.update(monitor.since(0, 'smalltalkai-tts'))
+                observed.update(monitor.since(0, 'smalltalkai-ocr'))
                 shutdown_error = None
                 if daemon.poll() is None:
                     try:
-                        run([binaries['readerctl'], 'shutdown'], env, timeout=8)
+                        run([binaries['smalltalkai-readerctl'], 'shutdown'], env, timeout=8)
                         daemon.wait(timeout=8)
                     except Exception as error:
                         shutdown_error = error

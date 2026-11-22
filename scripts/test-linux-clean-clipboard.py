@@ -50,16 +50,16 @@ def main():
 
 
 def run_checks():
-    with tempfile.TemporaryDirectory(prefix="simple-stt-clean-") as folder:
+    with tempfile.TemporaryDirectory(prefix="smalltalkai-clean-") as folder:
         folder = Path(folder)
         ready, output = folder / "ready", folder / "output"
         target = folder / "target.py"
         target.write_text('''import gi,sys,pathlib
 gi.require_version('Gtk','3.0')
 from gi.repository import Gtk,GLib
-win=Gtk.Window(title='Simple STT isolated accessible target')
+win=Gtk.Window(title='SmallTalkAI isolated accessible target')
 edit=Gtk.Entry();edit.set_text('before ');win.add(edit)
-other=Gtk.Window(title='Simple STT isolated other target')
+other=Gtk.Window(title='SmallTalkAI isolated other target')
 other_edit=Gtk.Entry();other.add(other_edit)
 other_edit.connect('changed',lambda *args:pathlib.Path(sys.argv[3]).write_text(other_edit.get_text()))
 other.show_all()
@@ -73,22 +73,22 @@ GLib.timeout_add(1000,ready);Gtk.main()
         other_output = folder / 'other-output'
         app = subprocess.Popen(["/usr/bin/python3", str(target), str(ready), str(output), str(other_output)], env=env,
                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        old = subprocess.Popen(["xclip", "-quiet", "-selection", "clipboard", "-target", "application/x-simple-stt-test"],
+        old = subprocess.Popen(["xclip", "-quiet", "-selection", "clipboard", "-target", "application/x-smalltalkai-test"],
                                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         sentinel = b"original-binary\x00format"
         old.stdin.write(sentinel); old.stdin.close()
         try:
             wait_for(ready.exists, "accessible editor did not start")
-            win = subprocess.check_output(["xdotool", "search", "--name", "Simple STT isolated accessible target"], text=True).splitlines()[0]
+            win = subprocess.check_output(["xdotool", "search", "--name", "SmallTalkAI isolated accessible target"], text=True).splitlines()[0]
             subprocess.run(["xdotool", "windowfocus", "--sync", win], check=True)
             time.sleep(.15)
             payload = "hello مرحبا 🙂 "
-            inserted = subprocess.run([str(ROOT / "resources/bin/linux-fast-paste"), "--insert-text"], input=payload.encode(),
+            inserted = subprocess.run([str(ROOT / "resources/bin/smalltalkai-paste"), "--insert-text"], input=payload.encode(),
                                       capture_output=True, timeout=8, env=env)
             assert inserted.returncode == 0, (inserted.returncode, inserted.stdout, inserted.stderr)
             assert inserted.stdout == b"attempt\n"
             wait_for(lambda: output.exists() and output.read_text() == "before " + payload, "Unicode direct insertion mismatch")
-            actual = subprocess.check_output(["xclip", "-selection", "clipboard", "-out", "-target", "application/x-simple-stt-test"], timeout=3)
+            actual = subprocess.check_output(["xclip", "-selection", "clipboard", "-out", "-target", "application/x-smalltalkai-test"], timeout=3)
             assert actual == sentinel, "direct insertion changed non-text clipboard"
             print("PASS direct Unicode insertion leaves binary clipboard untouched")
             for delay in (26, 14, 0):
@@ -98,7 +98,7 @@ GLib.timeout_add(1000,ready);Gtk.main()
                 before = output.read_text()
                 typed = 'Hello مرحبا 🙂 '
                 started = time.monotonic()
-                result = subprocess.run([str(ROOT / 'resources/bin/linux-fast-paste'), '--type-text',
+                result = subprocess.run([str(ROOT / 'resources/bin/smalltalkai-paste'), '--type-text',
                                          '--typing-delay-ms', str(delay)], input=typed.encode(),
                                         capture_output=True, timeout=8, env=env)
                 elapsed = time.monotonic() - started
@@ -106,7 +106,7 @@ GLib.timeout_add(1000,ready);Gtk.main()
                 assert result.stdout == b'attempt\n'
                 wait_for(lambda: output.read_text() == before + typed, 'Unicode typing mismatch')
                 assert subprocess.check_output(['xclip', '-selection', 'clipboard', '-out', '-target',
-                                                'application/x-simple-stt-test'], timeout=3) == sentinel
+                                                'application/x-smalltalkai-test'], timeout=3) == sentinel
                 if delay:
                     assert elapsed >= (len(typed) - 1) * delay / 1000, 'paced typing skipped delays'
                 print(f'PASS Unicode typing delay={delay} elapsed_ms={elapsed*1000:.1f}, clipboard untouched')
@@ -114,14 +114,14 @@ GLib.timeout_add(1000,ready);Gtk.main()
                 subprocess.run(['xdotool', 'windowfocus', '--sync', win], env=env, check=True)
                 subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+End'], env=env, check=True)
                 before = output.read_text()
-                pending = subprocess.Popen([str(ROOT / 'resources/bin/linux-fast-paste'), '--type-text',
+                pending = subprocess.Popen([str(ROOT / 'resources/bin/smalltalkai-paste'), '--type-text',
                                             '--typing-delay-ms', '100'], env=env, stdin=subprocess.PIPE,
                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 try:
                     pending.stdin.write(b'Controlled typing must stop here.');pending.stdin.close();pending.stdin=None
                     wait_for(lambda: output.read_text() != before, 'paced typing did not start')
                     if cause == 'focus':
-                        other_win = subprocess.check_output(['xdotool', 'search', '--name', 'Simple STT isolated other target'], env=env, text=True).splitlines()[0]
+                        other_win = subprocess.check_output(['xdotool', 'search', '--name', 'SmallTalkAI isolated other target'], env=env, text=True).splitlines()[0]
                         subprocess.run(['xdotool', 'windowfocus', '--sync', other_win], env=env, check=True)
                         stdout, stderr = pending.communicate(timeout=3)
                         assert pending.returncode == 2, (pending.returncode, stdout, stderr)
@@ -131,7 +131,7 @@ GLib.timeout_add(1000,ready);Gtk.main()
                     time.sleep(.075)
                     stopped = output.read_text();time.sleep(.2)
                     assert output.read_text() == stopped and len(stopped) < len(before) + 32, 'typing continued after cancellation/focus loss'
-                    assert subprocess.check_output(['xclip', '-selection', 'clipboard', '-out', '-target', 'application/x-simple-stt-test'], timeout=3) == sentinel
+                    assert subprocess.check_output(['xclip', '-selection', 'clipboard', '-out', '-target', 'application/x-smalltalkai-test'], timeout=3) == sentinel
                     print(f'PASS paced Unicode typing stops after {cause}; no clipboard change or redirected text')
                 finally:
                     if pending.poll() is None:pending.kill();pending.communicate(timeout=3)
@@ -151,7 +151,7 @@ GLib.timeout_add(1000,ready);Gtk.main()
             app.terminate(); app.communicate(timeout=5)
             old.terminate(); old.wait(timeout=5)
         text = "مرحبا world 🙂 " * 10000
-        owner = subprocess.Popen([str(ROOT / "target/debug/simple-stt-linux"), "clipboard-owner"], stdin=subprocess.PIPE,
+        owner = subprocess.Popen([str(ROOT / "target/debug/smalltalkai-linux"), "clipboard-owner"], stdin=subprocess.PIPE,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         owner.stdin.write(text.encode()); owner.stdin.close()
         try:
@@ -180,7 +180,7 @@ def test_retry(folder, output, initial, mode="paste_ctrl_v", payload="Retry EXAC
         "preserve_clipboard": False, "lowercase": True, "remove_punctuation": True, "trailing_space": True}}))
     hashed = 0xcbf29ce484222325
     for byte in str(runtime).encode(): hashed = ((hashed ^ byte) * 0x100000001b3) & ((1 << 64) - 1)
-    state_root = data / "simple-stt" / "instances" / f"runtime-{hashed:016x}"
+    state_root = data / "smalltalkai" / "instances" / f"runtime-{hashed:016x}"
     state_dir = state_root / "state"
     state_dir.mkdir(parents=True)
     (state_root / "linux-token").write_text("isolated-retry-token")
@@ -221,7 +221,7 @@ def test_retry(folder, output, initial, mode="paste_ctrl_v", payload="Retry EXAC
             except Exception as error: errors.append(error)
     thread = threading.Thread(target=serve); thread.start()
     env = dict(os.environ, SIMPLE_STT_CONFIG=str(config), SIMPLE_STT_RUNTIME_ROOT=str(runtime), XDG_DATA_HOME=str(data))
-    binary = ROOT / "target/debug/simple-stt-linux"
+    binary = ROOT / "target/debug/smalltalkai-linux"
     try:
         # Hold the trigger modifiers on this private X server. Retry must wait
         # instead of injecting Meta+Ctrl+V into the editor or clearing keys.

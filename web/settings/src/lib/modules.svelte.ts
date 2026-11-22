@@ -1,7 +1,7 @@
 import {api} from './api';
 import type {AssetState} from './reader';
 export type Feature='stt'|'tts'|'ocr';
-function rememberedPage():'runtime'|'model' {try {return localStorage.getItem('simple-stt-model-page')==='runtime'?'runtime':'model';}catch {return 'model';}}
+function rememberedPage():'runtime'|'model' {try {return localStorage.getItem('smalltalkai-model-page')==='runtime'?'runtime':'model';}catch {return 'model';}}
 export const catalogView=$state<{feature:Feature;kind:'runtime'|'model';panel:'models'|'cleanup'}>({feature:'stt',kind:rememberedPage(),panel:'models'});
 export interface Runtime {id:string;feature:Feature;engine:string;backend:string;label:string;asset:string|null;installed:boolean;directory:string|null;recommended?:boolean;recommendation?:string|null}
 export interface ModuleModel {id:string;feature:Feature;engine:string;label:string;languages:string[];installed:boolean;asset:string|null;recommended?:boolean;recommendation?:string|null}

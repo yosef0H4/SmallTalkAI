@@ -19,8 +19,8 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "scripts/fixtures/linux-unicode"
-HELPER = ROOT / "resources/bin/linux-fast-paste"
-SHELL = Path(os.environ.get("SIMPLE_STT_TEST_SHELL", ROOT / "target/debug/simple-stt-linux")).resolve()
+HELPER = ROOT / "resources/bin/smalltalkai-paste"
+SHELL = Path(os.environ.get("SIMPLE_STT_TEST_SHELL", ROOT / "target/debug/smalltalkai-linux")).resolve()
 OLD_SHELL = os.environ.get("SIMPLE_STT_OLD_SHELL")
 IMAGE_FORMAT_COUNT = 37
 SLOW_FORMATS = tuple(
@@ -95,12 +95,12 @@ def compile_slow_clipboard_provider(build_dir):
 
 
 def stress_clipboard_snapshot(seed=0):
-    mimes = [f"image/x-simple-stt-e2e-{index:02d}" for index in range(IMAGE_FORMAT_COUNT)]
+    mimes = [f"image/x-smalltalkai-e2e-{index:02d}" for index in range(IMAGE_FORMAT_COUNT)]
     mimes.extend(SLOW_FORMATS)
     snapshot = {}
     for info, mime in enumerate(mimes):
         snapshot[mime] = bytes((info * 29 + offset * 17 + 3 + seed) & 0xff for offset in range(96))
-    snapshot["application/x-simple-stt-e2e"] = bytes((0, 1, *b"Simple-STT clipboard fixture", 255))
+    snapshot["application/x-smalltalkai-e2e"] = bytes((0, 1, *b"Simple-STT clipboard fixture", 255))
     snapshot["image/png"] = bytes.fromhex(
         "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
         "0000000b49444154789c636000020000050001a5f645400000000049454e44ae426082")
@@ -137,7 +137,7 @@ def clipboard_slow_offer_regression(env, root, output_file, initial_text,
             return False
         wait_for(offered_types_visible, "stalled clipboard MIME offer to become visible", timeout=5)
         formats_before = format_result["types"]
-        if b"image/x-simple-stt-e2e-00" not in formats_before:
+        if b"image/x-smalltalkai-e2e-00" not in formats_before:
             raise RuntimeError(f"Stalled clipboard offer omitted the expected first image MIME: {formats_before!r}")
         stalled = subprocess.Popen([str(SHELL), "clipboard-transaction"], env=env,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
@@ -151,7 +151,7 @@ def clipboard_slow_offer_regression(env, root, output_file, initial_text,
         except subprocess.TimeoutExpired:
             raise RuntimeError("Clipboard transaction did not fail within the stalled-offer bound")
         error = stalled.stderr.read() if stalled.stderr else ""
-        if "clipboard backup" not in error.lower() or "stalled" not in error.lower() or "image/x-simple-stt-e2e" not in error:
+        if "clipboard backup" not in error.lower() or "stalled" not in error.lower() or "image/x-smalltalkai-e2e" not in error:
             raise RuntimeError(f"Stalled clipboard failure did not identify timeout and pending format: {error!r}")
         formats_after = subprocess.check_output(["wl-paste", "--list-types"], env=env, timeout=5)
         if formats_after != formats_before:
@@ -372,7 +372,7 @@ def clipboard_cache_regression(env, root, output_file, provider_binary, injector
         payload = "last warm paste Ω"
         owners.append(clipboard_transaction_paste(env, payload, output_file,
             output_file.read_text() + payload, {"text/plain": original}, ready_latency_limit=1.5))
-        cache_socket = Path(env["XDG_RUNTIME_DIR"]) / "simple-stt/clipboard-cache.sock"
+        cache_socket = Path(env["XDG_RUNTIME_DIR"]) / "smalltalkai/clipboard-cache.sock"
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as control:
             control.connect(str(cache_socket))
             control.sendall(b"disable\n")
@@ -481,7 +481,7 @@ def read_child_line(proc, description, timeout=10):
 def instance_id(runtime_root):
     path = str(runtime_root)
     stem = Path(path).name
-    sanitized = "".join(ch if ch.isascii() and ch.isalnum() else "-" for ch in stem).strip("-").lower() or "simple-stt"
+    sanitized = "".join(ch if ch.isascii() and ch.isalnum() else "-" for ch in stem).strip("-").lower() or "smalltalkai"
     hashed = 0xcbf29ce484222325
     for byte in path.encode():
         hashed = ((hashed ^ byte) * 0x100000001b3) & ((1 << 64) - 1)
@@ -494,7 +494,7 @@ def run_retry_cli(env, root, output_file, initial_text, clipboard_snapshot, inje
     runtime_root = root / "runtime-root"
     runtime_root.mkdir()
     instance = instance_id(runtime_root)
-    local_data = Path(env["XDG_DATA_HOME"]) / "simple-stt" / "instances" / instance
+    local_data = Path(env["XDG_DATA_HOME"]) / "smalltalkai" / "instances" / instance
     state = local_data / "state"
     state.mkdir(parents=True)
     state_file = state / "linux-capture-state.json"
@@ -856,8 +856,8 @@ def run_private_session(root, cache_only=False):
     slow_provider_binary = compile_slow_clipboard_provider(build_dir)
     env = isolated_env(root, clear_bus=False)
     runtime = Path(env["XDG_RUNTIME_DIR"])
-    authorize_private_kwin_client(env, injector, "simple-stt-unicode-test-injector")
-    authorize_private_kwin_client(env, HELPER, "simple-stt-unicode-test-helper")
+    authorize_private_kwin_client(env, injector, "smalltalkai-unicode-test-injector")
+    authorize_private_kwin_client(env, HELPER, "smalltalkai-unicode-test-helper")
     if shutil.which("kbuildsycoca6"):
         checked(["kbuildsycoca6", "--noincremental"], env=env, timeout=20,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -930,7 +930,7 @@ def run_private_session(root, cache_only=False):
         # Verify a multi-MIME source owned by the test editor before paste.
         initial_text = "before\n"
         mime_payloads = {
-            "application/x-simple-stt-e2e": b"\x00\x01Simple-STT clipboard fixture\xff",
+            "application/x-smalltalkai-e2e": b"\x00\x01Simple-STT clipboard fixture\xff",
             "image/png": bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000b49444154789c636000020000050001a5f645400000000049454e44ae426082"),
         }
         wait_for(lambda: result_file.exists(), "target initialized clipboard")
@@ -992,7 +992,7 @@ def run_private_session(root, cache_only=False):
             kitty_env = env.copy()
             kitty_env["WAYLAND_DEBUG"] = "client"
             kitty = subprocess.Popen([
-                shutil.which("kitty"), "--config", "NONE", "--debug-keyboard", "--title", "Simple STT Kitty Paste E2E",
+                shutil.which("kitty"), "--config", "NONE", "--debug-keyboard", "--title", "SmallTalkAI Kitty Paste E2E",
                 sys.executable, str(FIXTURES / "tty_target.py"), str(kitty_ready), str(kitty_output),
                 str(len(kitty_expected.encode("utf-8"))),
             ], env=kitty_env, stdin=subprocess.DEVNULL, stdout=kitty_log,
@@ -1044,7 +1044,7 @@ def main():
         run_private_session(Path(args.root), cache_only=args.cache_only)
         return
     require_commands(("dbus-run-session",))
-    root = Path(tempfile.mkdtemp(prefix="simple-stt-unicode-e2e-"))
+    root = Path(tempfile.mkdtemp(prefix="smalltalkai-unicode-e2e-"))
     env = isolated_env(root)
     # Strip all host display, bus and clipboard-adjacent session variables
     # before dbus-run-session creates a completely private session bus.

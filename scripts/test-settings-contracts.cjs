@@ -7,9 +7,9 @@ const { spawn } = require("node:child_process");
 const { chromium } = require("playwright");
 (async () => {
   const { assertConfig } = await import("../web/settings/src/lib/types.ts");
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "simple-stt-contracts-"));
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "smalltalkai-contracts-"));
   const binary = path.resolve(
-    "target/debug/simple-stt-settings" +
+    "target/debug/smalltalkai-settings" +
       (process.platform === "win32" ? ".exe" : ""),
   );
   const child = spawn(binary, ["--no-browser"], {

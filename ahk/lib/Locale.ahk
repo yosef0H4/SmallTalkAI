@@ -1,5 +1,5 @@
 ; Generated from desktop catalogs and tray menu. Run node web/settings/tools/locales.mjs.
-; catalog-sha256: 74d1e4be69d494f6cc581830d8a0b9a0bee3d62d6c1d6b7e7a2b0a839018353b
+; catalog-sha256: 75ffee600911d6220a7e8921a8180cd51d7a573c705d548bc9824751c82d74c2
 UiSetLanguage(language := "auto") {
     global SimpleSttUiLocale
     if language = "auto"
@@ -53,7 +53,7 @@ UiText(id, args := unset) {
         "menu.stop", "Stop recording",
         "menu.settings", "Settings",
         "menu.unload", "Unload speech model",
-        "menu.close", "Close Simple STT",
+        "menu.close", "Close SmallTalkAI",
         "menu.openSettings", "Open Settings",
         "menu.disable", "Disable Hotkey",
         "menu.enable", "Enable Hotkey",
@@ -63,7 +63,7 @@ UiText(id, args := unset) {
         "menu.restartAudio", "Restart Audio Service",
         "menu.test", "Test Model",
         "menu.exit", "Exit",
-        "menu.iconTip", "SimpleStt local dictation",
+        "menu.iconTip", "SmallTalkAI local dictation",
         "notice.audioNotReady", "Audio service is not ready",
         "notice.noTarget", "Recording cancelled: no active target window",
         "notice.recordingRejected", "Audio service rejected recording — see log",
@@ -78,9 +78,9 @@ UiText(id, args := unset) {
         "notice.hotkeyReloadFailed", "Settings saved, but Windows hotkeys could not reload",
         "notice.settingsReloadFailed", "Settings reload failed — see log",
         "notice.testQueued", "Model test queued",
-        "error.hotkeys", "SimpleStt hotkey error",
-        "error.settings", "SimpleStt settings error",
-        "error.startup", "SimpleStt startup error",
+        "error.hotkeys", "SmallTalkAI hotkey error",
+        "error.settings", "SmallTalkAI settings error",
+        "error.startup", "SmallTalkAI startup error",
         "delivery.smart_paste", "Smart Paste",
         "delivery.type", "Typing",
         "delivery.clipboard", "Clipboard only",
@@ -274,7 +274,7 @@ UiText(id, args := unset) {
         "menu.stop", "إيقاف التسجيل",
         "menu.settings", "الإعدادات",
         "menu.unload", "إفراغ النموذج",
-        "menu.close", "إغلاق Simple STT",
+        "menu.close", "إغلاق SmallTalkAI",
         "menu.openSettings", "الإعدادات",
         "menu.disable", "تعطيل الاختصار",
         "menu.enable", "تفعيل الاختصار",
@@ -284,7 +284,7 @@ UiText(id, args := unset) {
         "menu.restartAudio", "إعادة تشغيل الصوت",
         "menu.test", "اختبار النموذج",
         "menu.exit", "خروج",
-        "menu.iconTip", "Simple STT — إملاء محلي",
+        "menu.iconTip", "SmallTalkAI — إملاء محلي",
         "notice.audioNotReady", "خدمة الصوت غير جاهزة",
         "notice.noTarget", "أُلغي التسجيل: لا توجد نافذة نشطة",
         "notice.recordingRejected", "رُفض التسجيل — راجع السجل",

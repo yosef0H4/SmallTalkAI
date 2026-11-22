@@ -21,7 +21,7 @@ def main():
     assert profile.is_relative_to(ROOT/'artifacts'),'Use an ignored artifact profile'
     if not args.reuse:assert not profile.exists() or not any(profile.iterdir()),'Fresh run requires an empty profile'
     profile.mkdir(parents=True,exist_ok=True)
-    process,api=settings.start_settings_server(bins/'simple-stt-settings',profile/'stt-config.json',profile/'runtime-root',profile/'data')
+    process,api=settings.start_settings_server(bins/'smalltalkai-settings',profile/'stt-config.json',profile/'runtime-root',profile/'data')
     daemon=monitor=None;log=None;socket_alias=None
     report={'fresh':not args.reuse,'downloads':{},'operations':[]}
     try:
@@ -70,8 +70,8 @@ def main():
         short_reader=short_instance/'reader'
         env=dict(os.environ,SIMPLE_STT_CONFIG=str(profile/'stt-config.json'),SIMPLE_STT_RUNTIME_ROOT=str(profile/'runtime-root'),XDG_DATA_HOME=str(profile/'data'),XDG_CONFIG_HOME=str(profile/'config'),XDG_CACHE_HOME=str(profile/'cache'),SIMPLE_STT_READER_DATA=str(short_reader),SIMPLE_TTS_CONFIG=str(short_reader/'config.json'),SIMPLE_TTS_NO_DESKTOP='1',SIMPLE_STT_NO_DESKTOP='1',DISPLAY='',WAYLAND_DISPLAY='',DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-fresh-gpu-test')
         env.pop('LD_LIBRARY_PATH',None)
-        log=(profile/'readerd.log').open('w')
-        daemon=subprocess.Popen([str(bins/'readerd'),'daemon','--foreground','--no-desktop'],env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=log)
+        log=(profile/'smalltalkai-reader.log').open('w')
+        daemon=subprocess.Popen([str(bins/'smalltalkai-reader'),'daemon','--foreground','--no-desktop'],env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=log)
         monitor=service.WorkerMonitor(daemon.pid)
         service.wait_for(lambda:(reader/'simple-tts.sock').exists(),12,'fresh reader controller')
         observations={};stop=threading.Event()
@@ -81,7 +81,7 @@ def main():
                 usage={int(row.split(',')[0]):row.split(',')[1].strip() for row in gpu.stdout.splitlines() if ',' in row and row.split(',')[0].strip().isdigit()}
                 for pid in service.children(daemon.pid):
                     name=service.executable(pid)
-                    if name not in ('reader-tts','reader-ocr'):continue
+                    if name not in ('smalltalkai-tts','smalltalkai-ocr'):continue
                     try:
                         maps=Path(f'/proc/{pid}/maps').read_text()
                         paths=sorted({line.split()[-1] for line in maps.splitlines() if 'libcublas' in line or 'libnvrtc' in line or 'onnxruntime_providers_cuda' in line})
@@ -92,7 +92,7 @@ def main():
             for language,text in [('en','Hello world. This is a fresh model installation.'),('ar','مرحبا بالعالم. هذا اختبار تثبيت النموذج.')]:
                 output=profile/f'{language}.wav'
                 output.unlink(missing_ok=True)
-                service.run([bins/'simple-stt-linux','media','speak',text,'--output',output],env,timeout=120)
+                service.run([bins/'smalltalkai-linux','media','speak',text,'--output',output],env,timeout=120)
                 with wave.open(str(output),'rb') as audio:assert audio.getnframes()>0 and any(audio.readframes(audio.getnframes()))
                 report['operations'].append(f'{language} non-silent WAV');print(f'PASS {language} automatic model selection and non-silent GPU WAV',flush=True)
             config=api('/api/reader')['config']
@@ -100,16 +100,16 @@ def main():
             api('/api/reader-save',{'config':config,'expected_revision':config['revision']})
             output=profile/'kokoro.wav'
             output.unlink(missing_ok=True)
-            service.run([bins/'simple-stt-linux','media','speak','Hello world. This voice uses Kokoro.','--output',output],env,timeout=120)
+            service.run([bins/'smalltalkai-linux','media','speak','Hello world. This voice uses Kokoro.','--output',output],env,timeout=120)
             with wave.open(str(output),'rb') as audio:assert audio.getnframes()>0 and any(audio.readframes(audio.getnframes()))
             report['operations'].append('Kokoro non-silent GPU WAV');print('PASS downloaded Kokoro GPU WAV',flush=True)
-            text=service.run([bins/'simple-stt-linux','media','ocr',service.FIXTURE],env,timeout=120)
+            text=service.run([bins/'smalltalkai-linux','media','ocr',service.FIXTURE],env,timeout=120)
             assert text==service.EXPECTED,(text,service.EXPECTED)
             report['operations'].append('exact OCR text');print('PASS exact GPU OCR text',flush=True)
         finally:
             stop.set();watcher.join(timeout=5)
-        assert any(value['worker']=='reader-tts' for value in observations.values()),observations
-        assert any(value['worker']=='reader-ocr' for value in observations.values()),observations
+        assert any(value['worker']=='smalltalkai-tts' for value in observations.values()),observations
+        assert any(value['worker']=='smalltalkai-ocr' for value in observations.values()),observations
         for value in observations.values():
             for path in value['libraries']:assert path.startswith(str(assets_root)),f'Runtime leaked inherited native libraries: {path}'
         report['gpu_workers']=observations
@@ -118,7 +118,7 @@ def main():
         print('PASS verified NVIDIA runtime/model downloads, persisted automatic selection, real GPU WAV/OCR and private native dependencies',flush=True)
     finally:
         if daemon and daemon.poll() is None:
-            try:service.run([bins/'readerctl','shutdown'],env,timeout=8);daemon.wait(timeout=8)
+            try:service.run([bins/'smalltalkai-readerctl','shutdown'],env,timeout=8);daemon.wait(timeout=8)
             except Exception:
                 daemon.terminate()
                 try:daemon.wait(timeout=3)

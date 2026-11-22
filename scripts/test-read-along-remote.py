@@ -9,15 +9,15 @@ import tempfile
 import zlib
 
 def main():
-    subprocess.run(['cargo','build','-p','reader-tts','-p','reader-ocr'],check=True)
-    with tempfile.TemporaryDirectory(prefix='simple-stt-remote-chunks-') as folder:
+    subprocess.run(['cargo','build','-p','smalltalkai-tts','-p','smalltalkai-ocr'],check=True)
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-remote-chunks-') as folder:
         root=Path(folder);capture=root/'capture';capture.mkdir()
         def chunk(kind,data):
             return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
         image=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',100,50,8,2,0,0,0))+chunk(b'IDAT',zlib.compress((b'\0'+b'\xff'*300)*50))+chunk(b'IEND',b'')
         (capture/'mock.png').write_bytes(image)
         env={**os.environ,'SIMPLE_STT_READER_DATA':str(root),'SIMPLE_TTS_CONFIG':str(root/'config.json'),'SIMPLE_TTS_OCR_API_KEY':'private-fixture-key'}
-        child=subprocess.Popen(['cargo','test','-p','readerd','--bin','readerd','remote_read_along_chunks_overlap_independent_ocr','--','--ignored','--nocapture'],env=env,start_new_session=os.name!='nt')
+        child=subprocess.Popen(['cargo','test','-p','smalltalkai-reader','--bin','smalltalkai-reader','remote_read_along_chunks_overlap_independent_ocr','--','--ignored','--nocapture'],env=env,start_new_session=os.name!='nt')
         try:
             assert child.wait(timeout=120)==0,'remote chunk integration failed'
         except BaseException:

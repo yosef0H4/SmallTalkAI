@@ -63,12 +63,12 @@ def request_json(url, token, method="GET", body=None):
 
 def main():
     binary = ROOT / "target" / "debug" / (
-        "simple-stt-settings.exe" if os.name == "nt" else "simple-stt-settings"
+        "smalltalkai-settings.exe" if os.name == "nt" else "smalltalkai-settings"
     )
     if not (ROOT / ".env").is_file():
         raise SystemExit(".env is missing; copy .env.example and fill it first")
 
-    with tempfile.TemporaryDirectory(prefix="simple-stt-cleanup-benchmark-") as temp:
+    with tempfile.TemporaryDirectory(prefix="smalltalkai-cleanup-benchmark-") as temp:
         env = os.environ.copy()
         env["SIMPLE_STT_CONFIG"] = str(Path(temp) / "config.json")
         for name in ("SIMPLE_STT_AI_API_KEY", "SIMPLE_STT_AI_BASE_URL", "SIMPLE_STT_AI_MODEL"):

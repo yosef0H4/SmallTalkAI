@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=SmallTalkAI Read Along Capture
+Comment=KWin screenshot permission for SmallTalkAI read-along
+Exec=/usr/lib/smalltalkai/smalltalkai-reader
+NoDisplay=true
+Terminal=false
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2

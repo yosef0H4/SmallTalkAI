@@ -116,14 +116,14 @@ def inspect_wizard(installer, version):
 
 
 def install_payload(iscc, version):
-    source = (ROOT / "artifacts/simple-stt.iss").read_text(encoding="utf-8")
+    source = (ROOT / "artifacts/smalltalkai.iss").read_text(encoding="utf-8")
     # Keep all install tasks, files, cleanup and launch logic identical; isolate
     # only registration/output metadata so the user's installation is untouched.
     overrides = {
         "AppId": "{{11B34A39-5E88-47A0-A600-826B9185F0D1}",
         "OutputDir": str(OUT),
         "OutputBaseFilename": "setup-isolated",
-        "DefaultGroupName": "Simple STT isolated installer test",
+        "DefaultGroupName": "SmallTalkAI isolated installer test",
     }
     for key, value in overrides.items():
         source, count = re.subn(rf"(?m)^{key}=.*$", lambda _: f"{key}={value}", source)
@@ -142,12 +142,12 @@ def install_payload(iscc, version):
     assert all(p.read_bytes() == b"existing user data must survive" for p in markers)
     assert set(target.rglob("*.gguf")) == set(markers[:2]), "installer added speech models"
     assert not list(target.rglob("*.onnx")), "installer added TTS/OCR models"
-    libraries = (ROOT / "artifacts/simple-stt-portable").rglob("*.dll")
+    libraries = (ROOT / "artifacts/smalltalkai-portable").rglob("*.dll")
     assert not any(path.name.startswith(("parakeet", "ggml", "onnxruntime", "sherpa-onnx")) for path in libraries), "installer bundled an inference runtime"
     assert (target / "runtime/action-replay.ahk").is_file()
-    assert (target / "runtime/simple-stt-settings-window.exe").is_file()
+    assert (target / "runtime/smalltalkai-settings-window.exe").is_file()
     assert (target / "licenses/settings-sans-license.txt").is_file()
-    executable = target / "runtime/simple-stt-ctl.exe"
+    executable = target / "runtime/smalltalkai-ctl.exe"
     env = dict(os.environ, SIMPLE_STT_CONFIG=str(target / "unused-test-config.json"))
     for scope in ["app", "reader"]:
         result = json.loads(subprocess.check_output([str(executable), "config", "--scope", scope, "defaults"], env=env, timeout=15))
@@ -169,5 +169,5 @@ if __name__ == "__main__":
     parser.add_argument("--iscc", type=Path, required=True)
     args = parser.parse_args()
     version = tomllib.loads((ROOT / "Cargo.toml").read_text())["package"]["version"]
-    inspect_wizard(ROOT / "artifacts/dist/simple-stt-setup.exe", version)
+    inspect_wizard(ROOT / "artifacts/dist/smalltalkai-setup.exe", version)
     install_payload(args.iscc, version)

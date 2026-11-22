@@ -124,10 +124,10 @@ pub fn clean_transcript(
             let mut request = client
                 .post("https://chatgpt.com/backend-api/codex/responses")
                 .bearer_auth(&token.access)
-                .header("originator", "simple-stt")
+                .header("originator", "smalltalkai")
                 .header(
                     "User-Agent",
-                    concat!("simple-stt/", env!("CARGO_PKG_VERSION")),
+                    concat!("smalltalkai/", env!("CARGO_PKG_VERSION")),
                 );
             if let Some(account_id) = token.account_id.as_deref() {
                 request = request.header("ChatGPT-Account-Id", account_id);
@@ -166,10 +166,10 @@ pub fn list_models(config: &CleanupConfig) -> Result<Vec<CleanupModel>> {
                     env!("CARGO_PKG_VERSION")
                 ))
                 .bearer_auth(&token.access)
-                .header("originator", "simple-stt")
+                .header("originator", "smalltalkai")
                 .header(
                     "User-Agent",
-                    concat!("simple-stt/", env!("CARGO_PKG_VERSION")),
+                    concat!("smalltalkai/", env!("CARGO_PKG_VERSION")),
                 );
             if let Some(account_id) = token.account_id.as_deref() {
                 request = request.header("ChatGPT-Account-Id", account_id);

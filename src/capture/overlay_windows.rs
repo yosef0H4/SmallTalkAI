@@ -441,7 +441,7 @@ impl TooltipState {
         }
         if unsafe { SetPropW(hwnd, WINDOWS_TOOLTIP_PROPERTY, 1_usize as _) } == 0 {
             self.destroy_tooltip();
-            return Err(anyhow!("Could not mark the Simple STT tooltip"));
+            return Err(anyhow!("Could not mark the SmallTalkAI tooltip"));
         }
         if self.content.locale == Locale::Ar {
             self.arabic_font = native_arabic_font(hwnd);

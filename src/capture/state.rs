@@ -30,10 +30,10 @@ impl ServiceState {
     pub fn authentication_token(&self) -> Result<String> {
         #[cfg(windows)]
         return reader_core::secrets::capture_token(&crate::config::app_instance_id(), self.pid)?
-            .context("capture authentication unavailable; restart the installed Simple STT app");
+            .context("capture authentication unavailable; restart the installed SmallTalkAI app");
         #[cfg(not(windows))]
         fs::read_to_string(crate::config::AppConfig::local_data_dir().join("linux-token"))
-            .context("capture service authentication token unavailable; start the installed Simple STT desktop app")
+            .context("capture service authentication token unavailable; start the installed SmallTalkAI desktop app")
     }
     pub fn load(path: &Path) -> Result<Self> {
         let raw =

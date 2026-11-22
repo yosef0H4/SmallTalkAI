@@ -14,7 +14,7 @@ bootstrap token used during setup. Generating a token in the desktop keyring
 alone does not replace the headless service's environment file.
 
 ```bash
-simple-stt credentials generate server --activate
+smalltalkai credentials generate server --activate
 ```
 
 To retrieve it for your client, open `~/.config/simple-stt/server.env` locally and
@@ -77,42 +77,42 @@ curl --fail http://100.85.156.101:8765/v1/audio/transcriptions \
   -F model=configured-stt -F language=en -F file=@recording.wav
 ```
 
-## Use Simple STT on the laptop
+## Use SmallTalkAI on the laptop
 
 Run these commands on the laptop to configure remote STT:
 
 ```bash
-simple-stt-ctl config set speech.remote_openai_compatible \
+smalltalkai-ctl config set speech.remote_openai_compatible \
   '{"base_url":"http://100.85.156.101:8765/v1","model":"configured-stt","fallback_to_local":false,"timeout_ms":180000}'
-simple-stt-ctl config set speech.provider '"remote_openai_compatible"'
-simple-stt-ctl credentials set stt --env SIMPLE_STT_TOKEN
+smalltalkai-ctl config set speech.provider '"remote_openai_compatible"'
+smalltalkai-ctl credentials set stt --env SIMPLE_STT_TOKEN
 ```
 
 For reading and OCR, set the laptop's reader providers and credentials:
 
 ```bash
-simple-stt-ctl config --scope reader set speech.provider \
+smalltalkai-ctl config --scope reader set speech.provider \
   '{"kind":"open_ai_compatible","base_url":"http://100.85.156.101:8765/v1","model":"kokoro-v1","voice":"af_heart","format":"wav"}'
-simple-stt-ctl config --scope reader set ocr.provider \
+smalltalkai-ctl config --scope reader set ocr.provider \
   '{"kind":"open_ai_compatible","base_url":"http://100.85.156.101:8765/v1","model":"simple-tts-ocr","api":"chat_completions"}'
-simple-stt-ctl credentials set speech --env SIMPLE_STT_TOKEN
-simple-stt-ctl credentials set ocr --env SIMPLE_STT_TOKEN
+smalltalkai-ctl credentials set speech --env SIMPLE_STT_TOKEN
+smalltalkai-ctl credentials set ocr --env SIMPLE_STT_TOKEN
 unset SIMPLE_STT_TOKEN
 ```
 
-Reload the laptop app afterward. On Windows, use `simple-stt-ctl.exe`; the same
+Reload the laptop app afterward. On Windows, use `smalltalkai-ctl.exe`; the same
 JSON values apply, but shell quoting and environment-variable syntax differ.
 Credentials stored this way require the client's OS credential vault.
 
 ## Manage the server
 
 ```bash
-systemctl --user status simple-stt-server
-journalctl --user -u simple-stt-server -n 50 --no-pager
-systemctl --user restart simple-stt-server
-systemctl --user stop simple-stt-server
-systemctl --user disable simple-stt-server
-simple-stt-ctl assets list
+systemctl --user status smalltalkai-server
+journalctl --user -u smalltalkai-server -n 50 --no-pager
+systemctl --user restart smalltalkai-server
+systemctl --user stop smalltalkai-server
+systemctl --user disable smalltalkai-server
+smalltalkai-ctl assets list
 ```
 
 The service starts without a desktop login because lingering is enabled. Model
@@ -166,10 +166,10 @@ while dependencies download. Regression tests cover both paths.
 
 Persistent setup files:
 
-- Installed package: `/usr/lib/simple-stt/`; rebuild with
+- Installed package: `/usr/lib/smalltalkai/`; rebuild with
   `scripts/package-debian-release.sh`. The `.deb` remains under
   `artifacts/linux-release/`.
-- Boot service source: `packaging/linux/simple-stt-server.service`; installed
+- Boot service source: `packaging/linux/smalltalkai-server.service`; installed
   under `/usr/lib/systemd/user/` and enabled for this user.
 - Token: `~/.config/simple-stt/server.env` (mode 0600).
 - App configuration: `~/.config/simple-stt/instances/installed/config.json`.
@@ -185,10 +185,10 @@ To select a different installed server model, use `assets select`, then restart
 the service. Examples:
 
 ```bash
-simple-stt-ctl assets select tts --model supertonic3 --runtime sherpa-cpu
-simple-stt-ctl assets select ocr --model paddle-en-pp-ocrv5-mobile-rec --runtime paddle-cpu
-simple-stt-ctl assets select stt --model tdt_ctc-110m-q8_0.gguf --runtime parakeet-vulkan
-systemctl --user restart simple-stt-server
+smalltalkai-ctl assets select tts --model supertonic3 --runtime sherpa-cpu
+smalltalkai-ctl assets select ocr --model paddle-en-pp-ocrv5-mobile-rec --runtime paddle-cpu
+smalltalkai-ctl assets select stt --model tdt_ctc-110m-q8_0.gguf --runtime parakeet-vulkan
+systemctl --user restart smalltalkai-server
 ```
 
 A 401 response means the token is missing or wrong. A connection failure means

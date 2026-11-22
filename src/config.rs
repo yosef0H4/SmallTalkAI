@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const CONFIG_SCHEMA_VERSION: u32 = 9;
+#[cfg(target_os = "linux")]
+pub const LINUX_DESKTOP_ID: &str = "io.github.yosef0H4.simple_stt";
 static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Cross-process lock for read-modify-write configuration operations.
@@ -55,10 +57,10 @@ impl LogLevel {
     }
     pub fn tracing_filter(&self) -> &'static str {
         match self {
-            Self::Minimal => "warn,simple_stt_privacy=info",
-            Self::Normal => "simple-stt=info",
-            Self::Debug => "simple-stt=debug",
-            Self::Extreme => "simple-stt=trace",
+            Self::Minimal => "warn,smalltalkai_privacy=info",
+            Self::Normal => "smalltalkai=info",
+            Self::Debug => "smalltalkai=debug",
+            Self::Extreme => "smalltalkai=trace",
         }
     }
 }
@@ -847,13 +849,13 @@ impl AppConfig {
         Self::local_data_dir().join("state")
     }
     pub fn shell_log_path() -> PathBuf {
-        Self::logs_dir().join("simple-stt-shell.log")
+        Self::logs_dir().join("smalltalkai-shell.log")
     }
     pub fn capture_log_path() -> PathBuf {
-        Self::logs_dir().join("simple-stt-capture.log")
+        Self::logs_dir().join("smalltalkai-capture.log")
     }
     pub fn infer_log_path() -> PathBuf {
-        Self::logs_dir().join("simple-stt-infer.log")
+        Self::logs_dir().join("smalltalkai-infer.log")
     }
     pub fn service_state_path() -> PathBuf {
         Self::state_dir().join("capture-state.json")
@@ -1390,7 +1392,7 @@ fn instance_id_for_root(root: &Path) -> String {
         .file_name()
         .and_then(|value| value.to_str())
         .filter(|value| !value.is_empty())
-        .unwrap_or("simple-stt");
+        .unwrap_or("smalltalkai");
     let sanitized = stem
         .chars()
         .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
@@ -1405,7 +1407,7 @@ fn instance_id_for_root(root: &Path) -> String {
     format!(
         "{}-{:016x}",
         if sanitized.is_empty() {
-            "simple-stt"
+            "smalltalkai"
         } else {
             &sanitized
         },
@@ -1625,7 +1627,7 @@ mod tests {
 
     #[test]
     fn concurrent_atomic_writes_use_distinct_temp_paths() {
-        let target = Path::new("/tmp/simple-stt-config.json");
+        let target = Path::new("/tmp/smalltalkai-config.json");
         let first = unique_atomic_temp_path(target);
         let second = unique_atomic_temp_path(target);
         assert_ne!(first, second);
@@ -1695,7 +1697,7 @@ mod tests {
         assert!(!config.diagnostics.clipboard_buffer_notices);
         assert!(LogLevel::Minimal
             .tracing_filter()
-            .contains("simple_stt_privacy=info"));
+            .contains("smalltalkai_privacy=info"));
     }
 
     #[test]
@@ -1981,9 +1983,9 @@ mod tests {
     fn absolute_runtime_path_is_not_rebased() {
         let config = AppConfig::default();
         let absolute = if cfg!(windows) {
-            PathBuf::from(r"C:\simple-stt\runtime")
+            PathBuf::from(r"C:\smalltalkai\runtime")
         } else {
-            PathBuf::from("/opt/simple-stt/runtime")
+            PathBuf::from("/opt/smalltalkai/runtime")
         };
         assert_eq!(
             config.resolve_from_runtime_root(absolute.to_str().unwrap()),

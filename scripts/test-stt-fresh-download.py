@@ -86,14 +86,14 @@ def run_private(profile, binaries, reuse):
                 for item in json.loads(result.stdout))
         service.wait_for(null_sink, 10, 'private null sink')
         assert policy.poll() is None, 'private audio policy exited'
-        capture = subprocess.Popen([str(binaries / 'simple-stt-capture'), '--token', capture_token,
+        capture = subprocess.Popen([str(binaries / 'smalltalkai-capture'), '--token', capture_token,
                                     '--state-file', str(state_path), '--config', env['SIMPLE_STT_CONFIG']],
                                    env=env, stdin=subprocess.DEVNULL,
                                    stdout=handles['capture'], stderr=handles['capture'])
         service.wait_for(lambda: state_path.exists() or capture.poll() is not None, 10, 'private capture')
         assert capture.poll() is None, 'capture exited; see capture.log'
         capture_state = json.loads(state_path.read_text())
-        settings = subprocess.Popen([str(binaries / 'simple-stt-settings'), '--no-browser',
+        settings = subprocess.Popen([str(binaries / 'smalltalkai-settings'), '--no-browser',
                                      '--state-file', str(state_path), '--service-token', capture_token],
                                     env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                     stderr=handles['settings'], text=True)
@@ -155,7 +155,7 @@ def run_private(profile, binaries, reuse):
             events = response['events']
             sequence = max([sequence] + [event['seq'] for event in events])
             for pid in service.children(capture.pid):
-                if service.executable(pid) == 'simple-stt-infer':
+                if service.executable(pid) == 'smalltalkai-infer':
                     workers[pid] = service.start_tick(pid)
             return events
         if not model_path.exists():
@@ -218,7 +218,7 @@ def main():
         run_private(PROFILE, binaries, args.reuse)
         return
     missing = [name for name in ('pipewire', 'wireplumber', 'pw-dump', 'dbus-run-session') if not shutil.which(name)]
-    missing += [str(binaries / name) for name in ('simple-stt-settings', 'simple-stt-capture', 'simple-stt-infer') if not (binaries / name).is_file()]
+    missing += [str(binaries / name) for name in ('smalltalkai-settings', 'smalltalkai-capture', 'smalltalkai-infer') if not (binaries / name).is_file()]
     if missing:
         raise SystemExit('Missing prerequisites: ' + ', '.join(missing))
     PROFILE.parent.mkdir(parents=True, exist_ok=True)

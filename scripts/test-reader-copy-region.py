@@ -47,7 +47,7 @@ def stage_runtime(assets, source, catalog):
 def isolated(args, private):
     private = Path(private)
     data = private / 'data'
-    reader = data / 'simple-stt' / 'reader'
+    reader = data / 'smalltalkai' / 'reader'
     reader.mkdir(parents=True, exist_ok=True)
     for name in ['config', 'cache', 'runtime', 'home', 'xdg-runtime']:
         (private / name).mkdir(exist_ok=True, mode=0o700)
@@ -79,7 +79,7 @@ def isolated(args, private):
                PATH=str(private / 'bin') + ':/usr/bin:/bin',
                COPY_TEST_DIR=str(private), COPY_TEST_FIXTURE=str(service.FIXTURE))
     binary = args.bin_dir.resolve()
-    binaries = {name: binary / name for name in ('simple-stt-linux', 'readerctl', 'readerd', 'reader-ocr')}
+    binaries = {name: binary / name for name in ('smalltalkai-linux', 'smalltalkai-readerctl', 'smalltalkai-reader', 'smalltalkai-ocr')}
     missing = [str(path) for path in binaries.values() if not path.is_file()]
     if missing:
         raise SystemExit('missing built binaries: ' + ', '.join(missing))
@@ -87,29 +87,29 @@ def isolated(args, private):
     picker_release = private / 'picker-release'
     clipboard = private / 'clipboard'
     observed = set()
-    with (private / 'readerd.log').open('w+') as log:
-        daemon = subprocess.Popen([str(binaries['readerd']), 'daemon', '--foreground', '--no-desktop'],
+    with (private / 'smalltalkai-reader.log').open('w+') as log:
+        daemon = subprocess.Popen([str(binaries['smalltalkai-reader']), 'daemon', '--foreground', '--no-desktop'],
                                   env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
         monitor = service.WorkerMonitor(daemon.pid)
         try:
             def socket_ready():
                 if daemon.poll() is not None:
                     log.flush()
-                    raise AssertionError('private reader exited: ' + (private / 'readerd.log').read_text())
+                    raise AssertionError('private reader exited: ' + (private / 'smalltalkai-reader.log').read_text())
                 return (reader / 'simple-tts.sock').exists()
             service.wait_for(socket_ready, 10, 'private reader socket')
 
             def status():
-                return json.loads(service.run([binaries['readerctl'], 'status', '--json'], env))
+                return json.loads(service.run([binaries['smalltalkai-readerctl'], 'status', '--json'], env))
 
             def start_picker():
                 picker_ready.unlink(missing_ok=True)
                 picker_release.unlink(missing_ok=True)
-                service.run([binaries['simple-stt-linux'], 'copy-region'], env, timeout=30)
+                service.run([binaries['smalltalkai-linux'], 'copy-region'], env, timeout=30)
                 service.wait_for(picker_ready.exists, 10, 'fake picker to open')
 
             def ready_ocr():
-                pid = service.worker(daemon.pid, 'reader-ocr')
+                pid = service.worker(daemon.pid, 'smalltalkai-ocr')
                 events = status().get('model_events', [])
                 if pid and any(event.get('feature') == 'ocr' and event.get('event') == 'loaded' for event in events):
                     return pid
@@ -122,7 +122,7 @@ def isolated(args, private):
             assert tick is not None and not picker_release.exists()
             time.sleep(1.5)  # Longer than the configured OCR idle timeout.
             assert service.start_tick(first) == tick and service.alive(first), 'prewarmed OCR exited while picker open'
-            assert not monitor.since(0, 'reader-tts'), 'copy-only prewarm started a voice worker'
+            assert not monitor.since(0, 'smalltalkai-tts'), 'copy-only prewarm started a voice worker'
             assert not clipboard.exists(), 'clipboard changed before selection'
             picker_release.touch()
             service.wait_for(clipboard.exists, 120, 'first private clipboard result')
@@ -132,7 +132,7 @@ def isolated(args, private):
             # Start again promptly, before the one-second idle lease expires.
             clipboard.unlink()
             start_picker()
-            assert service.worker(daemon.pid, 'reader-ocr') == first and service.start_tick(first) == tick, 'second copy did not reuse OCR PID'
+            assert service.worker(daemon.pid, 'smalltalkai-ocr') == first and service.start_tick(first) == tick, 'second copy did not reuse OCR PID'
             time.sleep(1.5)
             assert service.start_tick(first) == tick and service.alive(first), 'reused OCR exited during selection'
             picker_release.touch()
@@ -144,20 +144,20 @@ def isolated(args, private):
             # action directly avoids starting the unrelated audio capture service.
             clipboard.unlink()
             start_picker()
-            service.run([binaries['readerctl'], 'stop'], env, timeout=15)
+            service.run([binaries['smalltalkai-readerctl'], 'stop'], env, timeout=15)
             service.wait_for(lambda: not service.alive(first) or service.start_tick(first) != tick,
                              10, 'OCR worker idle expiry after abort')
             picker_release.touch()
             time.sleep(0.5)
             assert not clipboard.exists(), 'aborted picker published clipboard text'
-            assert not monitor.since(0, 'reader-tts'), 'copy action started a TTS worker'
+            assert not monitor.since(0, 'smalltalkai-tts'), 'copy action started a TTS worker'
             print(f'PASS isolated copy picker, GPU OCR warm reuse ({first}/{tick}), abort and idle expiry', flush=True)
         finally:
             monitor.close()
-            observed.update(monitor.since(0, 'reader-ocr'))
+            observed.update(monitor.since(0, 'smalltalkai-ocr'))
             if daemon.poll() is None:
                 try:
-                    service.run([binaries['readerctl'], 'shutdown'], env, timeout=8)
+                    service.run([binaries['smalltalkai-readerctl'], 'shutdown'], env, timeout=8)
                     daemon.wait(timeout=8)
                 except (AssertionError, subprocess.TimeoutExpired):
                     daemon.kill()
@@ -195,7 +195,7 @@ def main():
     if not devices:
         print('SKIP isolated copy-region regression: NVIDIA devices unavailable', flush=True)
         return
-    with tempfile.TemporaryDirectory(prefix='simple-stt-copy-region-') as tmp:
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-copy-region-') as tmp:
         private = Path(tmp)
         (private / 'bin').mkdir()
         picker = private / 'fake-picker'

@@ -40,24 +40,73 @@ pub fn root() -> PathBuf {
 pub fn directory(id: &str) -> PathBuf {
     root().join(id)
 }
-/// Saved assignments remain protected even when their selection mode is inactive.
-pub fn assigned(id: &str, stt: &crate::config::AppConfig, reader: &reader_core::AppConfig) -> bool {
-    let path = directory(id);
-    let reader_assigned = [&reader.speech.selection, &reader.ocr.selection]
-        .into_iter()
-        .flat_map(|selection| {
-            std::iter::once(&selection.single).chain(selection.languages.values())
-        })
-        .any(|binding| {
-            binding.runtime.as_deref() == Some(id) || binding.model.as_deref() == Some(id)
-        });
-    stt.parakeet_runtime_dir_path() == path
-        || stt
-            .speech
-            .language_runtimes
-            .values()
-            .any(|value| value.as_deref() == Some(id))
-        || reader_assigned
+fn clear_assignments(
+    id: &str,
+    stt: &mut crate::config::AppConfig,
+    reader: &mut reader_core::AppConfig,
+) {
+    let registry = reader_core::routing::registry();
+    let is_runtime = |selected: &str| {
+        registry
+            .runtimes
+            .iter()
+            .any(|runtime| runtime.id == selected && runtime.asset.as_deref() == Some(id))
+    };
+    let is_model = |selected: &str| {
+        registry
+            .models
+            .iter()
+            .any(|model| model.id == selected && model.asset == id)
+    };
+
+    if stt.parakeet_runtime_dir_path() == directory(id) {
+        stt.speech.runtime_dir.clear();
+        stt.speech.single_model_filename = None;
+    }
+    for (language, runtime) in &mut stt.speech.language_runtimes {
+        if runtime.as_deref().is_some_and(is_runtime) {
+            *runtime = None;
+            if let Some(model) = stt.speech.language_models.get_mut(language) {
+                *model = None;
+            }
+        }
+    }
+    for selection in [&mut reader.speech.selection, &mut reader.ocr.selection] {
+        for binding in
+            std::iter::once(&mut selection.single).chain(selection.languages.values_mut())
+        {
+            let runtime_removed = binding.runtime.as_deref().is_some_and(is_runtime);
+            if runtime_removed {
+                binding.runtime = None;
+            }
+            if runtime_removed || binding.model.as_deref().is_some_and(is_model) {
+                binding.model = None;
+                binding.voice = None;
+                binding.steps = None;
+                binding.lowercase = false;
+            }
+        }
+    }
+}
+
+pub(crate) fn remove_download(
+    path: &Path,
+    delete: impl FnOnce(&Path) -> std::io::Result<()>,
+    save: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    // Keep the download recoverable until the settings update has succeeded.
+    let staged = crate::config::unique_atomic_temp_path(path);
+    match fs::rename(path, &staged) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return save(),
+        Err(error) => return Err(error).with_context(|| format!("removing {}", path.display())),
+    }
+    if let Err(error) = save() {
+        fs::rename(&staged, path)
+            .with_context(|| format!("{error:#}; restoring {}", path.display()))?;
+        return Err(error);
+    }
+    delete(&staged).with_context(|| format!("deleting staged download {}", staged.display()))
 }
 pub fn available(asset: &Asset) -> bool {
     let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
@@ -287,7 +336,7 @@ impl Manager {
             locked = next;
         }
     }
-    pub fn remove(&self, id: &str) -> Result<()> {
+    pub fn remove(&self, id: &str) -> Result<bool> {
         let assets = catalog();
         let asset = assets
             .iter()
@@ -301,10 +350,39 @@ impl Manager {
                 other.label
             );
         }
-        if directory(id).exists() {
-            fs::remove_dir_all(directory(id))?;
+        let _config_lock = crate::config::lock_config()?;
+        let stt = crate::config::AppConfig::load()?;
+        let reader = crate::reader::load()?;
+        let mut next_stt = stt.clone();
+        let mut next_reader = reader.clone();
+        clear_assignments(id, &mut next_stt, &mut next_reader);
+        let stt_changed = next_stt.speech != stt.speech;
+        let reader_changed = next_reader.speech.selection != reader.speech.selection
+            || next_reader.ocr.selection != reader.ocr.selection;
+        remove_download(
+            &directory(id),
+            |path| fs::remove_dir_all(path),
+            || {
+                if stt_changed {
+                    next_stt.save()?;
+                }
+                if reader_changed {
+                    if let Err(error) = crate::reader::store().save(next_reader, reader.revision) {
+                        if stt_changed {
+                            stt.save().context("restoring speech settings")?;
+                        }
+                        return Err(error);
+                    }
+                }
+                Ok(())
+            },
+        )?;
+        if stt_changed || reader_changed {
+            self.shared
+                .selection_revision
+                .fetch_add(1, Ordering::AcqRel);
         }
-        Ok(())
+        Ok(stt_changed)
     }
 }
 impl Job {
@@ -568,33 +646,35 @@ mod tests {
     use super::*;
     #[test]
     fn unused_reader_path_defaults_do_not_lock_downloaded_assets() {
-        let stt = crate::config::AppConfig::default();
-        let reader = crate::reader::defaults();
+        let mut stt = crate::config::AppConfig::default();
+        let mut reader = crate::reader::defaults();
+        let speech = reader.speech.selection.clone();
+        let ocr = reader.ocr.selection.clone();
         for id in ["kokoro", "paddle-ar-en", "sherpa-cpu"] {
-            assert!(!assigned(id, &stt, &reader), "{id}");
+            clear_assignments(id, &mut stt, &mut reader);
         }
+        assert_eq!(reader.speech.selection, speech);
+        assert_eq!(reader.ocr.selection, ocr);
     }
     #[test]
-    fn saved_assignments_protect_assets_in_inactive_modes() {
+    fn removing_a_runtime_clears_inactive_keyboard_assignments() {
         let mut stt = crate::config::AppConfig::default();
         let mut reader = reader_core::AppConfig::default();
         stt.speech
             .language_runtimes
             .insert("ar".into(), Some("parakeet-cuda".into()));
         stt.speech.selection_mode = crate::config::ModelSelectionMode::SingleModel;
-        reader.speech.selection.languages.insert(
-            "en".into(),
-            reader_core::routing::Binding {
-                runtime: Some("sherpa-cpu".into()),
-                model: Some("kokoro".into()),
-                ..Default::default()
-            },
-        );
-        reader.ocr.selection.single.model = Some("ocr-eng".into());
-        for id in ["parakeet-cuda", "sherpa-cpu", "kokoro", "ocr-eng"] {
-            assert!(assigned(id, &stt, &reader), "{id}");
-        }
-        assert!(!assigned("unassigned", &stt, &reader));
+        stt.speech
+            .language_models
+            .insert("ar".into(), Some("lemura-arabic-asr-lite-q8_0.gguf".into()));
+        let runtime = reader_core::routing::registry()
+            .runtimes
+            .into_iter()
+            .find(|runtime| runtime.id == "parakeet-cuda")
+            .unwrap();
+        clear_assignments(runtime.asset.as_deref().unwrap(), &mut stt, &mut reader);
+        assert_eq!(stt.speech.language_runtimes["ar"], None);
+        assert_eq!(stt.speech.language_models["ar"], None);
     }
     #[test]
     fn catalog_is_pinned_and_closed() {

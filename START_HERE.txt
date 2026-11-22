@@ -1,9 +1,9 @@
-SIMPLE_STT SOURCE OVERHAUL
+SMALLTALKAI
 ====================
 
 Architecture:
-  AutoHotkey v2 shell -> persistent simple-stt-capture.exe -> disposable simple-stt-infer.exe
-  AutoHotkey uses disposable simple-stt-ctl.exe helpers for non-blocking local control.
+  AutoHotkey v2 shell -> persistent smalltalkai-capture.exe -> disposable smalltalkai-infer.exe
+  AutoHotkey uses disposable smalltalkai-ctl.exe helpers for non-blocking local control.
   The worker uses parakeet.cpp Vulkan with CPU fallback and separate English/Arabic models.
 
 Read first:
@@ -24,8 +24,8 @@ One-command distribution build:
   build-distribution.cmd
 
 Outputs:
-  artifacts\dist\simple-stt-setup.exe
-  artifacts\dist\simple-stt-portable.zip
+  artifacts\dist\smalltalkai-setup.exe
+  artifacts\dist\smalltalkai-portable.zip
 
 Download inference runtimes and models in Settings after setup.
 Open Settings > Models to choose and download models explicitly. Existing settings
@@ -36,7 +36,7 @@ Static source checks and IPC POC:
   .\scripts\test-static.ps1
 
 Settings UI:
-  use the tray's Open Settings command, or run target\debug\simple-stt-settings.exe
+  use the tray's Open Settings command, or run target\debug\smalltalkai-settings.exe
 
 Run scripts\test-full.cmd before shipping a Windows build. Linux static checks are
 available through python scripts\test-linux-static.py.

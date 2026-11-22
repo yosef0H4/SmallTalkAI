@@ -59,13 +59,13 @@ def run_mode(root: Path, mode: str, language: str, expected_gpu: str | None = No
     model_name = "lemura-arabic-asr-lite-q8_0.gguf" if language == "arabic" else "tdt_ctc-110m-q8_0.gguf"
     model = root / "external" / "parakeet-runtime" / "models" / model_name
     audio = root / "fixtures" / "asr" / "arabic-sa.wav" if language == "arabic" else root / "fixtures" / "parakeet-smoke.wav"
-    executable = "simple-stt-infer.exe" if windows else "simple-stt-infer"
+    executable = "smalltalkai-infer.exe" if windows else "smalltalkai-infer"
     exe = root / "target" / "release" / executable
     if not exe.exists():
         exe = root / executable
     if worker is not None:
         exe = worker
-    log = root / "artifacts" / f"simple-stt-infer-{language}-{mode}.log"
+    log = root / "artifacts" / f"smalltalkai-infer-{language}-{mode}.log"
     if not any(path.is_file() for path in [runtime / "bin" / library, runtime / library, runtime / "lib" / library]):
         raise RuntimeError(f"missing {library} in {runtime}")
     for required in [model, audio, exe]:

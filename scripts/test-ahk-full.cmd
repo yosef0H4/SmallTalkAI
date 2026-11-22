@@ -9,11 +9,11 @@ if not exist "%AHK%" (
 )
 
 echo INFO: building current release binaries
-cargo build --release --bin simple-stt-capture --bin simple-stt-infer --bin simple-stt-ctl --bin simple-stt-settings || exit /b 1
+cargo build --release --bin smalltalkai-capture --bin smalltalkai-infer --bin smalltalkai-ctl --bin smalltalkai-settings || exit /b 1
 
 echo INFO: validating AHK entry points
 for %%F in (
-  ahk\simple-stt.ahk
+  ahk\smalltalkai.ahk
   ahk\hotkey-recorder.ahk
   ahk\action-replay.ahk
   ahk\tests\action-replay-smoke.ahk

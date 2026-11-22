@@ -17,14 +17,14 @@ spec.loader.exec_module(wire)
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--infer', type=Path, default=ROOT / 'target/debug/simple-stt-infer')
-    parser.add_argument('--runtime-dir', type=Path, default=Path('/usr/lib/simple-stt/runtime'))
+    parser.add_argument('--infer', type=Path, default=ROOT / 'target/debug/smalltalkai-infer')
+    parser.add_argument('--runtime-dir', type=Path, default=Path('/usr/lib/smalltalkai/runtime'))
     parser.add_argument('--model-path', type=Path, default=Path.home() / '.local/share/simple-stt/models/realtime_eou_120m-v1-q8_0.gguf')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     fixtures = ROOT / 'fixtures/asr/end-context'
     results = []
-    with tempfile.TemporaryDirectory(prefix='simple-stt-end-context-') as temporary, tempfile.TemporaryFile() as errors:
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-end-context-') as temporary, tempfile.TemporaryFile() as errors:
         process = subprocess.Popen([str(args.infer), '--runtime-dir', str(args.runtime_dir),
             '--model-path', str(args.model_path), '--inference-device', 'gpu',
             '--log-path', str(Path(temporary) / 'infer.log')], stdin=subprocess.PIPE,

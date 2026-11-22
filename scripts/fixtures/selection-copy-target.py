@@ -9,7 +9,7 @@ from gi.repository import Gtk, GLib
 
 root = pathlib.Path(sys.argv[1])
 text = 'مرحبا بالعالم Hello world'
-window = Gtk.Window(title='Simple STT private selection target')
+window = Gtk.Window(title='SmallTalkAI private selection target')
 box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 window.add(box)
 entry = Gtk.Entry()

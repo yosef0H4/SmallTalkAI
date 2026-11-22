@@ -14,7 +14,7 @@ processing), System (memory/server/privacy/diagnostics/JSON).
   names use user tasks, with short scope descriptions rather than internal
   process names or ambiguous sections.
 - [VS Code Settings](https://code.visualstudio.com/docs/configure/settings)
-  provides searchable structured settings alongside JSON. Simple STT retains
+  provides searchable structured settings alongside JSON. SmallTalkAI retains
   both, and search includes field labels, help, aliases and owning page.
 - [GOV.UK select guidance](https://design-system.service.gov.uk/components/select/)
   advises choosing controls for the number of options rather than defaulting to

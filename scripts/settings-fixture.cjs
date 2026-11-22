@@ -263,6 +263,15 @@ function advanceAssetQueue() {
 }
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://127.0.0.1");
+  const icon = {
+    "/favicon.ico": "ahk/icons/smalltalkai.ico",
+    "/smalltalkai.png": "icons/hicolor/64x64/apps/smalltalkai.png",
+    "/smalltalkai-titlebar.png": "icons/smalltalkai-titlebar.png",
+  }[url.pathname];
+  if (icon) {
+    res.writeHead(200, { "Content-Type": url.pathname === "/favicon.ico" ? "image/x-icon" : "image/png" });
+    return res.end(fs.readFileSync(path.join(root, icon)));
+  }
   if (
     url.pathname.startsWith("/api/") &&
     req.headers["x-simple-stt-token"] !== token

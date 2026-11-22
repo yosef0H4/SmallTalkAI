@@ -27,10 +27,10 @@ it does not grant or pre-approve desktop control. [KDE portal permission guidanc
 
 ## Implementation
 
-`readerd` uses the same `io.github.yosef0H4.simple_stt` app ID as the main
-Simple STT shell and ensures a matching desktop entry exists before registering
+`smalltalkai-reader` uses the same `io.github.yosef0H4.simple_stt` app ID as the main
+SmallTalkAI shell and ensures a matching desktop entry exists before registering
 that ID through ashpd. Registration happens before it starts portal
-integrations. The installed entry uses the Simple STT name and icon.
+integrations. The installed entry uses the SmallTalkAI name and icon.
 Development installs create a user desktop entry with the same identity when
 needed. Registration
 errors are logged and the service continues; on older or unavailable portal
@@ -40,6 +40,6 @@ silently accepted, and KDE-specific permission tables or warning suppression
 are not used.
 
 The registry documentation recommends re-registration after the portal
-service restarts. The current client registers at `readerd` desktop startup;
+service restarts. The current client registers at `smalltalkai-reader` desktop startup;
 portal restart recovery remains dependent on the desktop's normal app
 attribution mechanisms.

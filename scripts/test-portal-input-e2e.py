@@ -2,7 +2,7 @@
 """Unattended portal-only input E2E in a private KWin Wayland session.
 
 The harness creates a private D-Bus session, HOME, XDG runtime, virtual KWin,
-portal mock, GTK text target, and readerd data directory. It never connects to
+portal mock, GTK text target, and smalltalkai-reader data directory. It never connects to
 or sends input through the user's desktop session.
 """
 import argparse
@@ -24,7 +24,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "scripts/fixtures/linux-unicode"
 PORTAL = FIXTURES / "portal_mock.py"
-READERD = Path(os.environ.get("SIMPLE_STT_TEST_READERD", ROOT / "target/debug/readerd")).resolve()
+READERD = Path(os.environ.get("SIMPLE_STT_TEST_READERD", ROOT / "target/debug/smalltalkai-reader")).resolve()
 OLD_TEST = ROOT / "scripts/test-linux-unicode-input.py"
 
 _spec = importlib.util.spec_from_file_location("linux_unicode_e2e_helpers", OLD_TEST)
@@ -103,10 +103,10 @@ def start_daemon(env, config_path, data_dir, log_path):
         start_new_session=True,
     )
     wait_for(lambda: (data_dir / "simple-tts.sock").exists() or proc.poll() is not None,
-             "readerd local IPC socket")
+             "smalltalkai-reader local IPC socket")
     if proc.poll() is not None:
         log.close()
-        raise RuntimeError(f"readerd exited before creating its local IPC socket; see {log_path}")
+        raise RuntimeError(f"smalltalkai-reader exited before creating its local IPC socket; see {log_path}")
     return proc, log
 
 
@@ -179,7 +179,7 @@ def start_kitty_fixture(env, root, ready_path, expected):
     kitty_env.pop("KITTY_LISTEN_ON", None)
     kitty_env.pop("KITTY_PID", None)
     proc = subprocess.Popen(
-        [kitty, "--config", "NONE", "--title", "Simple STT Portal E2E Kitty",
+        [kitty, "--config", "NONE", "--title", "SmallTalkAI Portal E2E Kitty",
          sys.executable, str(script), expected.hex(), str(output_path), marker.hex(),
          str(ready_path)],
         env=kitty_env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -195,7 +195,7 @@ def start_kitty_fixture(env, root, ready_path, expected):
 def private_session(root):
     _helpers.require_commands(("kwin_wayland", "wayland-scanner", "pkg-config", "cc", "wl-paste"))
     if not READERD.is_file() or not os.access(READERD, os.X_OK):
-        raise RuntimeError(f"Build the readerd binary first: missing executable {READERD}")
+        raise RuntimeError(f"Build the smalltalkai-reader binary first: missing executable {READERD}")
     if subprocess.run(["pkg-config", "--exists", "gtk+-3.0"]).returncode != 0:
         raise RuntimeError("Missing GTK 3 development files (pkg-config gtk+-3.0)")
 
@@ -346,7 +346,7 @@ def private_session(root):
         # Stop and restart the daemon while preserving its private XDG data.
         shutdown = ipc(data_dir, {"op": "shutdown"})
         if not shutdown.get("ok"):
-            raise RuntimeError(f"readerd shutdown failed: {shutdown.get('message')}")
+            raise RuntimeError(f"smalltalkai-reader shutdown failed: {shutdown.get('message')}")
         daemon.wait(timeout=10)
         daemon = None
         daemon_log.close()
@@ -436,7 +436,7 @@ def main():
         private_session(Path(args.root))
         return
     require_commands(("dbus-run-session",))
-    root = Path(tempfile.mkdtemp(prefix="simple-stt-portal-input-e2e-"))
+    root = Path(tempfile.mkdtemp(prefix="smalltalkai-portal-input-e2e-"))
     env = _helpers.isolated_env(root)
     session_log = root / "session.log"
     with session_log.open("w", encoding="utf-8") as log:

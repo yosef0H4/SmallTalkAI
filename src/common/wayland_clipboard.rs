@@ -84,7 +84,7 @@ fn publish_event(status: &std::sync::Mutex<CacheStatus>, generation: u64, phase:
         phase,
     });
     eprintln!(
-        "[simple-stt-linux] clipboard buffer generation={generation} phase={phase:?} formats={} bytes={}",
+        "[smalltalkai-linux] clipboard buffer generation={generation} phase={phase:?} formats={} bytes={}",
         status.formats, status.cached_bytes
     );
 }
@@ -135,12 +135,12 @@ pub fn serve_cache_daemon(socket_path: &Path) -> Result<()> {
                 let sender = transaction_sender.clone();
                 std::thread::spawn(move || {
                     if let Err(error) = handle_cache_request(stream, &status, &sender) {
-                        eprintln!("[simple-stt-linux] clipboard cache request failed: {error:#}");
+                        eprintln!("[smalltalkai-linux] clipboard cache request failed: {error:#}");
                     }
                 });
             }
             Err(error) => {
-                eprintln!("[simple-stt-linux] clipboard cache socket stopped: {error}");
+                eprintln!("[smalltalkai-linux] clipboard cache socket stopped: {error}");
                 break;
             }
         }
@@ -203,7 +203,7 @@ pub fn serve_cache_daemon(socket_path: &Path) -> Result<()> {
                     }
                     Err(error) => {
                         eprintln!(
-                            "[simple-stt-linux] current clipboard cache unavailable: {error:#}"
+                            "[smalltalkai-linux] current clipboard cache unavailable: {error:#}"
                         );
                         cache.clear();
                         false
@@ -300,7 +300,7 @@ pub fn serve_cache_daemon(socket_path: &Path) -> Result<()> {
                                 cache_ready,
                             ) {
                                 eprintln!(
-                                    "[simple-stt-linux] cached clipboard transaction failed: {error:#}"
+                                    "[smalltalkai-linux] cached clipboard transaction failed: {error:#}"
                                 );
                             }
                         }

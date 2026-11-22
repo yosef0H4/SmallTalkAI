@@ -1,5 +1,5 @@
 ---
-name: Simple STT Settings
+name: SmallTalkAI Settings
 description: Compact, task-focused settings for desktop dictation.
 colors:
   paper: "#fafbfd"
@@ -65,15 +65,15 @@ components:
     padding: "7px 10px"
 ---
 
-# Design System: Simple STT Settings
+# Design System: SmallTalkAI Settings
 
 ## Overview
 
 **Creative North Star: "A Clear Home for Every Decision"**
 
-Simple STT Settings is a compact, quiet workspace for configuring desktop dictation. The navigation names six task destinations, and each choice has one clear home. Flat aligned rows keep the interface practical and let labels, values, and control state carry the meaning.
+SmallTalkAI Settings is a compact, quiet workspace for configuring desktop dictation. The navigation names six task destinations, and each choice has one clear home. Flat aligned rows keep the interface practical and let labels, values, and control state carry the meaning.
 
-The inherited Simple STT visual identity uses a restrained blue accent, neutral light and dark surfaces, concise labels, and authored SVG icons. Search helps users find settings across destinations. On narrow screens the task navigation adapts while retaining visible names.
+The inherited SmallTalkAI visual identity uses a restrained blue accent, neutral light and dark surfaces, concise labels, and authored SVG icons. Search helps users find settings across destinations. On narrow screens the task navigation adapts while retaining visible names.
 
 **Key Characteristics:**
 - Task-led navigation with six named destinations.

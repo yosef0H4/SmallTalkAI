@@ -1,4 +1,4 @@
-# Skill: run Simple STT smoke tests
+# Skill: run SmallTalkAI smoke tests
 
 Source-only checks:
 

@@ -15,12 +15,12 @@ from urllib.error import HTTPError
 
 
 def main():
-    root = Path('/usr/lib/simple-stt')
+    root = Path('/usr/lib/smalltalkai')
     assert os.geteuid() != 0, 'Run the installed smoke as an ordinary user'
     assert not os.access(root, os.W_OK), 'Package directory must be root-owned'
-    names = ['simple-stt-linux', 'simple-stt-capture', 'simple-stt-infer',
-             'simple-stt-ctl', 'simple-stt-settings', 'simple-stt-settings-window', 'linux-fast-paste',
-             'readerd', 'readerctl', 'reader-tts', 'reader-ocr', 'reader-hud']
+    names = ['smalltalkai-linux', 'smalltalkai-capture', 'smalltalkai-infer',
+             'smalltalkai-ctl', 'smalltalkai-settings', 'smalltalkai-settings-window', 'smalltalkai-paste',
+             'smalltalkai-reader', 'smalltalkai-readerctl', 'smalltalkai-tts', 'smalltalkai-ocr', 'smalltalkai-reader-hud']
     for name in names:
         executable = root / name
         assert executable.is_file() and os.access(executable, os.X_OK), name
@@ -34,20 +34,35 @@ def main():
         with wave.open(str(root / name), 'rb') as audio:
             assert audio.getnframes() > 0 and audio.getnchannels() == 1, name
             assert audio.getframerate() == 16000, name
-    symbols = subprocess.check_output(['nm', '-D', str(root / 'linux-fast-paste')], text=True)
+    symbols = subprocess.check_output(['nm', '-D', str(root / 'smalltalkai-paste')], text=True)
     for feature in ['atspi_', 'g_dbus_']:
         assert feature in symbols, f'Paste helper missing {feature}'
     assert "XTestFakeKeyEvent" not in symbols, "Legacy XTest injection must not ship"
-    for installed in ['/usr/bin/simple-stt', '/usr/lib/systemd/user/simple-stt-linux.service',
+    for installed in ['/usr/bin/smalltalkai', '/usr/lib/systemd/user/smalltalkai-linux.service',
                       '/usr/share/applications/io.github.yosef0H4.simple_stt.desktop',
-                      '/usr/share/applications/simple-stt-settings.desktop',
-                      '/usr/share/applications/simple-stt-readerd.desktop']:
+                      '/usr/share/applications/smalltalkai-reader.desktop']:
         assert Path(installed).is_file(), installed
-    kwin_grant = Path('/usr/share/applications/simple-stt-readerd.desktop').read_text()
-    assert 'Exec=/usr/lib/simple-stt/readerd' in kwin_grant
+    assert not Path('/usr/share/applications/smalltalkai-settings.desktop').exists()
+    launcher = Path('/usr/share/applications/io.github.yosef0H4.simple_stt.desktop').read_text()
+    assert 'Name=SmallTalkAI\n' in launcher and 'Exec=smalltalkai launch\n' in launcher
+    for size in (16, 22, 24, 32, 48, 64, 128, 256):
+        icon = Path(f'/usr/share/icons/hicolor/{size}x{size}/apps/smalltalkai.png')
+        with icon.open('rb') as stream:
+            header = stream.read(24)
+        assert header.startswith(b'\x89PNG\r\n\x1a\n')
+        assert int.from_bytes(header[16:20], 'big') == int.from_bytes(header[20:24], 'big') == size
+    for legacy, current in [
+        ('/usr/bin/simple-stt', '/usr/bin/smalltalkai'),
+        ('/usr/bin/simple-stt-ctl', '/usr/bin/smalltalkai-ctl'),
+        ('/usr/lib/systemd/user/simple-stt-linux.service', '/usr/lib/systemd/user/smalltalkai-linux.service'),
+        ('/usr/lib/systemd/user/simple-stt-server.service', '/usr/lib/systemd/user/smalltalkai-server.service'),
+    ]:
+        assert Path(legacy).is_symlink() and Path(legacy).samefile(current), legacy
+    kwin_grant = Path('/usr/share/applications/smalltalkai-reader.desktop').read_text()
+    assert 'Exec=/usr/lib/smalltalkai/smalltalkai-reader' in kwin_grant
     assert 'X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2' in kwin_grant
     assert (root / 'linux-installation').is_file()
-    with tempfile.TemporaryDirectory(prefix='simple-stt-package-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-package-') as temporary:
         home = Path(temporary)
         env = dict(os.environ, HOME=temporary, XDG_CONFIG_HOME=str(home / 'config'),
                    XDG_DATA_HOME=str(home / 'data'), XDG_CACHE_HOME=str(home / 'cache'),
@@ -57,12 +72,12 @@ def main():
         for name in ['SIMPLE_STT_RUNTIME_ROOT', 'SIMPLE_STT_CONFIG', 'SIMPLE_STT_BINDIR', 'DISPLAY']:
             env.pop(name, None)
         (home / 'run').mkdir(mode=0o700)
-        subprocess.run(['/usr/bin/simple-stt', '--help'], cwd=home, env=env,
+        subprocess.run(['/usr/bin/smalltalkai', '--help'], cwd=home, env=env,
                        check=True, stdout=subprocess.DEVNULL, timeout=10)
         # ExecStop must also succeed after a tray quit has removed capture state.
-        subprocess.run(['/usr/bin/simple-stt', 'shutdown'], cwd=home, env=env,
+        subprocess.run(['/usr/bin/smalltalkai', 'shutdown'], cwd=home, env=env,
                        check=True, timeout=10)
-        process = subprocess.Popen([str(root / 'simple-stt-settings'), '--no-browser'],
+        process = subprocess.Popen([str(root / 'smalltalkai-settings'), '--no-browser'],
                                    cwd=home, env=env, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True)
         try:
@@ -71,6 +86,16 @@ def main():
                 assert selector.select(timeout=30), 'Settings did not announce its URL'
             parsed = urlparse(process.stdout.readline().strip())
             origin = f'{parsed.scheme}://{parsed.netloc}'
+            with urlopen(f'{origin}/smalltalkai.png', timeout=10) as icon:
+                assert icon.headers.get_content_type() == 'image/png'
+                launcher_icon = icon.read()
+                assert launcher_icon == Path('/usr/share/icons/hicolor/64x64/apps/smalltalkai.png').read_bytes()
+            with urlopen(f'{origin}/smalltalkai-titlebar.png', timeout=10) as icon:
+                assert icon.headers.get_content_type() == 'image/png'
+                titlebar_icon = icon.read()
+                assert titlebar_icon[:8] == launcher_icon[:8]
+                assert titlebar_icon[20:24] == launcher_icon[20:24]
+                assert 0 < int.from_bytes(titlebar_icon[16:20], 'big') < 64
             token = parse_qs(parsed.fragment)['token'][0]
             request = Request(origin + '/api/state', headers={
                 'Origin': origin, 'X-Simple-STT-Token': token})
@@ -82,7 +107,7 @@ def main():
             assert not state['runtime_ready']
             assert not state['service_online']
             assert state['linux_automation']['recommended'] == 'portal', 'installed input must use the portal'
-            assert (root / 'linux-fast-paste').is_file(), 'read-only desktop helper missing'
+            assert (root / 'smalltalkai-paste').is_file(), 'read-only desktop helper missing'
             assert state['config']['speech']['single_model_filename'] is None
             assert 'model_setup' not in state
             assert state['config']['speech']['selection_mode']=='follow_keyboard'

@@ -1,13 +1,13 @@
 # Third-party notices
 
-Simple STT source does not vendor Parakeet runtime binaries, GGUF model files, AutoHotkey, or other external source trees. Third-party components used by developers or included in a separate packaged build remain under their upstream licenses.
+SmallTalkAI source does not vendor Parakeet runtime binaries, GGUF model files, AutoHotkey, or other external source trees. Third-party components used by developers or included in a separate packaged build remain under their upstream licenses.
 
 ## Optional packaged runtime components
 
 - AutoHotkey v2 runtime, used for the compiled desktop shell executable, when included in a packaged build.
 - Parakeet runtime files under `runtime/external/parakeet-runtime/`, when included in a packaged build.
 - Parakeet/GGUF speech model files under `runtime/external/parakeet-runtime/.../models/`, when included in a packaged build.
-- Rust crate dependencies compiled into the Simple STT binaries, as recorded in `Cargo.lock`.
+- Rust crate dependencies compiled into the SmallTalkAI binaries, as recorded in `Cargo.lock`.
 
 The optional Arabic model `lemura-arabic-asr-lite-q8_0.gguf` is converted from
 [`lemuralabs/lemura-arabic-asr-lite`](https://huggingface.co/lemuralabs/lemura-arabic-asr-lite)
@@ -56,9 +56,9 @@ SOFTWARE.
 
 JetBrains Mono is used for waveform glyphs; Noto Sans Arabic is used for Arabic UI text. Both are licensed under SIL Open Font License 1.1. The font license texts are in `assets/fonts/LICENSE-JetBrainsMono.txt` and `assets/fonts/LICENSE-NotoSansArabic.txt`, and Windows packages include them in `licenses/`. Noto Sans Arabic's Regular face and browser WOFF2 are derived from the upstream variable face at weight 400.
 
-The English Settings typeface, Simple STT Paper Sans, is a subset of Adobe Source Sans 3. The SIL Open Font License 1.1 and Adobe copyright notice ship with the font in `web/settings/public/settings-sans-license.txt` and in distribution packages.
+The English Settings typeface, SmallTalkAI Paper Sans, is a subset of Adobe Source Sans 3. The SIL Open Font License 1.1 and Adobe copyright notice ship with the font in `web/settings/public/settings-sans-license.txt` and in distribution packages.
 
-Simple STT Overlay Icons is a renamed 12-glyph subset of Font Awesome Free Solid 6.7.2 (Copyright 2024 Fonticons, Inc.). The Linux tooltip uses it for the microphone and shortcut symbols. The SIL Open Font License 1.1 and upstream notices ship in `assets/fonts/LICENSE-FontAwesomeFree.txt` and in Linux distribution packages.
+SmallTalkAI Overlay Icons is a renamed 12-glyph subset of Font Awesome Free Solid 6.7.2 (Copyright 2024 Fonticons, Inc.). The Linux tooltip uses it for the microphone and shortcut symbols. The SIL Open Font License 1.1 and upstream notices ship in `assets/fonts/LICENSE-FontAwesomeFree.txt` and in Linux distribution packages.
 
 ## fastText language identification
 

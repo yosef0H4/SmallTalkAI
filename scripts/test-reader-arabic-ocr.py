@@ -35,7 +35,7 @@ def error_rate(reference, actual):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--binary', type=Path, default=ROOT / 'target/debug/reader-ocr')
+    parser.add_argument('--binary', type=Path, default=ROOT / 'target/debug/smalltalkai-ocr')
     parser.add_argument('--model', type=Path, default=ROOT / 'artifacts/combined-app/downloads/model-paddle')
     parser.add_argument('--runtime', type=Path, default=Path.home() / '.local/share/simple-tts/runtime')
     parser.add_argument('--device', choices=['gpu', 'cpu'], default='gpu')
@@ -52,7 +52,7 @@ def main():
         ('short', 28, ['مرحبا بالعالم هذا اختبار باللغة العربية.']),
         ('numbers', 22, ['يتحدث العربية أكثر من 467 مليون نسمة وتعترف بها 27 دولة لغة رسمية.']),
     ]
-    with tempfile.TemporaryDirectory(prefix='simple-stt-arabic-ocr-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-arabic-ocr-') as temporary:
         scratch = Path(temporary)
         env = dict(os.environ, XDG_DATA_HOME=temporary, XDG_CACHE_HOME=temporary,
                    SIMPLE_TTS_CAPTURE_DIR=temporary, WAYLAND_DISPLAY='unavailable-test-display',

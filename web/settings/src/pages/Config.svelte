@@ -30,7 +30,7 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "simple-stt-config.json";
+    a.download = "smalltalkai-config.json";
     a.click();
     URL.revokeObjectURL(url);
   }

@@ -490,11 +490,11 @@ mod tests {
             "Paused · A passage. · 2/6\nNext page · ready"
         );
         let arabic = compact_notice(
-            "🔊 \u{2068}نص \u{2066}Simple STT\u{2069}\u{2069}",
+            "🔊 \u{2068}نص \u{2066}SmallTalkAI\u{2069}\u{2069}",
             Locale::Ar,
         );
-        assert_eq!(arabic, "\u{2068}نص \u{2066}Simple STT\u{2069}\u{2069}");
-        assert_eq!(windows_tooltip_text(&arabic, Locale::Ar), "نص Simple STT");
+        assert_eq!(arabic, "\u{2068}نص \u{2066}SmallTalkAI\u{2069}\u{2069}");
+        assert_eq!(windows_tooltip_text(&arabic, Locale::Ar), "نص SmallTalkAI");
     }
 
     #[test]

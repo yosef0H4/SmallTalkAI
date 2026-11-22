@@ -376,7 +376,7 @@ impl TempWav {
                 .unwrap_or_default()
                 .as_nanos();
             let dir = root.join(format!(
-                "simple-stt-media-{}-{stamp}-{attempt}",
+                "smalltalkai-media-{}-{stamp}-{attempt}",
                 std::process::id()
             ));
             match fs::create_dir(&dir) {

@@ -71,7 +71,7 @@ class IpcClient {
         } catch Error as err {
             if kind = "events"
                 this.pollInFlight := false
-            this.logger.Write("error", "simple-stt-ctl launch failed: " . err.Message)
+            this.logger.Write("error", "smalltalkai-ctl launch failed: " . err.Message)
             response := TabProtocol.ErrorResponse(err.Message)
             if IsObject(callback)
                 callback.Call(response)
@@ -131,8 +131,8 @@ class IpcClient {
             if !responseReady && elapsed >= 35000 {
                 if ProcessExist(pid)
                     try ProcessClose(pid)
-                response := TabProtocol.ErrorResponse("simple-stt-ctl helper timed out")
-                this.logger.Write("error", "simple-stt-ctl helper timeout pid=" . pid . " kind=" . job["kind"])
+                response := TabProtocol.ErrorResponse("smalltalkai-ctl helper timed out")
+                this.logger.Write("error", "smalltalkai-ctl helper timeout pid=" . pid . " kind=" . job["kind"])
             } else {
                 response := TabProtocol.ReadResponse(job["path"])
             }

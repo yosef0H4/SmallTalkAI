@@ -1,6 +1,7 @@
 param(
     [switch]$SkipTests,
     [string]$AhkBase,
+    [string]$AhkCompiler,
     [string]$Iscc,
     [string]$CargoTargetDir
 )
@@ -10,7 +11,7 @@ $PackageVersionMatch = [regex]::Match((Get-Content -LiteralPath (Join-Path $Root
 if (-not $PackageVersionMatch.Success) { throw 'Unable to read package version from Cargo.toml' }
 $PackageVersion = $PackageVersionMatch.Groups[1].Value
 $Artifacts = Join-Path $Root 'artifacts'
-$Portable = Join-Path $Artifacts 'simple-stt-portable'
+$Portable = Join-Path $Artifacts 'smalltalkai-portable'
 $Dist = Join-Path $Artifacts 'dist'
 $Runtime = Join-Path $Portable 'runtime'
 $ResolvedTargetDir = if ($CargoTargetDir) {
@@ -48,12 +49,16 @@ $AhkBase = Resolve-Tool $AhkBase @(
     "$env:LOCALAPPDATA\Programs\AutoHotkey\v2\AutoHotkey64.exe",
     "$env:LOCALAPPDATA\Programs\AutoHotkey\v2\AutoHotkey.exe"
 ) 'AutoHotkey v2 base runtime'
+$AhkCompiler = Resolve-Tool $AhkCompiler @(
+    "$env:ProgramFiles\AutoHotkey\Compiler\Ahk2Exe.exe",
+    "$env:LOCALAPPDATA\Programs\AutoHotkey\Compiler\Ahk2Exe.exe"
+) 'AutoHotkey script compiler (Ahk2Exe.exe)'
 $Iscc = Resolve-Tool $Iscc @(
     "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
     "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
 ) 'Inno Setup compiler (ISCC.exe)'
-Require-File (Join-Path $Root 'ahk\simple-stt.ahk')
+Require-File (Join-Path $Root 'ahk\smalltalkai.ahk')
 Require-File (Join-Path $Root 'ahk\hotkey-recorder.ahk')
 Require-File (Join-Path $Root 'ahk\action-replay.ahk')
 Require-File (Join-Path $Root 'fixtures\parakeet-smoke.wav')
@@ -67,14 +72,24 @@ if ($SkipTests) {
 
 if (Test-Path -LiteralPath $Portable) { Remove-Item -LiteralPath $Portable -Recurse -Force }
 New-Item -ItemType Directory -Path $Runtime -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $Root 'ahk\simple-stt.ahk') -Destination $Runtime -Force
+Copy-Item -LiteralPath (Join-Path $Root 'ahk\smalltalkai.ahk') -Destination $Runtime -Force
 Copy-Item -LiteralPath (Join-Path $Root 'ahk\hotkey-recorder.ahk') -Destination $Runtime -Force
 Copy-Item -LiteralPath (Join-Path $Root 'ahk\action-replay.ahk') -Destination $Runtime -Force
 Copy-Item -LiteralPath (Join-Path $Root 'ahk\lib') -Destination (Join-Path $Runtime 'lib') -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $Root 'ahk\icons') -Destination (Join-Path $Runtime 'icons') -Recurse -Force
 Copy-Item -LiteralPath $AhkBase -Destination (Join-Path $Runtime 'AutoHotkey64.exe') -Force
+$DesktopExe = Join-Path $Runtime 'SmallTalkAI.exe'
+$DesktopScript = Join-Path $Runtime 'smalltalkai.ahk'
+$DesktopIcon = Join-Path $Runtime 'icons\smalltalkai.ico'
+$CompileArgs = "/in `"$DesktopScript`" /out `"$DesktopExe`" /base `"$AhkBase`" /icon `"$DesktopIcon`" /silent verbose"
+$CompilerProcess = Start-Process -FilePath $AhkCompiler -ArgumentList $CompileArgs -Wait -PassThru
+if ($CompilerProcess.ExitCode -ne 0) { throw "Ahk2Exe exited with $($CompilerProcess.ExitCode)" }
+Require-File $DesktopExe
+if ((Get-Item -LiteralPath $DesktopExe).VersionInfo.FileDescription -ne 'SmallTalkAI') {
+    throw 'SmallTalkAI.exe has incorrect process metadata'
+}
 
-foreach ($Name in @('simple-stt-capture.exe','simple-stt-infer.exe','simple-stt-ctl.exe','simple-stt-settings.exe','simple-stt-settings-window.exe','readerd.exe','readerctl.exe','reader-tts.exe','reader-ocr.exe','reader-hud.exe')) {
+foreach ($Name in @('smalltalkai-capture.exe','smalltalkai-infer.exe','smalltalkai-ctl.exe','smalltalkai-settings.exe','smalltalkai-settings-window.exe','smalltalkai-reader.exe','smalltalkai-readerctl.exe','smalltalkai-tts.exe','smalltalkai-ocr.exe','smalltalkai-reader-hud.exe')) {
     Copy-Item -LiteralPath (Join-Path $ResolvedTargetDir "release\$Name") -Destination $Runtime -Force
 }
 Copy-Item -LiteralPath (Join-Path $Root 'assets\language\lid.176.ftz') -Destination $Runtime -Force
@@ -87,7 +102,8 @@ Copy-Item -LiteralPath (Join-Path $Root 'web\settings\public\settings-sans-licen
 Copy-Item -LiteralPath (Join-Path $Root 'assets\fonts\LICENSE-JetBrainsMono.txt') -Destination (Join-Path $Portable 'licenses') -Force
 Copy-Item -LiteralPath (Join-Path $Root 'THIRD_PARTY_NOTICES.md') -Destination $Portable -Force
 Copy-Item -LiteralPath (Join-Path $Root 'START_HERE.txt') -Destination $Portable -Force
-Set-Content -LiteralPath (Join-Path $Portable 'simple-stt.cmd') -Encoding ASCII -Value '@echo off','start "" "%~dp0runtime\AutoHotkey64.exe" "%~dp0runtime\simple-stt.ahk"'
+Set-Content -LiteralPath (Join-Path $Portable 'smalltalkai.cmd') -Encoding ASCII -Value '@echo off','start "" "%~dp0runtime\SmallTalkAI.exe"'
+Set-Content -LiteralPath (Join-Path $Portable 'simple-stt.cmd') -Encoding ASCII -Value '@echo off','call "%~dp0smalltalkai.cmd"'
 New-Item -ItemType Directory -Path (Join-Path $Runtime 'fixtures') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $Root 'fixtures\parakeet-smoke.wav') -Destination (Join-Path $Runtime 'fixtures') -Force
 Copy-Item -LiteralPath (Join-Path $Root 'fixtures\asr') -Destination (Join-Path $Runtime 'fixtures\asr') -Recurse -Force
@@ -96,32 +112,33 @@ if ($ModelFiles.Count) { throw 'Distribution payload unexpectedly contains an in
 $InferenceLibraries = @(Get-ChildItem -LiteralPath $Portable -File -Recurse -Filter '*.dll' | Where-Object { $_.Name -match '^(parakeet|ggml|onnxruntime|sherpa-onnx)' })
 if ($InferenceLibraries.Count) { throw 'Distribution payload unexpectedly contains an inference runtime' }
 $Required = @(
-    'runtime\simple-stt.ahk',
+    'runtime\smalltalkai.ahk',
     'runtime\hotkey-recorder.ahk',
     'runtime\action-replay.ahk',
-    'runtime\icons\simple-stt.ico',
+    'runtime\icons\smalltalkai.ico',
     'runtime\icons\book.ico',
     'runtime\icons\LICENSE-NOTO-EMOJI.txt',
     'runtime\AutoHotkey64.exe',
-    'runtime\simple-stt-capture.exe',
-    'runtime\simple-stt-infer.exe',
-    'runtime\simple-stt-ctl.exe',
-    'runtime\simple-stt-settings.exe',
-    'runtime\simple-stt-settings-window.exe',
-    'runtime\readerd.exe',
-    'runtime\readerctl.exe',
-    'runtime\reader-tts.exe',
-    'runtime\reader-ocr.exe',
-    'runtime\reader-hud.exe',
+    'runtime\SmallTalkAI.exe',
+    'runtime\smalltalkai-capture.exe',
+    'runtime\smalltalkai-infer.exe',
+    'runtime\smalltalkai-ctl.exe',
+    'runtime\smalltalkai-settings.exe',
+    'runtime\smalltalkai-settings-window.exe',
+    'runtime\smalltalkai-reader.exe',
+    'runtime\smalltalkai-readerctl.exe',
+    'runtime\smalltalkai-tts.exe',
+    'runtime\smalltalkai-ocr.exe',
+    'runtime\smalltalkai-reader-hud.exe',
     'runtime\fixtures\parakeet-smoke.wav'
 )
 foreach ($RelativePath in $Required) { Require-File (Join-Path $Portable $RelativePath) }
 
 New-Item -ItemType Directory -Path $Dist -Force | Out-Null
-$Setup = Join-Path $Dist 'simple-stt-setup.exe'
-$Zip = Join-Path $Dist 'simple-stt-portable.zip'
-$InnoScript = Join-Path $Artifacts 'simple-stt.iss'
-Copy-Item -LiteralPath (Join-Path $Root 'resources\simple-stt.iss') -Destination $InnoScript -Force
+$Setup = Join-Path $Dist 'smalltalkai-setup.exe'
+$Zip = Join-Path $Dist 'smalltalkai-portable.zip'
+$InnoScript = Join-Path $Artifacts 'smalltalkai.iss'
+Copy-Item -LiteralPath (Join-Path $Root 'resources\smalltalkai.iss') -Destination $InnoScript -Force
 foreach ($Output in @($Setup, $Zip)) {
     if (Test-Path -LiteralPath $Output) { Remove-Item -LiteralPath $Output -Force }
 }

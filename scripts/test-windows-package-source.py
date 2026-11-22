@@ -3,7 +3,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-setup = (ROOT / "resources/simple-stt.iss").read_text(encoding="utf-8")
+setup = (ROOT / "resources/smalltalkai.iss").read_text(encoding="utf-8")
 builder = (ROOT / "scripts/build-distribution.ps1").read_text(encoding="utf-8")
 errors = []
 for forbidden in ["external download", "https://", "downloadmodel", "installarabic", "ModelNeedsDownload"]:
@@ -22,10 +22,14 @@ if re.search(r"^AppVersion=\d", setup, re.M):
     errors.append("installer version is hardcoded")
 if "'runtime\\action-replay.ahk'" not in builder:
     errors.append("recorded keyboard action helper is not required in the package")
-if "'runtime\\simple-stt-settings-window.exe'" not in builder:
+if "'runtime\\smalltalkai-settings-window.exe'" not in builder:
     errors.append("the native Settings window is not required in the package")
-icon = r"runtime\icons\simple-stt.ico"
-if f"'{icon}'" not in builder or f"SetupIconFile=simple-stt-portable\\{icon}" not in setup:
+if "'runtime\\SmallTalkAI.exe'" not in builder or "VersionInfo.FileDescription" not in builder:
+    errors.append("the branded process and its Windows metadata must be verified")
+if "AppName=SmallTalkAI" not in setup or "UsePreviousAppDir=yes" not in setup:
+    errors.append("the installer must carry the new name and reuse the existing profile's install directory")
+icon = r"runtime\icons\smalltalkai.ico"
+if f"'{icon}'" not in builder or f"SetupIconFile=smalltalkai-portable\\{icon}" not in setup:
     errors.append("the branded Windows icon is missing from the package or setup")
 if not all(f"IconFilename: \"{{app}}\\{icon}\"" in line for line in setup.splitlines() if line.startswith('Name: "{') and 'Filename:' in line):
     errors.append("an installed shortcut is missing the branded Windows icon")

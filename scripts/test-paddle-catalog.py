@@ -95,7 +95,7 @@ def main():
     if not args.reuse:
         assert not profile.exists() or not any(profile.iterdir()), 'Use an empty private profile, or explicit --reuse'
     profile.mkdir(parents=True, exist_ok=True)
-    process, api = settings.start_settings_server(bins / 'simple-stt-settings', profile / 'config.json', profile / 'runtime', profile / 'data')
+    process, api = settings.start_settings_server(bins / 'smalltalkai-settings', profile / 'config.json', profile / 'runtime', profile / 'data')
     daemon = monitor = log = alias = watcher = None
     stop_gpu = threading.Event()
     gpu_observations = {}
@@ -165,8 +165,8 @@ def main():
         short.symlink_to(assets.parent, target_is_directory=True)
         env = dict(os.environ, SIMPLE_STT_CONFIG=str(profile / 'config.json'), SIMPLE_STT_RUNTIME_ROOT=str(profile / 'runtime'), XDG_DATA_HOME=str(profile / 'data'), XDG_CONFIG_HOME=str(profile / 'config'), XDG_CACHE_HOME=str(profile / 'cache'), SIMPLE_STT_READER_DATA=str(short / 'reader'), SIMPLE_TTS_CONFIG=str(short / 'reader/config.json'), SIMPLE_TTS_NO_DESKTOP='1', SIMPLE_STT_NO_DESKTOP='1', DISPLAY='', WAYLAND_DISPLAY='', DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-paddle-test')
         env.pop('LD_LIBRARY_PATH', None)
-        log = (profile / 'readerd.log').open('w')
-        daemon = subprocess.Popen([str(bins / 'readerd'), 'daemon', '--foreground', '--no-desktop'], env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+        log = (profile / 'smalltalkai-reader.log').open('w')
+        daemon = subprocess.Popen([str(bins / 'smalltalkai-reader'), 'daemon', '--foreground', '--no-desktop'], env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
         service.wait_for(lambda: (reader / 'simple-tts.sock').exists(), 12, 'private OCR controller')
         monitor = service.WorkerMonitor(daemon.pid)
         def watch_gpu():
@@ -178,7 +178,7 @@ def main():
                     if len(columns) != 2 or not all(column.isdigit() for column in columns):
                         continue
                     pid, memory = map(int, columns)
-                    if memory > 0 and pid in owned and service.executable(pid) == 'reader-ocr':
+                    if memory > 0 and pid in owned and service.executable(pid) == 'smalltalkai-ocr':
                         try:
                             maps = Path(f'/proc/{pid}/maps').read_text()
                             if 'libonnxruntime_providers_cuda' in maps:
@@ -197,7 +197,7 @@ def main():
             api('/api/reader-save', {'config': config, 'expected_revision': config['revision']})
             image, expected_word = fixture(images, model['languages'])
             started = monitor.mark()
-            output = service.run([bins / 'simple-stt-linux', 'media', 'ocr', image], env, timeout=120)
+            output = service.run([bins / 'smalltalkai-linux', 'media', 'ocr', image], env, timeout=120)
             lines = output.splitlines()
             numeral_line = max(lines, key=lambda line: sum(char.isdecimal() for char in line))
             digit_score = recognition_score('1234567890', numeral_line)
@@ -208,15 +208,15 @@ def main():
             assert digit_score >= (1 if model['id'] == 'paddle-ar-en' else .8), (model['id'], output)
             assert word_score >= .6, (model['id'], expected_word, output)
             assert any(char.isalpha() for char in output), (model['id'], output)
-            assert len(service.workers(daemon.pid, 'reader-ocr')) <= 1
-            workers = monitor.since(started, 'reader-ocr') - previous_workers
+            assert len(service.workers(daemon.pid, 'smalltalkai-ocr')) <= 1
+            workers = monitor.since(started, 'smalltalkai-ocr') - previous_workers
             service.wait_for(lambda: workers & gpu_observations.keys(), 3, f'GPU allocation for {model["id"]}')
             entry = {'id': model['id'], 'fixture': image.name, 'expected_word': expected_word, 'text': output, 'numeral_score': digit_score, 'word_score': word_score, 'workers': sorted(workers), 'gpu_mib': {pid: gpu_observations[pid] for pid in workers if pid in gpu_observations}, 'result': 'PASS'}
-            previous_workers.update(monitor.since(started, 'reader-ocr'))
+            previous_workers.update(monitor.since(started, 'smalltalkai-ocr'))
             report['models'].append(entry)
             (profile / 'report.json').write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n')
             print('PASS GPU OCR:', model['id'], repr(output), flush=True)
-        assert max(len(sample['reader-ocr']) for _, sample in monitor.samples) <= 1
+        assert max(len(sample['smalltalkai-ocr']) for _, sample in monitor.samples) <= 1
         report['result'] = 'PASS'
         print(f'PASS {len(models)} genuine Paddle bundles, GPU inference, dictionary/recognition probes, selection preservation and bounded workers', flush=True)
     finally:
@@ -224,7 +224,7 @@ def main():
         if watcher: watcher.join(timeout=5)
         if daemon and daemon.poll() is None:
             try:
-                service.run([bins / 'readerctl', 'shutdown'], env, timeout=8)
+                service.run([bins / 'smalltalkai-readerctl', 'shutdown'], env, timeout=8)
                 daemon.wait(timeout=8)
             except Exception:
                 daemon.terminate()

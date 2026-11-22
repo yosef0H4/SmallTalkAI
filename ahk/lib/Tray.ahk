@@ -3,7 +3,7 @@ class TrayController {
 
     __New(app) {
         this.app := app
-        icon := TrayController.IconDirectory . "\simple-stt.ico"
+        icon := TrayController.IconDirectory . "\smalltalkai.ico"
         if FileExist(icon)
             TraySetIcon(icon)
         this.Rebuild()

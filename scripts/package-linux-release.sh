@@ -7,7 +7,7 @@ case "$choice" in
   fedora|arch|all) ;;
   *) echo "usage: $0 [fedora|arch|all]" >&2; exit 2 ;;
 esac
-out="$root/artifacts/linux-release"
+out=${SMALLTALKAI_PACKAGE_OUTPUT:-"$root/artifacts/linux-release"}
 mkdir -p "$out"
 if [[ "$(uname -m)" != x86_64 ]]; then
   echo 'Linux packages are currently built for x86_64 only' >&2
@@ -15,7 +15,7 @@ if [[ "$(uname -m)" != x86_64 ]]; then
 fi
 version="$(awk '/^\[package\]/{pkg=1; next} pkg && /^version = /{gsub(/"/, "", $3); print $3; exit}' "$root/Cargo.toml")"
 snapshot="$out/.build-source"
-source_archive_tmp="$out/.simple-stt-$version-source.tar.gz"
+source_archive_tmp="$out/.smalltalkai-$version-source.tar.gz"
 source_archive=""
 source_hash_file="$out/.source-sha256"
 
@@ -37,7 +37,7 @@ tar -C "$root" --sort=name --mtime="@$source_date_epoch" \
   --exclude='./resources/bin' -czf "$source_archive_tmp" .
 tar -xzf "$source_archive_tmp" -C "$snapshot"
 sha256sum "$source_archive_tmp" | awk '{print $1}' > "$source_hash_file"
-source_archive="$out/simple-stt-$version-source-$(cut -c1-12 "$source_hash_file").tar.gz"
+source_archive="$out/smalltalkai-$version-source-$(cut -c1-12 "$source_hash_file").tar.gz"
 mv -f "$source_archive_tmp" "$source_archive"
 
 if ! command -v podman >/dev/null 2>&1; then
@@ -70,10 +70,10 @@ build_one() {
   local smoke_command
   local package_mount
   if [[ "$distro" == fedora ]]; then
-    package="$out/simple-stt-$version-$(awk '/^Release:/{print $2}' "$root/packaging/linux/fedora/simple-stt.spec" | sed 's/%{?dist}/.fc44/').x86_64.rpm"
+    package="$out/smalltalkai-$version-$(awk '/^Release:/{print $2}' "$root/packaging/linux/fedora/smalltalkai.spec" | sed 's/%{?dist}/.fc44/').x86_64.rpm"
     package_mount=/package.rpm
   else
-    package="$out/simple-stt-$version-$(sed -n 's/^pkgrel=//p' "$root/packaging/linux/arch/PKGBUILD")-x86_64.pkg.tar.zst"
+    package="$out/smalltalkai-$version-$(sed -n 's/^pkgrel=//p' "$root/packaging/linux/arch/PKGBUILD")-x86_64.pkg.tar.zst"
     package_mount=/package.pkg.tar.zst
   fi
   test -n "$package"
@@ -118,7 +118,7 @@ for distro in fedora arch; do
 done > "$out/BUILD-INFO.txt"
 
 {
-  find "$out" -maxdepth 1 -type f \( -name 'simple-stt-*.rpm' -o -name 'simple-stt-*.pkg.tar.zst' -o -name 'simple-stt-*-source-*.tar.gz' \) -printf '%f\n'
+  find "$out" -maxdepth 1 -type f \( -name 'smalltalkai-*.rpm' -o -name 'smalltalkai-*.pkg.tar.zst' -o -name 'smalltalkai-*-source-*.tar.gz' \) -printf '%f\n'
 } | sort -u | while IFS= read -r filename; do
   (cd "$out" && sha256sum "$filename")
 done > "$out/SHA256SUMS"

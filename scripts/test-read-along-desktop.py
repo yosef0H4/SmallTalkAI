@@ -38,7 +38,7 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib, Gdk
 
 ROOT = Path(__file__).resolve().parents[1]
-TITLE = 'Simple STT read-along E2E ' + uuid.uuid4().hex[:8]
+TITLE = 'SmallTalkAI read-along E2E ' + uuid.uuid4().hex[:8]
 PAGES = [
     'Speech recognition is a technology that converts spoken language into text.\nIt helps people interact with computers using their voice.',
     'Language models help computers understand words and sentences.\nThis second page verifies continuous reading and speech playback.',
@@ -82,17 +82,17 @@ window_reply = threading.Event()
 window_state = {}
 
 class Callback(dbus.service.Object):
-    @dbus.service.method('org.simple_stt.E2E', in_signature='s', out_signature='')
+    @dbus.service.method('org.smalltalkai.E2E', in_signature='s', out_signature='')
     def Report(self, value):
         window_state.clear()
         window_state.update(json.loads(value))
         window_reply.set()
 
 
-callback = Callback(bus, '/org/simple_stt/E2E')
+callback = Callback(bus, '/org/smalltalkai/E2E')
 
 def query_target(folder, title=TITLE, activate=False):
-    with (Path(os.environ['XDG_RUNTIME_DIR']) / 'simple-stt-kwin-query.lock').open('a') as guard:
+    with (Path(os.environ['XDG_RUNTIME_DIR']) / 'smalltalkai-kwin-query.lock').open('a') as guard:
         fcntl.flock(guard, fcntl.LOCK_EX)
         return query_target_locked(folder, title, activate)
 
@@ -103,14 +103,14 @@ def query_target_locked(folder, title=TITLE, activate=False):
     script.write_text('var w=workspace.windowList().find(w=>w.caption===' + json.dumps(title) + ');'
         + ('if(w)workspace.activeWindow=w;' if activate else '') +
         'var g=w?w.frameGeometry:null;callDBus(' + json.dumps(bus.get_unique_name()) +
-        ',"/org/simple_stt/E2E","org.simple_stt.E2E","Report",JSON.stringify({'
+        ',"/org/smalltalkai/E2E","org.smalltalkai.E2E","Report",JSON.stringify({'
         'found:!!w,active:!!w&&!!workspace.activeWindow&&String(workspace.activeWindow.internalId)===String(w.internalId),'
         'activeClass:workspace.activeWindow?String(workspace.activeWindow.resourceClass):null,'
         'targetId:w?String(w.internalId):null,activeId:workspace.activeWindow?String(workspace.activeWindow.internalId):null,'
         'testTitles:workspace.windowList().filter(w=>Number(w.pid)===' + str(os.getpid()) + ').map(w=>({caption:String(w.caption),class:String(w.resourceClass),minimized:w.minimized})),'
         'x:g?g.x:0,y:g?g.y:0,width:g?g.width:0,height:g?g.height:0}));')
     scripting = dbus.Interface(bus.get_object('org.kde.KWin', '/Scripting'), 'org.kde.kwin.Scripting')
-    name = 'simple-stt-e2e-' + uuid.uuid4().hex
+    name = 'smalltalkai-e2e-' + uuid.uuid4().hex
     identifier = scripting.loadScript(str(script), name, signature='ss')
     try:
         dbus.Interface(bus.get_object('org.kde.KWin', '/Scripting/Script' + str(identifier)), 'org.kde.kwin.Script').run()
@@ -141,10 +141,10 @@ def main():
     parser.add_argument('--repeat-read-along', action='store_true', help='Repeat a saved read-along area while its initial audio is still playing')
     args = parser.parse_args()
     installed = Path.home() / '.local/share/simple-stt/instances/installed'
-    folder = Path(tempfile.mkdtemp(prefix='simple-stt-readalong-e2e-'))
+    folder = Path(tempfile.mkdtemp(prefix='smalltalkai-readalong-e2e-'))
     data = folder / 'reader'
     data.mkdir()
-    permission_token = Path(os.environ['XDG_RUNTIME_DIR']) / 'simple-stt-readalong-e2e-portal-token'
+    permission_token = Path(os.environ['XDG_RUNTIME_DIR']) / 'smalltalkai-readalong-e2e-portal-token'
     if permission_token.exists():
         shutil.copyfile(permission_token, data / 'remote-desktop-keyboard-token')
         (data / 'remote-desktop-keyboard-token').chmod(0o600)
@@ -221,7 +221,7 @@ def main():
             query_target(folder, activate=True)
             target = wait_for(lambda: (v if (v := query_target(folder)).get('found') and v.get('active') else None), 10, 'test target foreground')
             (folder / 'target.json').write_text(json.dumps(target))
-            daemon = subprocess.Popen([str(args.bin_dir.resolve() / 'readerd'), 'daemon', '--no-desktop'], env=env, stdout=log, stderr=log)
+            daemon = subprocess.Popen([str(args.bin_dir.resolve() / 'smalltalkai-reader'), 'daemon', '--no-desktop'], env=env, stdout=log, stderr=log)
             ipc = data / 'simple-tts.sock'
             wait_for(ipc.exists, 10, 'isolated reader socket')
             def preserve_captures():

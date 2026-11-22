@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use clap::Parser;
-use simple_stt::{
+use smalltalkai::{
     config::AppConfig,
     settings_server::{self, Args, DesktopSettings},
 };
@@ -14,12 +14,16 @@ use tauri::{webview::NewWindowResponse, Manager, WebviewUrl, WebviewWindowBuilde
 
 fn main() {
     if let Err(error) = settings_server::run(Args::parse(), Some(open_window)) {
-        eprintln!("simple-stt-settings-window: {error:#}");
+        eprintln!("smalltalkai-settings-window: {error:#}");
         std::process::exit(1);
     }
 }
 
 fn open_window(settings: DesktopSettings) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    // GTK uses the program name as the Wayland app ID. Match the installed
+    // desktop entry without making GTK register a single-instance bus name.
+    glib::set_prgname(Some(smalltalkai::config::LINUX_DESKTOP_ID));
     let data_dir = AppConfig::local_data_dir().join("settings-webview");
     let url = settings.url.clone();
     #[cfg(debug_assertions)]
@@ -31,7 +35,7 @@ fn open_window(settings: DesktopSettings) -> Result<()> {
             let page_loaded = loaded.clone();
             let close = app.handle().clone();
             let window = WebviewWindowBuilder::new(app, "settings", WebviewUrl::External(url))
-                .title("Simple STT Settings")
+                .title("SmallTalk")
                 .inner_size(1024.0, 760.0)
                 .min_inner_size(320.0, 360.0)
                 .decorations(false)
@@ -67,7 +71,7 @@ fn open_window(settings: DesktopSettings) -> Result<()> {
                     let _ = close.run_on_main_thread(move || {
                         if let Some(window) = handle.get_webview_window("settings") {
                             if let Err(error) = frame_action(&window, action) {
-                                eprintln!("simple-stt-settings-window: {action}: {error}");
+                                eprintln!("smalltalkai-settings-window: {action}: {error}");
                             }
                         }
                     });

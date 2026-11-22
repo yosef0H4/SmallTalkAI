@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
-BINARY = ROOT / 'target/debug' / ('simple-stt-settings.exe' if os.name == 'nt' else 'simple-stt-settings')
+BINARY = ROOT / 'target/debug' / ('smalltalkai-settings.exe' if os.name == 'nt' else 'smalltalkai-settings')
 
 
 def assert_wildcard_listener(process, port):
@@ -53,7 +53,7 @@ def request(url, path, *, token=None, origin=None, host=None, body=None):
 def main():
     assert BINARY.is_file(), f'build Settings first: {BINARY}'
     process = local_process = None
-    with tempfile.TemporaryDirectory(prefix='simple-stt-settings-remote-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-settings-remote-') as temporary:
         directory = Path(temporary)
         token = 'remote-test-token-' + ('x' * 40)
         token_file = directory / 'admin.token'
@@ -75,7 +75,7 @@ def main():
         if os.name == 'nt':
             # Windows resolves the user data directory through the OS Known Folder API.
             paths = subprocess.check_output(
-                [str(BINARY.with_name('simple-stt-ctl.exe')), 'config-show'],
+                [str(BINARY.with_name('smalltalkai-ctl.exe')), 'config-show'],
                 env=env, encoding='utf-8', timeout=10,
             )
             state_path = next(

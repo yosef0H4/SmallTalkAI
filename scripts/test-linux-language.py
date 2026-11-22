@@ -51,7 +51,7 @@ def main():
     layouts = re.findall(r"\('([^']+)'", layout_call("getLayoutsList"))
     english = next(i for i, name in enumerate(layouts) if name in ("us", "gb", "au"))
     arabic = layouts.index("ara")
-    with tempfile.TemporaryDirectory(prefix="simple-stt-language-") as directory:
+    with tempfile.TemporaryDirectory(prefix="smalltalkai-language-") as directory:
         directory = Path(directory)
         config = directory / "config.json"
         config.write_text(json.dumps({"schema_version": 9, "speech": {
@@ -65,7 +65,7 @@ def main():
         env = os.environ.copy()
         env["XDG_DATA_HOME"] = str(directory / "data")
         env["SIMPLE_STT_CONFIG"] = str(config)
-        shown = subprocess.check_output([str(ROOT / "target/release/simple-stt-ctl"), "config-show"], env=env, text=True)
+        shown = subprocess.check_output([str(ROOT / "target/release/smalltalkai-ctl"), "config-show"], env=env, text=True)
         values = {fields[1]: fields[2] for line in shown.splitlines()
                   if len(fields := line.split("\t", 2)) == 3 and fields[0] == "value"}
         state_path = Path(values["service_state_path"]).with_name("linux-capture-state.json")
@@ -74,7 +74,7 @@ def main():
         (data_path / "linux-token").write_text(token)
         with (directory / "capture.log").open("w") as output:
             process = subprocess.Popen([
-                str(ROOT / "target/release/simple-stt-capture"), "--token", token,
+                str(ROOT / "target/release/smalltalkai-capture"), "--token", token,
                 "--state-file", str(state_path), "--config", str(config),
             ], env=env, stdout=output, stderr=output)
             try:
@@ -126,7 +126,7 @@ def main():
                 # Exercise the real shell, which must not wait for a transcript or touch clipboard.
                 clipboard_before = subprocess.run(["wl-paste", "--no-newline"], capture_output=True, timeout=3)
                 for action in ["toggle", "stop", "toggle", "stop"]:
-                    subprocess.run([str(ROOT / "target/release/simple-stt-linux"), action], env=env,
+                    subprocess.run([str(ROOT / "target/release/smalltalkai-linux"), action], env=env,
                                    capture_output=True, check=True, timeout=5)
                     shell_state = json.loads((data_path / "linux-recording-session.json").read_text())
                     assert shell_state["recording"] is False, shell_state

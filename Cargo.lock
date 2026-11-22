@@ -5000,86 +5000,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "reader-ocr"
-version = "0.3.1"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "clap",
- "image",
- "oar-ocr",
- "ort",
- "reader-core",
- "reqwest 0.12.28",
- "serde_json",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "reader-tts"
-version = "0.3.1"
-dependencies = [
- "anyhow",
- "clap",
- "libloading 0.8.9",
- "reader-core",
- "reqwest 0.12.28",
- "serde_json",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "readerctl"
-version = "0.3.1"
-dependencies = [
- "anyhow",
- "clap",
- "dirs 6.0.0",
- "reader-core",
- "serde",
- "serde_json",
- "uuid",
- "windows-sys 0.60.2",
-]
-
-[[package]]
-name = "readerd"
-version = "0.3.1"
-dependencies = [
- "anyhow",
- "ashpd",
- "base64 0.22.1",
- "cc",
- "clap",
- "cpal 0.18.2",
- "ctrlc",
- "dirs 6.0.0",
- "embed-resource",
- "futures-lite",
- "hound",
- "image",
- "ksni",
- "libc",
- "nix",
- "reader-core",
- "reis",
- "serde",
- "serde_json",
- "tempfile",
- "tiny_http",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "wayland-client",
- "wayland-protocols",
- "windows",
- "windows-sys 0.60.2",
- "x11rb",
- "zbus",
-]
-
-[[package]]
 name = "reborrow"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5767,7 +5687,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
-name = "simple-stt"
+name = "siphasher"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
+
+[[package]]
+name = "slab"
+version = "0.4.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
+
+[[package]]
+name = "smalltalkai"
 version = "0.3.1"
 dependencies = [
  "anyhow",
@@ -5820,28 +5752,97 @@ dependencies = [
 ]
 
 [[package]]
-name = "simple-stt-settings-window"
+name = "smalltalkai-ocr"
+version = "0.3.1"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "clap",
+ "image",
+ "oar-ocr",
+ "ort",
+ "reader-core",
+ "reqwest 0.12.28",
+ "serde_json",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "smalltalkai-reader"
+version = "0.3.1"
+dependencies = [
+ "anyhow",
+ "ashpd",
+ "base64 0.22.1",
+ "cc",
+ "clap",
+ "cpal 0.18.2",
+ "ctrlc",
+ "dirs 6.0.0",
+ "embed-resource",
+ "futures-lite",
+ "hound",
+ "image",
+ "ksni",
+ "libc",
+ "nix",
+ "reader-core",
+ "reis",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tiny_http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "wayland-client",
+ "wayland-protocols",
+ "windows",
+ "windows-sys 0.60.2",
+ "x11rb",
+ "zbus",
+]
+
+[[package]]
+name = "smalltalkai-readerctl"
 version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
+ "dirs 6.0.0",
+ "reader-core",
+ "serde",
+ "serde_json",
+ "uuid",
+ "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "smalltalkai-settings-window"
+version = "0.3.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "glib 0.18.5",
  "open",
- "simple-stt",
+ "smalltalkai",
  "tauri",
  "tauri-build",
 ]
 
 [[package]]
-name = "siphasher"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
-
-[[package]]
-name = "slab"
-version = "0.4.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
+name = "smalltalkai-tts"
+version = "0.3.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "libloading 0.8.9",
+ "reader-core",
+ "reqwest 0.12.28",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "smallvec"

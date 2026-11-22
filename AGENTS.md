@@ -6,7 +6,7 @@ For this user's desktop, always build a native package and install it through
 the distribution's package manager before testing or restarting the app.
 On Fedora, use `scripts/package-linux-release.sh fedora` and install the RPM
 with DNF. On Arch/Omarchy, build the Arch package and install it with Pacman.
-Launch the installed `simple-stt` command or packaged user service. Do not
+Launch the installed `smalltalkai` command or packaged user service. Do not
 register services, launchers, or desktop shortcuts pointing at `target/`,
 `dist/`, or another checkout build directory.
 
@@ -37,10 +37,10 @@ Keep OS-specific windowing, input, and packaging in their existing adapters.
 AHK owns tray, GUI, hotkeys, startup registration, target-window safety,
 text transforms, final typing, clipboard-preserving paste delivery, and app reload.
 
-simple-stt-capture owns CPAL audio, the fast Win32 overlay, shell IPC, downloads,
+smalltalkai-capture owns CPAL audio, the fast Win32 overlay, shell IPC, downloads,
 recording-start model prewarm, lifecycle tooltip notices, and worker supervision.
 
-simple-stt-infer is the only active process allowed to load parakeet.dll or GGUF models.
+smalltalkai-infer is the only active process allowed to load parakeet.dll or GGUF models.
 ```
 
 Do not reintroduce in-process Parakeet loading under `src/capture/`.
@@ -50,7 +50,7 @@ Do not remove the Windows resource build pipeline:
 ```text
 build.rs
 resources\windows.rc
-resources\simple-stt.exe.manifest
+resources\smalltalkai.exe.manifest
 ```
 
 The manifest activates Common Controls v6 so Win32 tooltips use modern Windows visual styles.
@@ -99,7 +99,7 @@ platform. On every platform, run:
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --all-targets
-cargo build --bin simple-stt-settings
+cargo build --bin smalltalkai-settings
 python scripts/test-settings-selection-api.py
 python scripts/test-cleanup-settings-e2e.py
 python scripts/verify-static.py
@@ -126,7 +126,7 @@ This is the authoritative Windows validation command. It runs:
 
 ```text
 cargo test --all-targets
-cargo build --bin simple-stt-settings
+cargo build --bin smalltalkai-settings
 python scripts\test-settings-selection-api.py
 python scripts\test-cleanup-settings-e2e.py
 python scripts\verify-static.py
@@ -234,7 +234,7 @@ blocked inference exact-PID forced termination
 Unicode transcript transport
 ```
 
-The mock worker is test-only. Do not ship `simple_stt_mock_infer` in release packaging.
+The mock worker is test-only. Do not ship `smalltalkai_mock_infer` in release packaging.
 
 ## Static verifier responsibilities
 
@@ -243,7 +243,7 @@ The mock worker is test-only. Do not ship `simple_stt_mock_infer` in release pac
 ```text
 AHK v2 entry directives
 split Rust binary architecture
-Parakeet isolation in simple-stt-infer
+Parakeet isolation in smalltalkai-infer
 Common Controls v6 manifest embedding
 loopback authenticated IPC boundaries
 clipboard-preserving paste implementation

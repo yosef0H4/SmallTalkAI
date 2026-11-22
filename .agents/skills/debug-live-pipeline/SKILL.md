@@ -1,4 +1,4 @@
-# Skill: debug the Simple STT pipeline
+# Skill: debug the SmallTalkAI pipeline
 
 Use the component boundaries in order:
 
@@ -13,15 +13,15 @@ Expected live sequence:
 
 ```text
 AHK hotkey down
-→ simple-stt-ctl start-recording
+→ smalltalkai-ctl start-recording
 → capture retains 20 ms PCM frames
 → AHK hotkey up
-→ simple-stt-ctl stop-recording
-→ capture launches or reuses simple-stt-infer
+→ smalltalkai-ctl stop-recording
+→ capture launches or reuses smalltalkai-infer
 → worker loads model lazily when cold
 → worker returns Unicode transcript
 → AHK event poll queues focus-checked SendText chunks
-→ idle timeout terminates simple-stt-infer process
+→ idle timeout terminates smalltalkai-infer process
 ```
 
-Inspect separate logs under `%LOCALAPPDATA%\simple-stt\logs`. Never “fix” capture failures by loading Parakeet inside `simple-stt-capture.exe`.
+Inspect separate logs under `%LOCALAPPDATA%\smalltalkai\logs`. Never “fix” capture failures by loading Parakeet inside `smalltalkai-capture.exe`.

@@ -64,7 +64,7 @@ def main():
                          LD_LIBRARY_PATH=str(runtime/'lib'),SIMPLE_TTS_CAPTURE_DIR=str(ROOT/'scripts/fixtures/reader'))
                 arguments=['--model-dir',str(path),'--runtime-dir',str(runtime),'--device',device if model=='paddle' else 'cuda' if device=='gpu' else 'cpu']
                 if model!='paddle':arguments += ['--provider','local_supertonic' if model=='supertonic3' else 'local_kokoro']
-                binary=ROOT/'target/debug'/('reader-ocr' if model=='paddle' else 'reader-tts')
+                binary=ROOT/'target/debug'/('smalltalkai-ocr' if model=='paddle' else 'smalltalkai-tts')
                 with (OUT/f'{model}-{device}.log').open('w') as log:
                     child,events=workers.launch(binary,arguments,env,log)
                     try:

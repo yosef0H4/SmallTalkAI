@@ -13,9 +13,9 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 ROOT = Path(__file__).resolve().parents[1]
 
-with tempfile.TemporaryDirectory(prefix="simple-stt-assets-api-") as temporary:
+with tempfile.TemporaryDirectory(prefix="smalltalkai-assets-api-") as temporary:
     base = Path(temporary)
-    process, api = module.start_settings_server(ROOT / "target/debug/simple-stt-settings", base / "config.json", base / "runtime", base / "data")
+    process, api = module.start_settings_server(ROOT / "target/debug/smalltalkai-settings", base / "config.json", base / "runtime", base / "data")
     try:
         assets = api("/api/assets")
         assert assets["progress"]["phase"] == ""

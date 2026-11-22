@@ -141,7 +141,7 @@ def main():
     elif args.inside:
         inside(args.inside)
     else:
-        with tempfile.TemporaryDirectory(prefix='simple-stt-portal-sessions-') as folder:
+        with tempfile.TemporaryDirectory(prefix='smalltalkai-portal-sessions-') as folder:
             subprocess.run(['dbus-run-session', '--', sys.executable, __file__, '--inside', folder], check=True, timeout=90)
 
 

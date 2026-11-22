@@ -13,8 +13,8 @@ use std::sync::OnceLock;
 /// Bundled font: JetBrains Mono (SIL OFL 1.1). See assets/fonts/LICENSE-JetBrainsMono.txt.
 const FONT_BYTES: &[u8] = include_bytes!("../../assets/fonts/JetBrainsMono-Regular.ttf");
 const ARABIC_BYTES: &[u8] = include_bytes!("../../assets/fonts/NotoSansArabic-Regular.ttf");
-const ICON_BYTES: &[u8] = include_bytes!("../../assets/fonts/SimpleSTTOverlayIcons-Regular.ttf");
-pub(super) const ICON_FAMILY: &str = "Simple STT Overlay Icons";
+const ICON_BYTES: &[u8] = include_bytes!("../../assets/fonts/SmallTalkAIOverlayIcons-Regular.ttf");
+pub(super) const ICON_FAMILY: &str = "SmallTalkAI Overlay Icons";
 
 static REGISTERED: OnceLock<bool> = OnceLock::new();
 
@@ -38,7 +38,7 @@ pub fn ensure_registered() -> bool {
 fn cache_path(filename: &str) -> anyhow::Result<PathBuf> {
     let dir = dirs::cache_dir()
         .ok_or_else(|| anyhow::anyhow!("no cache dir"))?
-        .join("simple-stt")
+        .join("smalltalkai")
         .join("fonts");
     Ok(dir.join(filename))
 }
@@ -46,7 +46,7 @@ fn cache_path(filename: &str) -> anyhow::Result<PathBuf> {
 fn register() -> anyhow::Result<()> {
     register_font("JetBrainsMono-Regular.ttf", FONT_BYTES)?;
     register_font("NotoSansArabic-Regular.ttf", ARABIC_BYTES)?;
-    register_font("SimpleSTTOverlayIcons-Regular.ttf", ICON_BYTES)
+    register_font("SmallTalkAIOverlayIcons-Regular.ttf", ICON_BYTES)
 }
 
 fn register_font(filename: &str, bytes: &[u8]) -> anyhow::Result<()> {

@@ -116,7 +116,7 @@ def run_private(folder, runtime, kokoro, supertonic, ocr, stt_runtime=None, stt_
         env.pop(key, None)
     logs = ROOT / 'artifacts/combined-app/live-reader'
     logs.mkdir(parents=True, exist_ok=True)
-    handles = {name: (logs / f'{name}.log').open('w') for name in ('pipewire','policy','readerd','capture')}
+    handles = {name: (logs / f'{name}.log').open('w') for name in ('pipewire','policy','smalltalkai-reader','capture')}
     pipewire = policy = daemon = capture = conversion = None
     observed = set()
     capture_workers = {}
@@ -144,14 +144,14 @@ def run_private(folder, runtime, kokoro, supertonic, ocr, stt_runtime=None, stt_
         # private PipeWire graph and ALSA null device; no recording is started.
         capture_state = root / 'capture-state.json'
         capture_token = uuid.uuid4().hex
-        capture = subprocess.Popen([str(BIN / 'simple-stt-capture'), '--token', capture_token,
+        capture = subprocess.Popen([str(BIN / 'smalltalkai-capture'), '--token', capture_token,
                                     '--state-file', str(capture_state), '--config', env['SIMPLE_STT_CONFIG']],
                                    env=env, stdin=subprocess.DEVNULL,
                                    stdout=handles['capture'], stderr=handles['capture'])
         service.wait_for(lambda: capture_state.exists() or capture.poll() is not None, 10, 'private capture control')
         assert capture.poll() is None, 'capture control exited'
         def global_abort():
-            result = subprocess.run([str(BIN / 'simple-stt-ctl'), '--state-file', str(capture_state),
+            result = subprocess.run([str(BIN / 'smalltalkai-ctl'), '--state-file', str(capture_state),
                                      '--token', capture_token, 'cancel'], env=env,
                                     capture_output=True, text=True, timeout=8)
             assert result.returncode == 0 and 'status\tok' in result.stdout, result.stderr + result.stdout
@@ -159,13 +159,13 @@ def run_private(folder, runtime, kokoro, supertonic, ocr, stt_runtime=None, stt_
         time.sleep(.15)
         assert not (root / 'reader/simple-tts.sock').exists(), 'Abort must not start the optional reader'
         if stt_runtime is not None:
-            control = [BIN / 'simple-stt-ctl', '--state-file', capture_state, '--token', capture_token]
+            control = [BIN / 'smalltalkai-ctl', '--state-file', capture_state, '--token', capture_token]
             def model_test(expected_count):
                 queued = service.run([*control, 'test-model', '--filename', stt_model.name], env)
                 assert 'status\tok' in queued, queued
                 def completed():
                     for pid in service.children(capture.pid):
-                        if service.executable(pid) == 'simple-stt-infer':
+                        if service.executable(pid) == 'smalltalkai-infer':
                             capture_workers[pid] = service.start_tick(pid)
                     events = service.run([*control, 'poll-events'], env)
                     return sum('\tmodel_test_complete\t' in line for line in events.splitlines()) >= expected_count
@@ -209,8 +209,8 @@ def run_private(folder, runtime, kokoro, supertonic, ocr, stt_runtime=None, stt_
                                     'model': 'paddle-ar-en', 'device': 'gpu'}}},
             'playback': {'keep_warm_seconds': 2, 'max_buffer_seconds': 8},
         }))
-        daemon = subprocess.Popen([str(BIN / 'readerd'), 'daemon', '--foreground', '--no-desktop'], env=env,
-                                  stdin=subprocess.DEVNULL, stdout=handles['readerd'], stderr=handles['readerd'])
+        daemon = subprocess.Popen([str(BIN / 'smalltalkai-reader'), 'daemon', '--foreground', '--no-desktop'], env=env,
+                                  stdin=subprocess.DEVNULL, stdout=handles['smalltalkai-reader'], stderr=handles['smalltalkai-reader'])
         path = reader / 'simple-tts.sock'
         service.wait_for(lambda: path.exists() or daemon.poll() is not None, 10, 'reader socket')
         assert daemon.poll() is None
@@ -241,14 +241,14 @@ def run_private(folder, runtime, kokoro, supertonic, ocr, stt_runtime=None, stt_
         read('Hello world.')
         first_read = await_state(lambda s: s['state'] == 'reading' and bool(s.get('chunk_text')), 'first spoken passage')
         assert first_read['chunk_text'].strip(), first_read
-        voice_pid = service.wait_for(lambda: service.worker(daemon.pid, 'reader-tts'), 5, 'local voice PID')
+        voice_pid = service.wait_for(lambda: service.worker(daemon.pid, 'smalltalkai-tts'), 5, 'local voice PID')
         voice_tick = service.start_tick(voice_pid)
         await_state(lambda s: s['state'] == 'idle', 'ordinary local playback completion')
         time.sleep(.4)
         assert service.alive(voice_pid) and service.start_tick(voice_pid) == voice_tick, 'voice unloaded immediately after reading'
         read('Hello again.')
         await_state(lambda s: s['state'] == 'reading' and bool(s.get('chunk_text')), 'reused voice reading')
-        assert service.worker(daemon.pid, 'reader-tts') == voice_pid and service.start_tick(voice_pid) == voice_tick
+        assert service.worker(daemon.pid, 'smalltalkai-tts') == voice_pid and service.start_tick(voice_pid) == voice_tick
         await_state(lambda s: s['state'] == 'idle', 'second ordinary completion')
         service.wait_for(lambda: not service.alive(voice_pid), 8, 'local voice idle expiry')
         print(f'PASS local voice exact-PID {voice_pid}/{voice_tick} warm reuse and configured expiry', flush=True)
@@ -286,7 +286,7 @@ def run_private(folder, runtime, kokoro, supertonic, ocr, stt_runtime=None, stt_
         assert latest['generation'] == new_generation and latest['activity']['generation'] == new_generation, latest
         assert 'CUDA verified' in newer['device'], newer
         # File OCR must not interrupt the active reading generation.
-        cli = subprocess.run([str(BIN / 'simple-stt-linux'), 'media', 'ocr', str(service.FIXTURE)],
+        cli = subprocess.run([str(BIN / 'smalltalkai-linux'), 'media', 'ocr', str(service.FIXTURE)],
                              env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=35)
         assert cli.returncode == 0 and cli.stdout.strip() == service.EXPECTED, cli.stderr
         assert status()['generation'] == new_generation, 'OCR replaced active read'
@@ -295,10 +295,10 @@ def run_private(folder, runtime, kokoro, supertonic, ocr, stt_runtime=None, stt_
         time.sleep(.3)
         assert status()['state'] == 'idle' and not status().get('prepared_text'), 'late speech survived Abort'
         output = root / 'cancelled-render.wav'
-        conversion = subprocess.Popen([str(BIN / 'simple-stt-linux'), 'media', 'speak', long_text * 3,
+        conversion = subprocess.Popen([str(BIN / 'smalltalkai-linux'), 'media', 'speak', long_text * 3,
                                        '--output', str(output)], env=env, stdin=subprocess.DEVNULL,
                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        service.wait_for(lambda: service.workers(daemon.pid, 'reader-tts'), 5, 'file-render worker')
+        service.wait_for(lambda: service.workers(daemon.pid, 'smalltalkai-tts'), 5, 'file-render worker')
         time.sleep(.15)
         global_abort()
         stdout, stderr = conversion.communicate(timeout=8)
@@ -359,7 +359,7 @@ def main():
         return
     tools = ('pipewire', 'wireplumber', 'pw-dump', 'dbus-run-session', 'nvidia-smi')
     missing = [name for name in tools if not shutil.which(name)]
-    missing += [str(BIN / name) for name in ('readerd', 'reader-tts', 'reader-ocr', 'readerctl', 'simple-stt-linux') if not (BIN / name).is_file()]
+    missing += [str(BIN / name) for name in ('smalltalkai-reader', 'smalltalkai-tts', 'smalltalkai-ocr', 'smalltalkai-readerctl', 'smalltalkai-linux') if not (BIN / name).is_file()]
     catalog = {a['id']: a for a in json.loads((ROOT / 'assets/catalog/downloads.json').read_text())}
     for name, source in [('kokoro', args.kokoro), ('supertonic3', args.supertonic), ('paddle-ar-en', args.ocr)]:
         missing += [str(source / entry) for entry in catalog[name]['required'] if not (source / entry).exists()]
@@ -372,7 +372,7 @@ def main():
     if gpu.returncode:
         print('SKIP private audio integration: NVIDIA GPU unavailable')
         return
-    with tempfile.TemporaryDirectory(prefix='simple-stt-private-audio-') as tmp:
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-private-audio-') as tmp:
         runtime_dir = Path(tmp) / 'xdg-runtime'
         runtime_dir.mkdir(mode=0o700)
         env = os.environ.copy()

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { matchesCatalogSearch, moduleSearchText } from '../lib/search';
   import { modules, refreshModules, catalogView, emptyBinding, type Feature } from '../lib/modules.svelte';
-  import { ui, download, action, notice, markDirty } from '../lib/state.svelte';
+  import { ui, download, action, notice, markDirty, refreshState } from '../lib/state.svelte';
   import { reading } from '../lib/reading-state.svelte';
   import type { ReaderConfig } from '../lib/reader';
   import SttModelSetup from "../components/SttModelSetup.svelte";
@@ -37,7 +37,7 @@
   });
   let feature = $state<Feature>(catalogView.feature);
   const cleanupSelected = $derived(catalogView.kind === "model" && catalogView.panel === "cleanup");
-  $effect(()=>{try {localStorage.setItem("simple-stt-model-page",catalogView.kind);}catch { /* Storage can be disabled. */ }});
+  $effect(()=>{try {localStorage.setItem("smalltalkai-model-page",catalogView.kind);}catch { /* Storage can be disabled. */ }});
   $effect(()=>{ feature=catalogView.feature; });
   $effect(() => { catalogView.feature = feature; });
   $effect(() => { markDirty(); });
@@ -76,11 +76,15 @@
       await refreshModules();
     } catch (error) { notice(t('assets.failed'), 'error', String(error)); }
   }
-  async function assetAction(name: string, id: string) {
+  async function assetAction(name: string, id: string, managed = true) {
     try {
-      await api('/api/asset-action', { action: name, id });
+      if (managed) await api('/api/asset-action', { action: name, id });
+      else {
+        await action('remove_model', id);
+        await refreshState(true);
+      }
       await refreshModules();
-    } catch (error) { notice(t('assets.failed'), 'error', String(error)); }
+    } catch (error) { notice(t(name === 'remove' ? 'ui.operation_failed.c4e6ed' : 'assets.failed'), 'error', String(error)); }
   }
   async function cancelDownload(id: string, asset: string | null) {
     try {
@@ -168,7 +172,7 @@
           {#if busy}<button type="button" aria-label={`${t('assets.cancel')} ${title}`} onclick={() => cancelDownload(row.id, row.asset)}>{t('assets.cancel')}</button>
           {:else if row.installed}<span title={t('ui.installed.7bb440')}>✓</span>
             {#if row.asset}<IconButton icon="trash" label="assets.remove" onclick={() => assetAction('remove', row.asset!)} />
-            {:else if row.kind === 'model'}<IconButton icon="trash" label="assets.remove" disabled={!ui.state?.service_online} onclick={() => action('remove_model', row.id).then(refreshModules)} />{/if}
+            {:else if row.kind === 'model'}<IconButton icon="trash" label="assets.remove" disabled={!ui.state?.service_online} onclick={() => assetAction('remove', row.id, false)} />{/if}
           {:else if row.asset}<IconButton icon="download" label="assets.download" disabled={!asset?.available} onclick={() => assetAction('install', row.asset!)} />
           {:else if row.kind === 'model'}<IconButton icon="download" label="assets.download" disabled={!ui.state?.service_online} onclick={() => download(row.id)} />
           {:else}<small>{t('ui.unavailable.2c9c1f')}</small>{/if}

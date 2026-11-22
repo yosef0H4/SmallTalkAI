@@ -93,7 +93,7 @@ int main(int argc, char **argv) {
     stall_requests = argc == 3 && strcmp(argv[2], "stall") == 0;
     guint seed = argc == 3 && strcmp(argv[2], "alternate") == 0 ? 11 : 0;
     for (guint i = 0; i < IMAGE_FORMATS; ++i) {
-        g_snprintf(names[i], sizeof(names[i]), "image/x-simple-stt-e2e-%02u", i);
+        g_snprintf(names[i], sizeof(names[i]), "image/x-smalltalkai-e2e-%02u", i);
         targets[i] = (GtkTargetEntry){names[i], 0, i};
     }
     for (guint i = 0; i < SLOW_FORMATS; ++i) {
@@ -102,7 +102,7 @@ int main(int argc, char **argv) {
         targets[IMAGE_FORMATS + i] = (GtkTargetEntry){names[IMAGE_FORMATS + i], 0,
                                                         IMAGE_FORMATS + i};
     }
-    g_strlcpy(names[CUSTOM_INDEX], "application/x-simple-stt-e2e", sizeof(names[0]));
+    g_strlcpy(names[CUSTOM_INDEX], "application/x-smalltalkai-e2e", sizeof(names[0]));
     targets[CUSTOM_INDEX] = (GtkTargetEntry){names[CUSTOM_INDEX], 0, CUSTOM_INDEX};
     g_strlcpy(names[PNG_INDEX], "image/png", sizeof(names[0]));
     targets[PNG_INDEX] = (GtkTargetEntry){names[PNG_INDEX], 0, PNG_INDEX};
@@ -118,7 +118,7 @@ int main(int argc, char **argv) {
     // Clipboard publication on Wayland needs an input serial. This window
     // exists only inside the private test compositor and hides after copying.
     provider_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(provider_window), "Simple STT Clipboard Fixture");
+    gtk_window_set_title(GTK_WINDOW(provider_window), "SmallTalkAI Clipboard Fixture");
     gtk_window_fullscreen(GTK_WINDOW(provider_window));
     GtkWidget *button = gtk_button_new_with_label("Copy test clipboard");
     gtk_container_add(GTK_CONTAINER(provider_window), button);

@@ -87,7 +87,7 @@ function Install-ParakeetRuntime {
         throw "Parakeet runtime is missing. Remove -SkipRuntime or place files under $RuntimeDir."
     }
 
-    $TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("simple-stt-bootstrap-" + [guid]::NewGuid().ToString("N"))
+    $TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("smalltalkai-bootstrap-" + [guid]::NewGuid().ToString("N"))
     $ZipPath = Join-Path $TempRoot "parakeet-runtime.zip"
     $ExtractDir = Join-Path $TempRoot "extract"
     New-Item -ItemType Directory -Path $ExtractDir -Force | Out-Null
@@ -122,7 +122,7 @@ function Install-ParakeetRuntime {
 }
 
 Set-Location $Root
-Write-Host "Bootstrapping Simple STT developer environment..."
+Write-Host "Bootstrapping SmallTalkAI developer environment..."
 Ensure-Tools
 if (-not $SkipRuntime) {
     Install-ParakeetRuntime

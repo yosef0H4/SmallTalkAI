@@ -1,4 +1,4 @@
-// Regenerate the checked-in Windows icons with Node and Playwright.
+// Regenerate Windows action icons with Node and Playwright.
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { chromium } = require("playwright");
@@ -52,11 +52,9 @@ async function main() {
   const notice = await download("2D/svg/LICENSE");
   const license = await fetch("https://www.apache.org/licenses/LICENSE-2.0.txt");
   if (!license.ok) throw new Error("Could not read the Apache License 2.0");
-  const logo = await fs.readFile(path.join(root, "packaging/linux/simple-stt.svg"), "utf8");
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage();
-    await renderIco(page, "simple-stt", logo, [16, 20, 24, 32, 48, 128, 256]);
     for (const [name, png] of sources) {
       await renderIco(page, name, `<img src="data:image/png;base64,${png.toString("base64")}">`, [16, 20, 24, 32]);
     }

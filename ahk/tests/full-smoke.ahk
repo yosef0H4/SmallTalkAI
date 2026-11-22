@@ -51,11 +51,11 @@ CallCtl(arguments) {
     command := SimpleSttQuote(SmokeCtl) . " --state-file " . SimpleSttQuote(SmokeState) . " --token " . SimpleSttQuote(SmokeToken) . " --output " . SimpleSttQuote(output) . " " . arguments
     try exitCode := RunWait(command, A_ScriptDir, "Hide")
     catch Error as err
-        return TabProtocol.ErrorResponse("unable to run simple-stt-ctl: " . err.Message)
+        return TabProtocol.ErrorResponse("unable to run smalltalkai-ctl: " . err.Message)
     response := TabProtocol.ReadResponse(output)
     try FileDelete(output)
     if exitCode != 0 && response["ok"]
-        return TabProtocol.ErrorResponse("simple-stt-ctl exit code " . exitCode)
+        return TabProtocol.ErrorResponse("smalltalkai-ctl exit code " . exitCode)
     return response
 }
 
@@ -204,7 +204,7 @@ KeyboardLanguageSmoke() {
 
 TypingSmoke() {
     global SmokeTypingGui
-    logger := ShellLog(A_Temp . "\simple-stt-full-smoke-typing.log")
+    logger := ShellLog(A_Temp . "\smalltalkai-full-smoke-typing.log")
     window := Gui("+AlwaysOnTop", "SimpleStt Full Smoke Typing")
     edit := window.AddEdit("w360 h80")
     window.Show("w390 h120")
@@ -237,7 +237,7 @@ SetClipboardMarker() {
         throw Error("unable to open clipboard for marker")
     try {
         DllCall("user32\EmptyClipboard")
-        marker := "simple-stt-marker"
+        marker := "smalltalkai-marker"
         bytes := Buffer(StrPut(marker, "UTF-8"), 0)
         StrPut(marker, bytes, "UTF-8")
         handle := DllCall("kernel32\GlobalAlloc", "UInt", 0x42, "UPtr", bytes.Size, "Ptr")
@@ -363,7 +363,7 @@ PasteSmoke() {
     global SmokeTypingGui
     global PastePhases := Array()
     global SmokeCtl, SmokeState, SmokeToken, PasteFeedback
-    logger := ShellLog(A_Temp . "\\simple-stt-full-smoke-paste.log")
+    logger := ShellLog(A_Temp . "\\smalltalkai-full-smoke-paste.log")
     PasteFeedback := IpcClient(SmokeCtl, SmokeState, SmokeToken, NoopNotice, logger, true)
     relayPid := PasteFeedback.statusPid
     Assert(relayPid && ProcessExist(relayPid), "persistent desktop feedback relay did not start")
@@ -457,11 +457,11 @@ OnError(GlobalErrorHandler)
 OnExit(Cleanup)
 
 try {
-    SmokeCtl := SimpleSttResolveExe("simple-stt-ctl")
-    SmokeCapture := SimpleSttResolveExe("simple-stt-capture")
-    Assert(FileExist(SmokeCtl), "missing simple-stt-ctl.exe")
-    Assert(FileExist(SmokeCapture), "missing simple-stt-capture.exe")
-    tempDir := A_Temp . "\simple-stt-full-smoke-" . A_TickCount
+    SmokeCtl := SimpleSttResolveExe("smalltalkai-ctl")
+    SmokeCapture := SimpleSttResolveExe("smalltalkai-capture")
+    Assert(FileExist(SmokeCtl), "missing smalltalkai-ctl.exe")
+    Assert(FileExist(SmokeCapture), "missing smalltalkai-capture.exe")
+    tempDir := A_Temp . "\smalltalkai-full-smoke-" . A_TickCount
     DirCreate(tempDir)
     SmokeConfig := tempDir . "\config.json"
     SmokeState := tempDir . "\capture-state.json"

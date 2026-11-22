@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare warm CPU and strict-GPU OCR on private, public-text image fixtures.
 
-Requires Pillow and already-built reader-ocr plus the model and runtimes. This
+Requires Pillow and already-built smalltalkai-ocr plus the model and runtimes. This
 never opens a display, reads the clipboard, captures audio, or uses user files.
 """
 import argparse
@@ -298,13 +298,13 @@ def main():
     parser.add_argument('--output-dir', type=Path, default=OUTPUT)
     parser.add_argument('--case', action='append', default=[], help='run only a named case; repeat to select several')
     parser.add_argument('--bin-dir', type=Path, default=ROOT / 'target/release',
-                        help='directory containing optimized reader-ocr (default: target/release)')
+                        help='directory containing optimized smalltalkai-ocr (default: target/release)')
     parser.add_argument('--model', type=Path, default=ROOT / 'artifacts/combined-app/downloads/model-paddle')
     parser.add_argument('--cpu-runtime', type=Path, default=ROOT / 'artifacts/combined-app/memory/cpu-runtime')
     parser.add_argument('--gpu-runtime', type=Path, default=Path.home() / '.local/share/simple-tts/runtime')
     args = parser.parse_args()
     OUTPUT = args.output_dir.resolve()
-    binary = args.bin_dir / 'reader-ocr'
+    binary = args.bin_dir / 'smalltalkai-ocr'
     for path in (binary, args.model, args.cpu_runtime, args.gpu_runtime):
         if not path.exists():
             parser.error(f'missing input: {path}')
@@ -324,7 +324,7 @@ def main():
                                'gpu': ort_version(args.gpu_runtime.resolve())}
         if not results['runtimes']['cpu']['version'] or results['runtimes']['cpu']['version'] != results['runtimes']['gpu']['version']:
             raise RuntimeError('CPU and GPU ONNX Runtime versions differ or could not be verified')
-        with tempfile.TemporaryDirectory(prefix='simple-stt-ocr-benchmark-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='smalltalkai-ocr-benchmark-') as temporary:
             scratch = Path(temporary).resolve()
             cases = create_cases(scratch)
             if args.case:

@@ -1,45 +1,47 @@
-# Simple STT
+# SmallTalk
 
-Simple STT is a local voice typing app for Windows and Linux. Press a hotkey, speak, and it types or pastes the transcript into the app you were already using.
+<img src="icons/smalltalkai.png" width="128" alt="SmallTalk">
+
+SmallTalk is a local voice typing app for Windows and Linux. Press a hotkey, speak, and it types or pastes the transcript into the app you were already using. The installed app is named **SmallTalkAI**.
 
 ## Showcase
 
-![Simple STT voice typing showcase](gifs/showcase%2C%20with%20actual%20real%20time%20speed.webp)
+![SmallTalk voice typing showcase](gifs/showcase%2C%20with%20actual%20real%20time%20speed.webp)
 
-![Simple STT settings showcase](gifs/gui%20showcase.webp)
+![SmallTalk settings showcase](gifs/gui%20showcase.webp)
 
 ## Install
 
 Download the latest version from the releases page:
 
-[Download Simple STT](https://github.com/yosef0H4/simple-stt/releases/latest)
+[Download SmallTalk](https://github.com/yosef0H4/SmallTalkAI/releases/latest)
 
 For Fedora and Arch/Omarchy installation and local package builds, see
 [Linux packages](docs/linux-installation.md). The Linux release includes a Fedora
 44 RPM and an Arch Linux package shared by Arch and Omarchy.
 
-For Windows, use the [latest Windows release (v0.2.5)](https://github.com/yosef0H4/simple-stt/releases/tag/v0.2.5):
+Windows builds provide two downloads:
 
 ```text
-simple-stt-setup.exe      recommended installer
-simple-stt-portable.zip   portable copy
+smalltalkai-setup.exe      recommended installer
+smalltalkai-portable.zip   portable copy
 ```
 
-The setup installer is recommended for most users. It can install the app shortcuts and download the recommended speech model during installation.
+The setup installer is recommended for most users. It can install the app shortcuts. Download the speech model from Settings after launching the app.
 
 The portable zip does not include a speech model by default. After launching it, open Settings from the tray icon and download a model there.
 
 ## Using the app
 
-On Linux, launch **Simple STT** from your application menu and configure it in
-Settings. You can enable the user service to start Simple STT at desktop login.
-Choose **Close Simple STT** from the tray to quit for the current session.
+On Linux, launch **SmallTalkAI** from your application menu and configure it in
+Settings. You can enable the user service to start SmallTalk at desktop login.
+Choose **Close SmallTalkAI** from the tray to quit for the current session.
 See the [Linux startup instructions](docs/linux-installation.md#start-at-login-and-quit-for-the-current-session).
 
 On Windows:
 
-1. Install or unzip Simple STT.
-2. Launch `simple-stt.cmd`.
+1. Install or unzip SmallTalk.
+2. Launch `smalltalkai.cmd`.
 3. Hold the record shortcut, speak, then release it.
 4. The transcript is inserted into the app that was active when you started recording.
 
@@ -65,13 +67,13 @@ The useful part of this project is the design as much as the app. It is a bunch 
 
 Problems I had with other voice typing apps, and how this one tries to solve them:
 
-| Problem | Simple STT approach |
+| Problem | SmallTalk approach |
 | --- | --- |
 | Global hotkeys and text delivery on Windows are unreliable, especially with unusual shortcuts like Caps Lock as a modifier. | Use AutoHotkey only for the Windows-facing shell: hotkeys, target tracking, typing, and paste delivery. |
 | Some apps still use Whisper, which is not always the best fit for quick voice typing. | Use Parakeet, which has been faster, lighter, and often more accurate for this use case in my experience. |
 | Many apps load the model only after recording ends, so you wait after speaking. | Start warming the selected model as soon as recording begins, so it is often ready by the time you release the hotkey. |
 | Unloading only the model often still leaves heavy runtime memory behind. | Put Parakeet and the model in a disposable inference process that can fully exit after the idle timeout. |
-| Compiled AutoHotkey apps can upset antivirus tools. | Ship the `.ahk` scripts with a bundled AutoHotkey binary and launch through `simple-stt.cmd`. It is less tidy, but easier to inspect and less likely to look like a packed script executable. |
+| Compiled AutoHotkey apps can upset antivirus tools. | Ship the `.ahk` scripts with a bundled AutoHotkey binary and launch through `smalltalkai.cmd`. It is less tidy, but easier to inspect and less likely to look like a packed script executable. |
 | Cross-platform settings easily become heavy or inconsistent. | Open the same Settings UI in Tauri on Windows and Linux. Close the window to exit its webview and authenticated loopback server. |
 
 Loaded memory use is still not tiny, roughly hundreds of MB depending on CPU/GPU mode, but the idle state is the part that matters most for an always-running background tool.
@@ -79,17 +81,17 @@ Loaded memory use is still not tiny, roughly hundreds of MB depending on CPU/GPU
 ### Architecture
 
 ```text
-simple-stt.cmd
-  └── bundled AutoHotkey64.exe runs simple-stt.ahk
-  └── simple-stt-capture.exe      persistent CPAL capture + fast overlay
-        └── simple-stt-infer.exe  disposable Parakeet DLL/model process
+smalltalkai.cmd
+  └── bundled AutoHotkey64.exe runs smalltalkai.ahk
+  └── smalltalkai-capture.exe      persistent CPAL capture + fast overlay
+        └── smalltalkai-infer.exe  disposable Parakeet DLL/model process
 
-simple-stt-ctl.exe                 disposable AHK control helper
-simple-stt-settings.exe            Settings launcher and explicit browser server
-simple-stt-settings-window.exe     on-demand Tauri window with its Settings server
+smalltalkai-ctl.exe                 disposable AHK control helper
+smalltalkai-settings.exe            Settings launcher and explicit browser server
+smalltalkai-settings-window.exe     on-demand Tauri window with its Settings server
 ```
 
-The key memory-cleanup guarantee is process exit: `simple-stt-infer.exe` is the only active component allowed to load `parakeet.dll` or a GGUF model. Repeated dictations reuse a warm worker until the configured idle timeout. Cleanup terminates that worker so Windows can reclaim its process RAM and VRAM allocations.
+The key memory-cleanup guarantee is process exit: `smalltalkai-infer.exe` is the only active component allowed to load `parakeet.dll` or a GGUF model. Repeated dictations reuse a warm worker until the configured idle timeout. Cleanup terminates that worker so Windows can reclaim its process RAM and VRAM allocations.
 
 ### Start here
 
@@ -137,7 +139,7 @@ You can use the prebuilt CUDA runtime from:
 https://github.com/yosef0H4/parakeet-windows-cuda-build/releases/download/v0.0.1-sm86/parakeet-windows-cuda-sm86.zip
 ```
 
-Packaging `artifacts\dist\simple-stt-setup.exe` also requires AutoHotkey v2 and Inno Setup 6. NVIDIA GPU/CUDA hardware is recommended for the default `tdt_ctc-110m-f16.gguf`; CPU users should choose `tdt_ctc-110m-q4_k.gguf` from Settings.
+Packaging `artifacts\dist\smalltalkai-setup.exe` also requires AutoHotkey v2 and Inno Setup 6. NVIDIA GPU/CUDA hardware is recommended for the default `tdt_ctc-110m-f16.gguf`; CPU users should choose `tdt_ctc-110m-q4_k.gguf` from Settings.
 
 ### Shell-owned behavior
 
@@ -153,15 +155,15 @@ paste_ctrl_shift_v
 
 `paste_ctrl_v` is the default. Paste delivery temporarily replaces the clipboard, sends the configured paste shortcut, and restores the full original clipboard with `ClipboardAll()`, including non-text formats such as images and copied objects.
 
-The shell does not parse JSON, move PCM, read a long pipe, load the model, or perform a blocking socket operation from a callback. It starts disposable `simple-stt-ctl.exe` commands and polls completion with `SetTimer()`.
+The shell does not parse JSON, move PCM, read a long pipe, load the model, or perform a blocking socket operation from a callback. It starts disposable `smalltalkai-ctl.exe` commands and polls completion with `SetTimer()`.
 
 ### Rust-owned behavior
 
-`simple-stt-capture.exe` keeps CPAL audio warm, applies gain, downmixes, linearly resamples to 16 kHz mono PCM16, computes overlay levels, buffers only active recordings, owns the rapid Win32 overlay, publishes local control events, and supervises the worker.
+`smalltalkai-capture.exe` keeps CPAL audio warm, applies gain, downmixes, linearly resamples to 16 kHz mono PCM16, computes overlay levels, buffers only active recordings, owns the rapid Win32 overlay, publishes local control events, and supervises the worker.
 
-When recording begins, `simple-stt-capture.exe` starts warming the speech model in the background. The tooltip reports model loading, loaded, and unloaded lifecycle events. The recording tooltip is a compact stationary Unicode waveform whose bar heights change only with microphone level.
+When recording begins, `smalltalkai-capture.exe` starts warming the speech model in the background. The tooltip reports model loading, loaded, and unloaded lifecycle events. The recording tooltip is a compact stationary Unicode waveform whose bar heights change only with microphone level.
 
-`simple-stt-infer.exe` dynamically loads Parakeet, loads the selected GGUF lazily, handles framed PCM/WAV requests, returns transcripts, and exits after graceful shutdown or its idle backstop. Settings exposes an inference-device dropdown: `nvidia_gpu` uses the bundled CUDA backend and `cpu` forces CPU inference without VRAM use. The settings UI also separates installed-model selection from the downloadable catalog, uses a microphone dropdown instead of a free-text box, and shows absolute runtime/model paths.
+`smalltalkai-infer.exe` dynamically loads Parakeet, loads the selected GGUF lazily, handles framed PCM/WAV requests, returns transcripts, and exits after graceful shutdown or its idle backstop. Settings exposes an inference-device dropdown: `nvidia_gpu` uses the bundled CUDA backend and `cpu` forces CPU inference without VRAM use. The settings UI also separates installed-model selection from the downloadable catalog, uses a microphone dropdown instead of a free-text box, and shows absolute runtime/model paths.
 
 ### Testing
 
@@ -209,7 +211,7 @@ single `hello world` typed-delivery check
 full non-text clipboard-format restoration after paste
 ```
 
-The end-to-end smoke uses an isolated temporary config and state directory. It does not overwrite the normal `%APPDATA%\simple-stt\config.json` file or reuse the live shell discovery file.
+The end-to-end smoke uses an isolated temporary config and state directory. It does not overwrite the normal `%APPDATA%\smalltalkai\config.json` file or reuse the live shell discovery file.
 
 The paste smoke intentionally sends only `hello world` into controlled temporary edit boxes. It also places a custom non-text object format on the clipboard before pasting and asserts that the object format is restored afterward.
 
@@ -222,7 +224,7 @@ scripts\test-ahk-full.cmd
 This command:
 
 ```text
-builds simple-stt-capture, simple-stt-infer, and simple-stt-ctl in release mode
+builds smalltalkai-capture, smalltalkai-infer, and smalltalkai-ctl in release mode
 runs AutoHotkey /Validate with /ErrorStdOut=UTF-8 for every entry point
 runs the AHK smoke scripts
 runs the real model load/unload/prewarm and paste-delivery E2E smoke
@@ -258,7 +260,7 @@ These checks do not require the speech model. They verify source invariants and 
 cargo test --all-targets
 ```
 
-This includes deterministic worker lifecycle integration tests using the test-only `simple_stt_mock_infer` child process. The mock worker is never included in release packaging.
+This includes deterministic worker lifecycle integration tests using the test-only `smalltalkai_mock_infer` child process. The mock worker is never included in release packaging.
 
 #### Manual release checks still required
 
@@ -290,7 +292,7 @@ The Windows installer includes the Parakeet runtime DLLs but does not bundle or 
 
 ## License
 
-Simple STT is licensed under GPL-2.0-only. Some of the Rust tooltip implementation was directly referenced from AutoHotkey source code, so the project uses a compatible GPL license.
+SmallTalk is licensed under GPL-2.0-only. Some of the Rust tooltip implementation was directly referenced from AutoHotkey source code, so the project uses a compatible GPL license.
 
 See `LICENSE` and `THIRD_PARTY_NOTICES.md`.
 
@@ -298,5 +300,5 @@ See `LICENSE` and `THIRD_PARTY_NOTICES.md`.
 
 This overhaul includes a Linux shell that avoids AutoHotkey and does not store
 hotkey strings in the JSON config. Build the Rust binaries, start
-`target/release/simple-stt-linux daemon`, then bind `target/release/simple-stt-linux toggle` in
+`target/release/smalltalkai-linux daemon`, then bind `target/release/smalltalkai-linux toggle` in
 your desktop's keyboard shortcut settings. See `docs/linux-wayland.md`.

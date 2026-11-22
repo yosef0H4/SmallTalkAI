@@ -82,7 +82,7 @@ def main():
     parser.add_argument('--model-dir', type=Path)
     parser.add_argument('--runtime-dir', type=Path)
     args = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix='simple-stt-reader-worker-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-reader-worker-') as temporary:
         scratch = Path(temporary) / 'capture'
         scratch.mkdir(mode=0o700)
         for theme in ['light', 'dark', 'arabic']:
@@ -95,7 +95,7 @@ def main():
         log_dir = ROOT / 'artifacts/combined-app'
         log_dir.mkdir(parents=True, exist_ok=True)
         with open(log_dir / 'worker.log', 'wb') as log:
-            child, output = launch(args.bin_dir / 'reader-ocr', ['--model-dir', str(args.ocr_model), '--runtime-dir', str(args.ocr_runtime), '--device', args.device], env, log)
+            child, output = launch(args.bin_dir / 'smalltalkai-ocr', ['--model-dir', str(args.ocr_model), '--runtime-dir', str(args.ocr_runtime), '--device', args.device], env, log)
             try:
                 for theme in ['light', 'dark', 'arabic']:
                     send(child, {'type': 'recognize', 'job_id': theme, 'generation': 8,
@@ -118,7 +118,7 @@ def main():
             print('PASS real OCR worker: light/dark fixtures, exact text, clean shutdown')
             if args.model_dir and args.runtime_dir:
                 env['LD_LIBRARY_PATH'] = str(args.runtime_dir / 'lib') + os.pathsep + env.get('LD_LIBRARY_PATH', '')
-                child, output = launch(args.bin_dir / 'reader-tts', ['--model-dir', str(args.model_dir),
+                child, output = launch(args.bin_dir / 'smalltalkai-tts', ['--model-dir', str(args.model_dir),
                                        '--runtime-dir', str(args.runtime_dir), '--device', 'cuda' if args.device == 'gpu' else 'cpu'], env, log)
                 try:
                     send(child, {'type': 'synthesize', 'job_id': 'test', 'generation': 7,

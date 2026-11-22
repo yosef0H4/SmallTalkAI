@@ -23,10 +23,10 @@ def main(source, destination):
     with TTFont(source) as font:
         subsetter.subset(font)
         renamed = {
-            1: "Simple STT Paper Sans",
-            4: "Simple STT Paper Sans",
+            1: "SmallTalkAI Paper Sans",
+            4: "SmallTalkAI Paper Sans",
             6: "SimpleSTTPaperSans-Regular",
-            16: "Simple STT Paper Sans",
+            16: "SmallTalkAI Paper Sans",
             25: "SimpleSTTPaperSans",
         }
         for record in font["name"].names:

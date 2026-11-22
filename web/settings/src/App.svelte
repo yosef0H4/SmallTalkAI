@@ -137,7 +137,6 @@
       ui.config?.general.ui_theme || "dark";
     document.documentElement.lang = locale();
     document.documentElement.dir = direction();
-    document.title = `${t("ui.settings.c7f73b")} · Simple STT`;
   });
   async function jump(page: Page, path = "") {
     if (page === "models") {
@@ -196,8 +195,8 @@
 {#if desktop}
   <header class="settings-frame">
     <div class="settings-frame-drag" role="presentation" onmousedown={dragFrame}>
-      <Icon name="audio" size={15} />
-      <span>{t("ui.settings.c7f73b")} · Simple STT</span>
+      <img src="/smalltalkai-titlebar.png" alt="" height="22" />
+      <span>SmallTalk</span>
     </div>
     <button type="button" aria-label={t("ui.minimize_settings")} onclick={() => frameAction("minimize")}>
       <span class="frame-minimize" aria-hidden="true"></span>
@@ -212,7 +211,7 @@
 {/if}
 {#if !authenticated}
   <main class="admin-sign-in">
-    <h1>Simple STT</h1>
+    <h1>SmallTalkAI</h1>
     <p>{t("admin.sign_in_help")}</p>
     <form onsubmit={signIn}>
       <label for="admin-token">{t("admin.token")}</label>
@@ -225,8 +224,8 @@
 <div class="app-shell" style:--sidebar-width={visibleSidebarWidth + "px"}>
   <aside id="settings-sidebar" class="rail">
     <div class="brand">
-      <span class="brand-mark"><Icon name="audio" size={23} /></span><strong
-        >Simple STT</strong
+      <img src="/smalltalkai.png" alt="" width="24" height="24" /><strong
+        >SmallTalkAI</strong
       >
     </div>
     <div class="settings-search">

@@ -7,7 +7,7 @@ The report recommends complete-text clipboard delivery plus a compositor-authori
 The [official RemoteDesktop specification](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.RemoteDesktop.html) defines CreateSession → SelectDevices → Start. Request keyboard access only; Start can show a permission dialog. The same specification documents persistent permission mode 2 and single-use restore tokens: save the replacement token returned by Start. Revoked or unavailable grants can prompt again.
 
 The specification supports D-Bus Notify methods and recommends EIS. Current
-Simple STT uses ConnectToEIS in the local reader controller and never mixes
+SmallTalkAI uses ConnectToEIS in the local reader controller and never mixes
 Notify methods into that session. The old C helper still permits portal-only
 shortcuts for isolated regression tools, and provides read-only app/selection
 observation; its XTest/uinput/accessibility-write paths were removed.

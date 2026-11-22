@@ -120,7 +120,7 @@ pub fn local_fallback_worker_config(
     let executable = current
         .parent()
         .context("executable has no parent directory")?
-        .join(format!("simple-stt-infer{}", std::env::consts::EXE_SUFFIX));
+        .join(format!("smalltalkai-infer{}", std::env::consts::EXE_SUFFIX));
     Ok(crate::capture::inference_supervisor::WorkerConfig {
         executable,
         runtime_dir: runtime,
@@ -208,14 +208,14 @@ fn capture_process_exited(pid: u32) -> bool {
 /// Transcribe a prepared WAV through the running capture service and its warm worker.
 pub fn transcribe(wav: &Path, language: Option<&str>) -> Result<String> {
     let state = ServiceState::load(&AppConfig::service_state_path())
-        .context("capture service is not running; start Simple STT and retry")?;
+        .context("capture service is not running; start SmallTalkAI and retry")?;
     anyhow::ensure!(
         state.protocol == SHELL_PROTOCOL_VERSION,
-        "capture service protocol is incompatible; restart Simple STT"
+        "capture service protocol is incompatible; restart SmallTalkAI"
     );
     let token = state.authentication_token()?;
     let mut stream = TcpStream::connect(&state.address)
-        .context("cannot connect to capture service; start or restart Simple STT")?;
+        .context("cannot connect to capture service; start or restart SmallTalkAI")?;
     stream.set_read_timeout(Some(Duration::from_secs(30)))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
     let mut reader = BufReader::new(stream.try_clone()?);

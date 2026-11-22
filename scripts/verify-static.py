@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-free source audit for the split SimpleStt architecture.
+"""Dependency-free source audit for the split SmallTalkAI architecture.
 
 This intentionally does not pretend to be a Rust compiler or an AutoHotkey runtime.
 It checks the architectural invariants that are easy to regress during source edits.
@@ -74,11 +74,11 @@ def frontend_need(*needles: str) -> None:
 
 
 required_files = [
-    "ahk/simple-stt.ahk",
+    "ahk/smalltalkai.ahk",
     "ahk/lib/Config.ahk", "ahk/lib/Hotkeys.ahk", "ahk/lib/IpcClient.ahk",
     "ahk/lib/Logging.ahk", "ahk/lib/ProcessSupervisor.ahk",
     "ahk/lib/TabProtocol.ahk", "ahk/lib/Tray.ahk", "ahk/lib/Typist.ahk", "ahk/lib/Utils.ahk",
-    "src/bin/simple_stt_capture.rs", "src/bin/simple_stt_infer.rs", "src/bin/simple_stt_ctl.rs", "src/bin/simple_stt_settings.rs", "src/bin/simple_stt_mock_infer.rs",
+    "src/bin/smalltalkai_capture.rs", "src/bin/smalltalkai_infer.rs", "src/bin/smalltalkai_ctl.rs", "src/bin/smalltalkai_settings.rs", "src/bin/smalltalkai_mock_infer.rs",
     "web/settings/index.html", "web/settings/package.json", "web/settings/package-lock.json",
     "web/settings/vite.config.ts", "web/settings/tsconfig.json", "web/settings/svelte.config.js",
     "web/settings/tools/manifest.mjs", "scripts/verify-settings-frontend.py",
@@ -90,7 +90,7 @@ required_files = [
     "tools/ipc-poc/mock_service.py", "tools/ipc-poc/test_poc.py", "tools/ipc-poc/README.md",
     "scripts/build-release.ps1", "scripts/run-dev.ps1", "scripts/package-release.ps1",
     "scripts/memory-cleanup-validation.ps1",
-    "build.rs", "resources/simple-stt.exe.manifest", "resources/windows.rc",
+    "build.rs", "resources/smalltalkai.exe.manifest", "resources/windows.rc",
     "tests/worker_lifecycle.rs",
 ]
 for path in required_files:
@@ -108,12 +108,12 @@ need("src/config.rs", "pub ui_language: UiLanguage", "ui_language: UiLanguage::A
 need("ahk/lib/Config.ahk", '\"ui_language\"', "UiSetLanguage")
 need("src/capture/overlay_render.rs", "Noto Sans Arabic", "set_base_dir", "set_auto_dir(false)")
 need("src/settings_server.rs", "ui_localization", "arabic.woff2", "font-src 'self'")
-need("src/bin/simple_stt_linux.rs", 'get("terminal")', "saved_ui_locale")
+need("src/bin/smalltalkai_linux.rs", 'get("terminal")', "saved_ui_locale")
 checks.append("shared locale catalogs, RTL rendering, and structured terminal notices")
 
 # OCR bundles declare their complete pipeline; the worker must not select one
 # fixed recognizer/dictionary for every model shown in Settings.
-need("reader/crates/reader-ocr/src/main.rs", "PaddleProfile::for_directory(model_dir)", "profile.detector", "profile.recognizer", "profile.dictionary", "reverse_arabic")
+need("reader/crates/smalltalkai-ocr/src/main.rs", "PaddleProfile::for_directory(model_dir)", "profile.detector", "profile.recognizer", "profile.dictionary", "reverse_arabic")
 download_catalog = {asset["id"]: asset for asset in json.loads(text("assets/catalog/downloads.json"))}
 for model in json.loads(text("assets/catalog/modules.json"))["models"]:
     if model["feature"] != "ocr":
@@ -134,7 +134,7 @@ checks.append("release lockfile hygiene is explicit: Cargo.lock is not ignored")
 
 # Every executable AHK entry point is v2-only.
 directives = "#Requires AutoHotkey v2.0\n#SingleInstance Force"
-need("ahk/simple-stt.ahk", directives, "OnExit(", "OnError(")
+need("ahk/smalltalkai.ahk", directives, "OnExit(", "OnError(")
 for path in sorted((root / "ahk/tests").glob("*.ahk")):
     head = "\n".join(path.read_text(encoding="utf-8").lstrip("\ufeff").splitlines()[:2])
     if head != directives:
@@ -158,21 +158,21 @@ for stale_script in [
 ]:
     if (root / stale_script).exists():
         errors.append(f"stale one-off patch helper remains in active tree: {stale_script}")
-for binary in ["simple_stt_capture", "simple_stt_infer", "simple_stt_ctl"]:
+for binary in ["smalltalkai_capture", "smalltalkai_infer", "smalltalkai_ctl"]:
     if f"src/bin/{binary}.rs" not in required_files:
         errors.append(f"required split binary not registered in verifier: {binary}")
 checks.append("active Cargo graph has split binaries and no Slint frontend or stale patch helpers")
 
 # Windows visual styles require an embedded Common Controls v6 manifest.
 need("Cargo.toml", 'build = "build.rs"', 'embed-resource = "3"')
-need("build.rs", 'resources/windows.rc', 'resources/simple-stt.exe.manifest', 'manifest_required()')
-need("resources/windows.rc", '1 24 "simple-stt.exe.manifest"')
-need("resources/simple-stt.exe.manifest", 'Microsoft.Windows.Common-Controls', 'version="6.0.0.0"', 'PerMonitorV2', 'asInvoker')
+need("build.rs", 'resources/windows.rc', 'resources/smalltalkai.exe.manifest', 'manifest_required()')
+need("resources/windows.rc", '1 24 "smalltalkai.exe.manifest"')
+need("resources/smalltalkai.exe.manifest", 'Microsoft.Windows.Common-Controls', 'version="6.0.0.0"', 'PerMonitorV2', 'asInvoker')
 checks.append("Windows binaries embed a Common Controls v6 manifest for modern tooltip styling")
 
 # Capture is lightweight and must never load Parakeet.
 active_capture = "\n".join(p.read_text(encoding="utf-8") for p in (root / "src/capture").glob("*.rs"))
-capture_bin = text("src/bin/simple_stt_capture.rs")
+capture_bin = text("src/bin/smalltalkai_capture.rs")
 for needle in ["ParakeetNative", "parakeet_capi_"]:
     if needle in active_capture or needle in capture_bin:
         errors.append(f"capture service imports native Parakeet loader token {needle!r}")
@@ -188,45 +188,45 @@ if set(loader_paths) != allowed_loader_paths:
         "libloading imports must be limited to the Parakeet infer loader and Linux font helper, "
         f"got {loader_paths}"
     )
-need("src/bin/simple_stt_infer.rs", "ParakeetNative", "The capture supervisor owns the idle policy", "MessageType::WarmUp", "MessageType::ModelLoaded", "MessageType::WarmUpAck", "model warm-up begin", "model warm-up end")
+need("src/bin/smalltalkai_infer.rs", "ParakeetNative", "The capture supervisor owns the idle policy", "MessageType::WarmUp", "MessageType::ModelLoaded", "MessageType::WarmUpAck", "model warm-up begin", "model warm-up end")
 need("src/capture/inference_supervisor.rs", "idle timeout reached; terminating disposable inference worker", "defer_idle_shutdown")
 need("src/capture/inference_supervisor.rs", "shutdown_now", "force-terminating inference worker", "handshake failed; terminating child", "shutdown_shared", "force_terminate_pid", "pid_tracker", "pub fn warm_up(&mut self, on_model_loaded: impl FnMut()) -> Result<()>", "warm_up_with_progress", "if worker.ready", "MessageType::WarmUp", "MessageType::ModelLoaded", "MessageType::WarmUpAck")
-need("src/bin/simple_stt_capture.rs", "BackgroundResult::ModelLoading", "reusing ready speech model; no warm-up needed", 'ServiceEvent::simple("model_reused")')
+need("src/bin/smalltalkai_capture.rs", "BackgroundResult::ModelLoading", "reusing ready speech model; no warm-up needed", 'ServiceEvent::simple("model_reused")')
 need("tests/worker_lifecycle.rs", "repeated_recordings_skip_priming_and_progress_until_worker_replacement", "successful_transcription_already_primes_the_worker")
 need("tests/worker_lifecycle.rs", "obsolete_queued_shutdown_preserves_the_current_ready_worker")
 need("scripts/test-recording-worker-reuse.py", "new start aborts blocked inference", "without loading/warm-up notices", "rapid model switches deliver only the latest session")
 need("src/capture/process.rs", "OpenProcess", "TerminateProcess", "WaitForSingleObject", "PROCESS_TERMINATE", "exact child PID")
-need("src/bin/simple_stt_capture.rs", "shutdown_shared", "nonzero_pid", "next.diagnostics.log_level != config.diagnostics.log_level", "log_level: config.diagnostics.log_level.clone()", "HashSet::<u64>::new()", "restore_overlay_after_success", "restore_overlay_work_state", "newer_overlay_work_survives_older_transcript_completion", "cancel_generation", "ShellCommand::Cancel", "ShellCommand::DeliveryComplete", "notice.superseded", "delivering.insert(session_id)", "discarding stale transcript after cancellation", "had_warming", "had_transcribing")
-need("ahk/simple-stt.ahk", "CancelSupersededShellWork", "DeliveryFinished", "delivery-complete --session-id")
+need("src/bin/smalltalkai_capture.rs", "shutdown_shared", "nonzero_pid", "next.diagnostics.log_level != config.diagnostics.log_level", "log_level: config.diagnostics.log_level.clone()", "HashSet::<u64>::new()", "restore_overlay_after_success", "restore_overlay_work_state", "newer_overlay_work_survives_older_transcript_completion", "cancel_generation", "ShellCommand::Cancel", "ShellCommand::DeliveryComplete", "notice.superseded", "delivering.insert(session_id)", "discarding stale transcript after cancellation", "had_warming", "had_transcribing")
+need("ahk/smalltalkai.ahk", "CancelSupersededShellWork", "DeliveryFinished", "delivery-complete --session-id")
 need("ahk/lib/Typist.ahk", "onFinished", "NotifyFinished", 'item["session_id"]')
-need("src/bin/simple_stt_linux.rs", "delivery_session_is_current", "signal_delivery_complete", "Superseded by newer recording")
-need("src/bin/simple_stt_capture.rs", "resolve_input_device", "refresh_audio_capture", "ShellCommand::StartRecording", "using_default_fallback", "notice.microphoneFallback", "notice.microphoneReady", "notice.microphoneRestored", "notice.microphoneSwitching", "DeviceRecovery", "endpoint_recovery_retries_are_bounded", "audio_error_is_current", "stale_audio_error_does_not_invalidate_replacement_stream")
+need("src/bin/smalltalkai_linux.rs", "delivery_session_is_current", "signal_delivery_complete", "Superseded by newer recording")
+need("src/bin/smalltalkai_capture.rs", "resolve_input_device", "refresh_audio_capture", "ShellCommand::StartRecording", "using_default_fallback", "notice.microphoneFallback", "notice.microphoneReady", "notice.microphoneRestored", "notice.microphoneSwitching", "DeviceRecovery", "endpoint_recovery_retries_are_bounded", "audio_error_is_current", "stale_audio_error_does_not_invalidate_replacement_stream")
 need("src/capture/audio.rs", "choose_input_device_id", "preferred_microphone_falls_back_and_returns", "automatic_mode_tracks_the_default", "InputDeviceSelection", "opening system default after preferred microphone failed", "RegisterEndpointNotificationCallback", "linux_input_topology_signature", "DeviceTopologyChanged", "watch_device_changes")
-need("src/bin/simple_stt_infer.rs", "log_level: LogLevel", "&args.log_level", "inference_device: InferenceDevice", "PARAKEET_DEVICE", "InferenceDevice::Cpu", "InferenceDevice::Gpu", "InferenceDevice::Auto", "Vulkan0", "language: String")
+need("src/bin/smalltalkai_infer.rs", "log_level: LogLevel", "&args.log_level", "inference_device: InferenceDevice", "PARAKEET_DEVICE", "InferenceDevice::Cpu", "InferenceDevice::Gpu", "InferenceDevice::Auto", "Vulkan0", "language: String")
 need("src/config.rs", "CONFIG_SCHEMA_VERSION: u32 = 9", "pub struct GeneralConfig", "pub struct AudioConfig", "pub struct SpeechConfig", "pub struct OutputConfig", "pub struct CleanupConfig", "pub struct DiagnosticsConfig", "normalize_json", "malformed_json_is_preserved", "pub enum RecordingMode", "pub enum InferenceDevice", "pub enum SpeechLanguage", "pub enum ModelSelectionMode", "single_model_filename", "language_models", "pub enum LinuxAutomationBackend", "pub enum LinuxHotkeyBackend", "pub struct LinuxDeliveryChoice", "pub struct AppDeliveryOverride", "app_overrides", "linux_hotkey_backend", "linux_automation_backend", "linux_delivery_cycle", "enabled_delivery_modes", "toggle_cleanup_hotkey", "Clipboard", "Gpu", "Auto", "auto_inference_device")
 need("src/capture/input_language.rs", "GetForegroundWindow", "GetWindowThreadProcessId", "GetKeyboardLayout", "GetKeyboardLayoutList", "GetLocaleInfoW", "normalize_language")
-need("src/bin/simple_stt_capture.rs", "speech_language: language.into()", "resolve_recording_model", "skipped_recording_response", "frozen_worker")
+need("src/bin/smalltalkai_capture.rs", "speech_language: language.into()", "resolve_recording_model", "skipped_recording_response", "frozen_worker")
 need("src/infer/parakeet_native.rs", "preferred_gpu_device", "select_windows_vulkan_device", "GGML_VK_VISIBLE_DEVICES", "storage_buffer16_bit_access", "_putenv_s", "GPU mode requires an available physical GPU")
 need("src/models.rs", "pinned_model_sha256", "download_url", "hasher.update", "hasher.finalize", "DownloadCancellation", "single_model_filename", "language_models")
 need("src/common/shell_protocol.rs", "CancelModelDownload")
-need("src/bin/simple_stt_capture.rs", "model_download_cancelled", "model_download_queued", "downloads.running")
+need("src/bin/smalltalkai_capture.rs", "model_download_cancelled", "model_download_queued", "downloads.running")
 need("src/models.rs", "https://huggingface.co/yosef0H4/lemura-arabic-asr-lite-GGUF/resolve/main/lemura-arabic-asr-lite-q8_0.gguf", "b0aa3f0f316551a45bbd76d1ac7674102a3b221d5fd8c4cd6cac1c2bc4ccce86")
-forbid("resources/simple-stt.iss", 'Source: "arabic-model\\')
-forbid("resources/simple-stt.iss", "parakeet-windows-cuda", "tdt_ctc-110m-f16.gguf")
+forbid("resources/smalltalkai.iss", 'Source: "arabic-model\\')
+forbid("resources/smalltalkai.iss", "parakeet-windows-cuda", "tdt_ctc-110m-f16.gguf")
 need("src/settings_server.rs", "127.0.0.1", "X-Simple-STT-Token", "Content-Security-Policy", "settings-session-{instance_id}.json", "text/event-stream", "ShellCommand::DownloadModel", "ShellCommand::RemoveModel", "ShellCommand::TestModel", "linux_shortcut_state", "sync_shortcuts", "capture_hotkey_with_ahk", "dist/index.html", "dist/styles.css", "dist/app.js")
 need("src/settings_server.rs", "/api/cleanup-action", "save_api_key", "chatgpt_login_browser", "chatgpt_login_code", "clear_history")
 need("src/settings_server.rs", "settings-instance-{instance_id}.lock", "executable_build_id", "session.instance_id != instance_id", "lock.try_lock()", "impl Drop for SettingsInstance", "no second server was started")
-need("src/bin/simple_stt_settings.rs", "args.desktop()", "simple-stt-settings-window")
+need("src/bin/smalltalkai_settings.rs", "args.desktop()", "smalltalkai-settings-window")
 need("desktop/settings/src/main.rs", "settings_server::run", "settings.serve(", ".run_return(")
 need("scripts/test-settings-single-instance.py", "12 concurrent Settings launches", "unauthenticated Close", "stale session recovers", "immediate reopen")
 need("src/cleanup/mod.rs", "openai_compatible", "backend-api/codex/responses", "stream", "response.completed")
 need("src/cleanup/secrets.rs", "CredWriteW", "secret-tool", "SIMPLE_STT_AI_API_KEY")
-need("src/bin/simple_stt_capture.rs", "CleanupFinished", "cleanup_failure_notice", "AI cleanup timed out", "Screen context requested", "trim_cleanup_history", "ListCleanupHistory")
+need("src/bin/smalltalkai_capture.rs", "CleanupFinished", "cleanup_failure_notice", "AI cleanup timed out", "Screen context requested", "trim_cleanup_history", "ListCleanupHistory")
 need("src/capture/screen_context.rs", "Screenshot::request", "interactive(true)", "excluded_apps", "JpegEncoder")
 forbid("src/config.rs", "pub api_key", "pub access_token", "pub refresh_token")
-need("src/bin/simple_stt_linux.rs", "impl ksni::Tray for LinuxTray", "audio-input-microphone", "start_linux_tray")
-need("src/models.rs", "pub fn remove_model", "save another choice before removing it", "installed_non_selected_model_can_be_removed", "selected_model_is_not_removed")
-forbid("resources/simple-stt.iss", "Invoke-WebRequest", "exit 0\"\"\"; StatusMsg: \"Downloading recommended speech model")
+need("src/bin/smalltalkai_linux.rs", "impl ksni::Tray for LinuxTray", "fn icon_pixmap", "start_linux_tray")
+need("src/models.rs", "pub fn remove_model", "remove_download", "installed_non_selected_model_can_be_removed", "removal_clears_single_and_keyboard_assignments_and_rolls_back_on_save_error")
+forbid("resources/smalltalkai.iss", "Invoke-WebRequest", "exit 0\"\"\"; StatusMsg: \"Downloading recommended speech model")
 need("web/settings/index.html", "/src/main.ts")
 need("web/settings/src/app.css", "--accent")
 need("web/settings/tools/manifest.mjs", "manifest.json", "sources", "assets")
@@ -236,8 +236,8 @@ if "supports_vision" in frontend_source or "Accepts images" in frontend_source:
 forbid("src/config.rs", "supports_vision")
 need("src/logging.rs", "component={component} pid={}", "prefix_lines", "component_prefix_survives_split_writes_and_multiline_events")
 need("src/capture/inference_supervisor.rs", '.arg("--log-level")', '.arg("--inference-device")')
-forbid("src/bin/simple_stt_capture.rs", "worker.lock().unwrap().worker_pid()", "worker.lock().unwrap().replace_config")
-checks.append("Parakeet DLL/model loading is isolated to disposable simple-stt-infer with exact-PID forced-exit fallback")
+forbid("src/bin/smalltalkai_capture.rs", "worker.lock().unwrap().worker_pid()", "worker.lock().unwrap().replace_config")
+checks.append("Parakeet DLL/model loading is isolated to disposable smalltalkai-infer with exact-PID forced-exit fallback")
 checks.append("microphone preference uses stable IDs, temporary default fallback, endpoint notifications with bounded retries, and recording-start resolution")
 
 # AHK shell owns desktop behavior and supports safe typed or clipboard-backed delivery.
@@ -248,12 +248,12 @@ tray_ahk = need(
 for needle in ["SetColor", "SetPreferredAppMode", "FlushMenuThemes"]:
     if needle in tray_ahk:
         errors.append(f"tray menu must use the default Windows/AHK drawing path, but found {needle!r}")
-for path in ["ahk/simple-stt.ahk"]:
+for path in ["ahk/smalltalkai.ahk"]:
     body = text(path)
     for needle in ["GetProcAddress", "SetPreferredAppMode"]:
         if needle in body:
             errors.append(f"{path} must not set process-wide app theme state; found {needle!r}")
-forbid("ahk/simple-stt.ahk", "SettingsGui", "Gui(", "InputHook(")
+forbid("ahk/smalltalkai.ahk", "SettingsGui", "Gui(", "InputHook(")
 hotkeys_ahk = need("ahk/lib/Hotkeys.ahk", "class CapsLockTapController", "Register(capslockBehavior)", "Unregister()", "Hotkey(", "*CapsLock", "HotIf(this.capsContextCallback)", "AltGr", "SetCapsLockState")
 if '"*CapsLock & "' in hotkeys_ahk:
     errors.append("CapsLock custom combination must not prepend wildcard; combinations already wildcard-match")
@@ -267,27 +267,27 @@ need("ahk/tests/full-smoke.ahk", "DelayedEditPasteProc", "copied during paste", 
 need("src/capture/overlay_render.rs", "ICON_FAMILY", "new_fallback(false)", "new_allow_breaks(false)", "only_shortcut_rows_receive_shortcut_layout")
 need("src/shortcuts.rs", "linux-shortcuts.json", "shortcut.record", "shortcut.show", "reminders_do_not_keep_overlay_alive")
 need("src/common/shell_protocol.rs", "ShowShortcuts", "RefreshShortcuts", "BeginDelivery")
-need("src/bin/simple_stt_capture.rs", "retry_registers_delivery_before_progress", "OverlayPrimary::WaitingForKeys")
+need("src/bin/smalltalkai_capture.rs", "retry_registers_delivery_before_progress", "OverlayPrimary::WaitingForKeys")
 need("ahk/lib/Typist.ahk", "ReportProgress", 'this.ReportProgress("waiting-for-keys")')
-need("src/bin/simple_stt_linux.rs", "shortcuts::ACTIONS", "shortcuts::configured", "RefreshShortcuts")
+need("src/bin/smalltalkai_linux.rs", "shortcuts::ACTIONS", "shortcuts::configured", "RefreshShortcuts")
 need("src/shortcuts.rs", "show_shortcuts_hotkey")
-need("src/bin/simple_stt_linux.rs", 'tray-menu.json', 'activate_tray_action', 'unload_all_models()')
+need("src/bin/smalltalkai_linux.rs", 'tray-menu.json', 'activate_tray_action', 'unload_all_models()')
 need("web/settings/src/lib/tray-menu.json", '"menu.copyRegion"', '"menu.abort"', '"menu.unloadAll"', '"reading.read_along_start"', '"menu.close"')
-need("ahk/simple-stt.ahk", "showShortcutsHotkey.Configure", "capsController.ConfigureHint", 'ObjBindMethod(this.capsController, "HideHint")')
+need("ahk/smalltalkai.ahk", "showShortcutsHotkey.Configure", "capsController.ConfigureHint", 'ObjBindMethod(this.capsController, "HideHint")')
 need("web/settings/src/pages/General.svelte", "fields.shortcutReminders", 'platformAction("show_shortcuts")')
 need("src/capture/overlay_model.rs", "RecordingIndicators", 'ai_cleanup: bool', 'screen_context: bool', 'overlay.screenContext', 'line.push_str(" AI")')
 need("src/config.rs", "screen context requires AI cleanup", "normalized.cleanup.screenshot.enabled = false")
 need("scripts/test-full.cmd", "test-cleanup-settings-e2e.py")
-need("scripts/test-cleanup-settings-e2e.py", "simple-stt-settings", "/api/cleanup-action", "SIMPLE_STT_AI_BASE_URL", "PASS: Settings cleanup end-to-end")
+need("scripts/test-cleanup-settings-e2e.py", "smalltalkai-settings", "/api/cleanup-action", "SIMPLE_STT_AI_BASE_URL", "PASS: Settings cleanup end-to-end")
 need(".env.example", "SIMPLE_STT_AI_API_KEY=", "SIMPLE_STT_AI_BASE_URL=", "SIMPLE_STT_AI_MODEL=")
-need("ahk/simple-stt.ahk", "PublishRuntimeConfigChange()", 'this.ipc.CallService("reload-config"')
+need("ahk/smalltalkai.ahk", "PublishRuntimeConfigChange()", 'this.ipc.CallService("reload-config"')
 forbid("src/config.rs", "typing_chunk_chars", "typing_interval_ms")
 checks.append("AHK owns tray, hotkeys, full-format clipboard-preserving paste modes, and foreground-safe Unicode typing; browser settings owns configuration UI")
 
 # The shell stays non-blocking for service calls and reconnects after a new capture PID.
-ipc_ahk = need("ahk/lib/IpcClient.ahk", "Run(command", "SetTimer", "poll-events --after-seq ", "--wait-ms 900", "ResetServiceSession", "this.latestSeq := 0", "RetryPing", "simple-stt-ctl helper timed out", 'responseReady := FileExist(job["path"])', '"missing_since"', "A_TickCount - job[\"missing_since\"] < 250")
+ipc_ahk = need("ahk/lib/IpcClient.ahk", "Run(command", "SetTimer", "poll-events --after-seq ", "--wait-ms 900", "ResetServiceSession", "this.latestSeq := 0", "RetryPing", "smalltalkai-ctl helper timed out", 'responseReady := FileExist(job["path"])', '"missing_since"', "A_TickCount - job[\"missing_since\"] < 250")
 supervisor_ahk = need("ahk/lib/ProcessSupervisor.ahk", "Run(command", "ProcessWaitClose", "ProcessClose", "SimpleSttRandomToken", "ResetServiceSession", "readyProbeInFlight", "this.startTimer")
-need("ahk/simple-stt.ahk", "pendingStarts", "pendingStops", "recording stop deferred until start acknowledgement", "CancelAll", "cancelHotkey", 'CallService("cancel", ObjBindMethod(this, "CancelServiceFinished", callback))', 'this.ReaderAction("stop")', "ToggleDeliveryModeHotkey", "deliveryToggleHotkey", "ToggleCleanupHotkey", "cleanupToggleHotkey", "enabled_delivery_modes", "SimpleSttNextDeliveryMode")
+need("ahk/smalltalkai.ahk", "pendingStarts", "pendingStops", "recording stop deferred until start acknowledgement", "CancelAll", "cancelHotkey", 'CallService("cancel", ObjBindMethod(this, "CancelServiceFinished", callback))', 'this.ReaderAction("stop")', "ToggleDeliveryModeHotkey", "deliveryToggleHotkey", "ToggleCleanupHotkey", "cleanupToggleHotkey", "enabled_delivery_modes", "SimpleSttNextDeliveryMode")
 need("ahk/lib/Utils.ahk", "SimpleSttNextDeliveryMode", "StrSplit(configured", "Mod(index, modes.Length)")
 if "RunWait(command" in ipc_ahk:
     errors.append("IpcClient.ahk service calls must be asynchronous")
@@ -302,13 +302,13 @@ checks.append("control IPC is loopback-only and versioned; raw PCM stays on fram
 # Canonical schema-v2 config, partial downloads, and process-exit diagnostics are present.
 need("src/config.rs", "MoveFileExW", "MOVEFILE_REPLACE_EXISTING", "normalize_json", "partial_config_is_normalized_and_unknown_fields_are_removed", "runtime_root", "current_exe")
 need("src/models.rs", 'https://', 'gguf.partial.', "replace_file_atomic", "validate_model_filename", 'join("fixtures")')
-need("scripts/build-distribution.ps1", "fixtures\\parakeet-smoke.wav", "AutoHotkey64.exe", "runtime\\simple-stt.ahk", "runtime\\hotkey-recorder.ahk")
-need("scripts/build-release.ps1", "--bin simple-stt-capture --bin simple-stt-infer --bin simple-stt-ctl")
+need("scripts/build-distribution.ps1", "fixtures\\parakeet-smoke.wav", "AutoHotkey64.exe", "runtime\\smalltalkai.ahk", "runtime\\hotkey-recorder.ahk")
+need("scripts/build-release.ps1", "--bin smalltalkai-capture --bin smalltalkai-infer --bin smalltalkai-ctl")
 need("scripts/memory-cleanup-validation.ps1", "Get-Process", "nvidia-smi", "unload-model")
 checks.append("schema normalization, install-relative paths, atomic writes, HTTPS partial downloads, and diagnostics are present")
 
 # Deterministic worker integration coverage exists but is intentionally not shipped.
-need("src/bin/simple_stt_mock_infer.rs", "Test-only disposable inference worker", "hang-handshake", "mock مرحبا 世界 🙂", "MessageType::WarmUp", "MessageType::ModelLoaded", "MessageType::WarmUpAck")
+need("src/bin/smalltalkai_mock_infer.rs", "Test-only disposable inference worker", "hang-handshake", "mock مرحبا 世界 🙂", "MessageType::WarmUp", "MessageType::ModelLoaded", "MessageType::WarmUpAck")
 need("tests/worker_lifecycle.rs", "worker_launches_lazily_and_reuses_warm_process", "warm_up_loads_and_primes_worker_before_first_transcript", "worker_exits_after_idle_timeout", "model_switch_recycles_worker_before_next_request", "device_switch_recycles_worker_before_next_request", "crashed_worker_is_discarded_and_recoverable", "blocked_inference_is_force_terminated_by_exact_pid")
 if "--bins" in text("scripts/build-release.ps1"):
     errors.append("release build must not ship the mock inference binary via --bins")
@@ -318,18 +318,18 @@ checks.append("mock-worker lifecycle integration sources cover reuse, idle exit,
 checks.append("retired monolith trees are removed from the working tree; git history remains the archive")
 
 # A skipped start must end shell state without waiting for transcript delivery.
-need("ahk/simple-stt.ahk", 'response["values"]["recording"] = "skipped"', 'this.pendingStops.Delete(session)')
+need("ahk/smalltalkai.ahk", 'response["values"]["recording"] = "skipped"', 'this.pendingStops.Delete(session)')
 need("ahk/lib/Config.ahk", '"single_model_filename", "language_models", "language_runtimes", "selection_mode"')
-need("src/bin/simple_stt_linux.rs", 'value == "skipped"', 'recording: false,', 'if !state.recording')
+need("src/bin/smalltalkai_linux.rs", 'value == "skipped"', 'recording: false,', 'if !state.recording')
 
-need("ahk/simple-stt.ahk", "RetryLastDelivery", "lastDeliveryText", "SimpleSttFinalDeliveryPayload", 'Bool("preserve_clipboard", true)')
+need("ahk/smalltalkai.ahk", "RetryLastDelivery", "lastDeliveryText", "SimpleSttFinalDeliveryPayload", 'Bool("preserve_clipboard", true)')
 need("ahk/lib/Typist.ahk", "PublishCleanClipboardText", "ExcludeClipboardContentFromMonitorProcessing", "CanIncludeInClipboardHistory", "CanUploadToCloudClipboard", "AllocClipboardDword")
-need("src/bin/simple_stt_capture.rs", "LastDeliveryCache", "ShellCommand::RememberDelivery", "ShellCommand::LastDelivery", "delivering.contains(&session_id)")
+need("src/bin/smalltalkai_capture.rs", "LastDeliveryCache", "ShellCommand::RememberDelivery", "ShellCommand::LastDelivery", "delivering.contains(&session_id)")
 need("web/settings/src/lib/settings.ts", "ui.keep_clipboard_clean.10b3d3", "general.retry_delivery_hotkey")
 need("web/settings/src/lib/locales/en.json", "Keep clipboard clean")
 
 need("reader/crates/reader-core/src/recorded_action.rs", "MAX_EVENTS", "MAX_DURATION_MS", "pub fn replay", "held.into_iter().rev()")
-need("reader/crates/readerd/src/portal_input.rs", "Action::Sequence", "recorded_action", "has_observer")
+need("reader/crates/smalltalkai-reader/src/portal_input.rs", "Action::Sequence", "recorded_action", "has_observer")
 need("ahk/action-replay.ahk", "#Requires AutoHotkey v2.0", "#SingleInstance Force", "OnExit(ReleaseHeld)", "CheckTarget()", "QueryPerformanceCounter", "SaveHeld()")
 need("ahk/tests/action-replay-smoke.ahk", "Expected two paired key presses", "Canceled action delivered input")
 
@@ -337,15 +337,15 @@ need("src/capture/overlay_model.rs", "struct OverlayContent", "pub fn for_delive
 for overlay_adapter in ("src/capture/overlay_windows.rs", "src/capture/overlay_linux.rs"):
     need(overlay_adapter, "OverlayContent", "self.content.apply(", "self.content.text(", "self.content.expire_notice(")
     forbid(overlay_adapter, "struct Notice", '"overlay.pasting"')
-need("src/bin/simple_stt_capture.rs", "OverlayPrimary::for_delivery(phase)")
-need("src/bin/simple_stt_ctl.rs", "StatusRelay", "OwnedHandle::from_raw_handle(parent)", "relay_command")
+need("src/bin/smalltalkai_capture.rs", "OverlayPrimary::for_delivery(phase)")
+need("src/bin/smalltalkai_ctl.rs", "StatusRelay", "OwnedHandle::from_raw_handle(parent)", "relay_command")
 need("ahk/lib/IpcClient.ahk", "DeliveryStatus", 'FileOpen(this.statusPath, "a", "UTF-8-RAW")')
-forbid("ahk/simple-stt.ahk", 'CallService("delivery-progress')
+forbid("ahk/smalltalkai.ahk", 'CallService("delivery-progress')
 checks.append("tooltip content and delivery phases are shared; desktop feedback avoids per-phase process launches")
 need("scripts/build-distribution.ps1", "'ahk\\action-replay.ahk'")
 
-forbid("resources/simple-stt.iss", "external download", "downloadmodel", "installarabic", '{app}\\models')
-need("resources/simple-stt.iss", "AppVersion={#SimpleSttVersion}")
+forbid("resources/smalltalkai.iss", "external download", "downloadmodel", "installarabic", '{app}\\models')
+need("resources/smalltalkai.iss", "AppVersion={#SimpleSttVersion}")
 need("scripts/build-distribution.ps1", "/DSimpleSttVersion=$PackageVersion", "Distribution payload unexpectedly contains an inference model")
 if errors:
     print("STATIC VERIFY FAILED")

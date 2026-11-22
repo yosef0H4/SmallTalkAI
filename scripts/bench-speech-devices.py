@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Serial, warm, direct-worker CPU/GPU benchmarks; no desktop audio or input.
 
-Requires built simple-stt-infer and reader-tts, the selected model/runtime assets,
+Requires built smalltalkai-infer and smalltalkai-tts, the selected model/runtime assets,
 ffmpeg, and (for GPU) a working Vulkan/CUDA driver. This bypasses the production
 residency policy; these timings measure warm inference, not retention or accuracy.
 Results are written beneath artifacts/combined-app/benchmarks.
@@ -234,7 +234,7 @@ def tts_case(worker, text, voice, lang, device, case_id, timeout):
 def run_stt(args, rows, scratch):
     runtime = args.parakeet_runtime
     models = [('en', args.stt_en, args.audio_en), ('ar', args.stt_ar, args.audio_ar)]
-    require([args.bin_dir / 'simple-stt-infer', runtime, *(p for _, model, source in models for p in (model, source))])
+    require([args.bin_dir / 'smalltalkai-infer', runtime, *(p for _, model, source in models for p in (model, source))])
     for language, model, audio in models:
         source = pcm_source(audio)
         for device in ([args.device] if args.device != 'all' else ['cpu', 'gpu']):
@@ -244,7 +244,7 @@ def run_stt(args, rows, scratch):
             else:
                 env['PARAKEET_DEVICE'] = 'Vulkan0'
             log = OUTPUT / f'stt-{runtime.name}-{language}-{device}.log'
-            worker = Worker([str(args.bin_dir / 'simple-stt-infer'), '--runtime-dir', str(runtime),
+            worker = Worker([str(args.bin_dir / 'smalltalkai-infer'), '--runtime-dir', str(runtime),
                              '--model-path', str(model), '--log-path', str(OUTPUT / f'stt-{runtime.name}-{language}-{device}-component.log'),
                              '--log-level', 'normal', '--inference-device', device, '--language', language,
                              '--idle-timeout-secs', '3600'], env, log, 'stt')
@@ -279,13 +279,13 @@ def run_stt(args, rows, scratch):
 
 
 def run_tts(args, rows, scratch):
-    require([args.bin_dir / 'reader-tts', args.kokoro, args.supertonic, args.tts_cpu, args.tts_cuda])
+    require([args.bin_dir / 'smalltalkai-tts', args.kokoro, args.supertonic, args.tts_cpu, args.tts_cuda])
     for model, model_dir, language, voice in [('kokoro', args.kokoro, 'en', 'af_heart'),
                                               ('supertonic3', args.supertonic, 'ar', 'sid:0')]:
         for device, runtime in [('cpu', args.tts_cpu), ('cuda', args.tts_cuda)]:
             if args.device != 'all' and args.device != ('gpu' if device == 'cuda' else 'cpu'):
                 continue
-            worker = Worker([str(args.bin_dir / 'reader-tts'), '--model-dir', str(model_dir),
+            worker = Worker([str(args.bin_dir / 'smalltalkai-tts'), '--model-dir', str(model_dir),
                              '--runtime-dir', str(runtime), '--device', device, '--threads', '2',
                              '--provider', 'local_kokoro' if model == 'kokoro' else 'local_supertonic'],
                             env_for(runtime, scratch), OUTPUT / f'tts-{model}-{device}.log', 'tts')

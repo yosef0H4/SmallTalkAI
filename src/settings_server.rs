@@ -30,7 +30,7 @@ const MAX_BODY: usize = 2 * 1024 * 1024;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Parser)]
-#[command(name = "simple-stt-settings")]
+#[command(name = "smalltalkai-settings")]
 pub struct Args {
     #[arg(long)]
     state_file: Option<PathBuf>,
@@ -157,7 +157,7 @@ impl DesktopSettings {
     pub fn serve(self, focus: impl Fn() + Send + 'static, close: impl FnOnce() + Send + 'static) {
         std::thread::spawn(move || {
             if let Err(error) = serve_settings(&self.server, &self.state, Some(&focus), false) {
-                eprintln!("simple-stt-settings: {error:#}");
+                eprintln!("smalltalkai-settings: {error:#}");
             }
             close();
         });
@@ -395,11 +395,24 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
             }
             "/favicon.ico" => {
                 return Ok(response_bytes(
-                    StatusCode(204),
-                    Vec::new(),
+                    StatusCode(200),
+                    include_bytes!("../ahk/icons/smalltalkai.ico").to_vec(),
                     "image/x-icon",
                     state,
                 ))
+            }
+            "/smalltalkai.png" | "/smalltalkai-titlebar.png" => {
+                let icon: &[u8] = if path == "/smalltalkai-titlebar.png" {
+                    include_bytes!("../icons/smalltalkai-titlebar.png")
+                } else {
+                    include_bytes!("../icons/hicolor/64x64/apps/smalltalkai.png")
+                };
+                return Ok(response_bytes(
+                    StatusCode(200),
+                    icon.to_vec(),
+                    "image/png",
+                    state,
+                ));
             }
             _ => {}
         }
@@ -432,12 +445,9 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
                 "install" => state.assets.start(id)?,
                 "cancel" => state.assets.cancel(id),
                 "remove" => {
-                    let reader = crate::reader::load()?;
-                    anyhow::ensure!(
-                        !crate::assets::assigned(id, &AppConfig::load()?, &reader),
-                        "Remove this asset from saved model and runtime assignments before deleting it"
-                    );
-                    state.assets.remove(id)?;
+                    if state.assets.remove(id)? {
+                        let _ = capture_request(state, ShellCommand::ReloadConfig);
+                    }
                 }
                 _ => anyhow::bail!("Unknown asset action"),
             }
@@ -637,7 +647,7 @@ fn hotkey_capture_response(
 fn capture_hotkey_with_ahk(allow_caps_lock: bool) -> Result<String> {
     let (runtime, script) = locate_hotkey_recorder()?;
     let output = std::env::temp_dir().join(format!(
-        "simple-stt-hotkey-{}-{}.txt",
+        "smalltalkai-hotkey-{}-{}.txt",
         std::process::id(),
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -913,8 +923,8 @@ fn linux_automation_state() -> Value {
         "wl_clipboard": exists("wl-copy") && exists("wl-paste"),
         "recommended": "portal",
         "portal": true,
-        "start_command": "systemctl --user start simple-stt-linux.service",
-        "stop_command": "simple-stt-linux shutdown"
+        "start_command": "systemctl --user start smalltalkai-linux.service",
+        "stop_command": "smalltalkai-linux shutdown"
     })
 }
 
@@ -1091,9 +1101,9 @@ fn focused_app_identity() -> Result<String> {
     let helper = [
         exe.parent()
             .unwrap_or(Path::new("."))
-            .join("linux-fast-paste"),
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/bin/linux-fast-paste"),
-        PathBuf::from("resources/bin/linux-fast-paste"),
+            .join("smalltalkai-paste"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/bin/smalltalkai-paste"),
+        PathBuf::from("resources/bin/smalltalkai-paste"),
     ]
     .into_iter()
     .find(|path| path.is_file())
@@ -1623,7 +1633,7 @@ fn configure_shortcuts() -> Result<()> {
     let executable = std::env::current_exe()?
         .parent()
         .context("settings executable has no directory")?
-        .join("simple-stt-linux");
+        .join("smalltalkai-linux");
     let output = Command::new(executable)
         .arg("configure-shortcuts")
         .output()

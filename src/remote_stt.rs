@@ -196,7 +196,7 @@ fn transcribe_once(
         .unwrap_or_default()
         .as_nanos();
     let sequence = BOUNDARY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    let boundary = format!("simple-stt-{}-{timestamp}-{sequence}", std::process::id());
+    let boundary = format!("smalltalkai-{}-{timestamp}-{sequence}", std::process::id());
     let body =
         multipart_body(&boundary, config, audio, language).map_err(|error| AttemptError {
             message: error.to_string(),

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "generatedAt": "2026-11-15T00:00:00Z",
-  "title": "Design System: Simple STT Settings",
+  "title": "Design System: SmallTalkAI Settings",
   "extensions": {
     "colorMeta": {
       "paper": {"role":"neutral","displayName":"Paper","canonical":"#fafbfd"},
@@ -46,7 +46,7 @@
   ],
   "narrative": {
     "northStar": "A Clear Home for Every Decision",
-    "overview": "Simple STT Settings is a compact, quiet workspace for configuring desktop dictation. The navigation names six task destinations, and each choice has one clear home. Flat aligned rows keep the interface practical and let labels, values, and control state carry the meaning.\n\nThe inherited Simple STT visual identity uses a restrained blue accent, neutral light and dark surfaces, concise labels, and authored SVG icons. Search helps users find settings across destinations. On narrow screens the task navigation adapts while retaining visible names.",
+    "overview": "SmallTalkAI Settings is a compact, quiet workspace for configuring desktop dictation. The navigation names six task destinations, and each choice has one clear home. Flat aligned rows keep the interface practical and let labels, values, and control state carry the meaning.\n\nThe inherited SmallTalkAI visual identity uses a restrained blue accent, neutral light and dark surfaces, concise labels, and authored SVG icons. Search helps users find settings across destinations. On narrow screens the task navigation adapts while retaining visible names.",
     "keyCharacteristics": ["Task-led navigation with six named destinations.", "Compact flat rows and aligned controls.", "One blue accent over neutral light or dark surfaces.", "Searchable choices and sliders paired with exact numeric values."],
     "rules": [{"name":"The One Accent Rule","body":"Use the blue accent for interaction and hierarchy; keep broad surfaces neutral.","section":"colors"}],
     "dos": ["Do give each decision one clear task destination.", "Do keep setting labels visible and align their controls consistently.", "Do pair sliders with an editable exact value.", "Do preserve visible task names on mobile and accessible names for icon controls.", "Do support light, dark, automatic theme, RTL content, and reduced motion."],

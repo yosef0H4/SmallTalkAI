@@ -16,7 +16,7 @@ The strongest application-side finding is a cleanup gap: our current broker drop
 
 ## Our implementation
 
-Source: [portal_input.rs](../../reader/crates/readerd/src/portal_input.rs), especially `run` (line 92), `request` (207), and `Connection::connect` (235). Dependency version: [Cargo.lock](../../Cargo.lock), ashpd 0.13.13.
+Source: [portal_input.rs](../../reader/crates/smalltalkai-reader/src/portal_input.rs), especially `run` (line 92), `request` (207), and `Connection::connect` (235). Dependency version: [Cargo.lock](../../Cargo.lock), ashpd 0.13.13.
 
 | Concern | Observed behavior | Implication |
 | --- | --- | --- |
@@ -43,6 +43,6 @@ Inspected Speed of Sound revision `c233281cdcc4407b5f648de41fceef90dca849cc`, wh
 
 Keep one deliberate owner per capability policy and reuse its successful session. Combining keyboard and pointer into one owner/session is a possible product decision, but expands the devices requested together; the current two-slot policy can legitimately yield two indicators. Before any implementation change, correlate session object paths, D-Bus sender names, process IDs, create/start/close results, and action cancellation/failure timestamps without logging tokens or typed content.
 
-The singleton broker is per process, not system-wide. Separate readerd instances, another application using RemoteDesktop, or another input-owning process can each contribute sessions. Session paths include the caller's unique bus name, so matching application names or icons cannot establish a common owner. [Session handle identity](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Session.html).
+The singleton broker is per process, not system-wide. Separate smalltalkai-reader instances, another application using RemoteDesktop, or another input-owning process can each contribute sessions. Session paths include the caller's unique bus name, so matching application names or icons cannot establish a common owner. [Session handle identity](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Session.html).
 
 A stable count consistent with intentional owners is expected. Growth after failures/retries in one owner, with old session paths still live and no successful Close, supports a leak. Indicators that survive confirmed session teardown require backend/UI investigation. KDE's session close handler disconnects its EIS cookie, providing an additional observable teardown boundary. [KDE close handling](https://github.com/KDE/xdg-desktop-portal-kde/blob/ab5e5cbaf5bce73bd437ea29363197d764503a63/src/remotedesktop.cpp#L152). No runtime conclusion or recommendation to hide security indicators follows from this source-only investigation.

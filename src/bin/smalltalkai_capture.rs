@@ -1,0 +1,2912 @@
+use anyhow::{Context, Result};
+use clap::Parser;
+use crossbeam_channel::{bounded, select, tick, unbounded, Receiver, Sender};
+use smalltalkai::capture::audio::{self, AudioEvent};
+use smalltalkai::capture::inference_supervisor::{
+    nonzero_pid, shutdown_shared, shutdown_shared_if_current, WorkerConfig, WorkerSupervisor,
+};
+use smalltalkai::capture::ipc_server::{self, ControlRequest};
+use smalltalkai::capture::overlay::{OverlayHandle, OverlayPrimary};
+use smalltalkai::capture::screen_context;
+use smalltalkai::capture::state::ServiceState;
+use smalltalkai::cleanup::{self, CleanupHistoryEntry};
+use smalltalkai::common::shell_protocol::{NoticeLevel, ServiceEvent, ShellCommand, ShellResponse};
+use smalltalkai::config::{AppConfig, CleanupConfig, ModelSelectionMode};
+use smalltalkai::localization::tr;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs;
+use std::path::PathBuf;
+use std::sync::{
+    atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+    Arc, Condvar, Mutex,
+};
+use std::time::{Duration, Instant};
+
+const MIN_RECORDING_SAMPLES: usize = 1_600; // 100 ms at 16 kHz.
+const EVENT_HISTORY_LIMIT: usize = 512;
+const DEVICE_RETRY_DELAYS: [Duration; 5] = [
+    Duration::from_millis(100),
+    Duration::from_millis(250),
+    Duration::from_millis(500),
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+];
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "smalltalkai-capture",
+    about = "Persistent lightweight SmallTalkAI audio capture service"
+)]
+struct Args {
+    #[arg(long)]
+    token: String,
+    #[arg(long)]
+    state_file: Option<PathBuf>,
+    #[arg(long)]
+    config: Option<PathBuf>,
+}
+
+#[derive(Debug)]
+struct Recording {
+    session_id: u64,
+    worker_config: WorkerConfig,
+    screen_context: Arc<ScreenCaptureSlot>,
+    samples: Vec<i16>,
+    started: Instant,
+    stop_deadline: Option<Instant>,
+    stop_ready: bool,
+    countdown_shown: Option<u64>,
+}
+
+impl Recording {
+    fn schedule_stop(&mut self, now: Instant, milliseconds: u64) -> bool {
+        if self.stop_ready {
+            return false;
+        }
+        if self.stop_deadline.is_some() {
+            return true;
+        }
+        if milliseconds == 0 {
+            return false;
+        }
+        self.stop_deadline = Some(now + Duration::from_millis(milliseconds));
+        self.countdown_shown = Some(countdown_millis(Duration::from_millis(milliseconds)));
+        true
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum GraceTick {
+    None,
+    Countdown(u64),
+    Finish(u64),
+}
+
+fn countdown_millis(remaining: Duration) -> u64 {
+    let millis = remaining.as_millis().min(u128::from(u64::MAX)) as u64;
+    millis.saturating_add(249) / 250 * 250
+}
+
+fn advance_stop_grace(
+    active: &mut Option<Recording>,
+    frame_rx: &Receiver<Vec<i16>>,
+    now: Instant,
+) -> GraceTick {
+    let Some(recording) = active.as_mut() else {
+        return GraceTick::None;
+    };
+    let Some(deadline) = recording.stop_deadline else {
+        return GraceTick::None;
+    };
+    if recording.stop_ready {
+        return GraceTick::None;
+    }
+    if now >= deadline {
+        while let Ok(frame) = frame_rx.try_recv() {
+            recording.samples.extend_from_slice(&frame);
+        }
+        recording.stop_ready = true;
+        return GraceTick::Finish(recording.session_id);
+    }
+    let milliseconds = countdown_millis(deadline.duration_since(now));
+    if recording.countdown_shown != Some(milliseconds) {
+        recording.countdown_shown = Some(milliseconds);
+        GraceTick::Countdown(milliseconds)
+    } else {
+        GraceTick::None
+    }
+}
+
+#[derive(Debug)]
+struct ScreenCaptureSlot {
+    value: Mutex<ScreenCaptureState>,
+    ready: Condvar,
+}
+
+#[derive(Debug)]
+enum ScreenCaptureState {
+    Pending,
+    Complete(Option<cleanup::CleanupImage>),
+}
+
+impl ScreenCaptureSlot {
+    fn complete(&self, image: Option<cleanup::CleanupImage>) {
+        if let Ok(mut value) = self.value.lock() {
+            *value = ScreenCaptureState::Complete(image);
+            self.ready.notify_all();
+        }
+    }
+
+    fn wait(&self, timeout: Duration) -> Option<cleanup::CleanupImage> {
+        let value = self.value.lock().ok()?;
+        let (value, _) = self
+            .ready
+            .wait_timeout_while(value, timeout, |state| {
+                matches!(state, ScreenCaptureState::Pending)
+            })
+            .ok()?;
+        match &*value {
+            ScreenCaptureState::Pending => None,
+            ScreenCaptureState::Complete(image) => image.clone(),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum BackgroundResult {
+    CliTranscription {
+        generation: u64,
+        job_id: u64,
+        result: Result<String, String>,
+    },
+    Transcript {
+        generation: u64,
+        session_id: u64,
+        result: Result<String, String>,
+        screen_context: Option<cleanup::CleanupImage>,
+    },
+    CleanupFinished {
+        generation: u64,
+        session_id: u64,
+        raw: String,
+        result: Result<cleanup::CleanupResult, String>,
+    },
+    ModelUnloaded {
+        result: Result<(), String>,
+    },
+    WorkerConfigReplaced {
+        result: Result<(), String>,
+    },
+    ModelLoading {
+        generation: u64,
+        session_id: u64,
+        language: String,
+    },
+    ModelLoaded {
+        generation: u64,
+        session_id: Option<u64>,
+        language: String,
+    },
+    ModelWarmed {
+        generation: u64,
+        session_id: Option<u64>,
+        language: String,
+        result: Result<bool, String>,
+    },
+    ModelTested {
+        generation: u64,
+        result: Result<String, String>,
+    },
+    DownloadProgress {
+        filename: String,
+        downloaded: u64,
+        total: Option<u64>,
+    },
+    DownloadFinished {
+        filename: String,
+        result: Result<PathBuf, String>,
+        cancelled: bool,
+    },
+}
+
+#[derive(Default)]
+struct LastDeliveryCache(Option<(u64, String, u64)>);
+impl LastDeliveryCache {
+    fn remember(&mut self, session_id: u64, text: String, pending: bool) -> bool {
+        if !pending || text.is_empty() || text.len() > 1024 * 1024 {
+            return false;
+        }
+        if self
+            .0
+            .as_ref()
+            .is_none_or(|(previous, _, _)| session_id >= *previous)
+        {
+            let remembered_at_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+                .min(u128::from(u64::MAX)) as u64;
+            self.0 = Some((
+                session_id,
+                text,
+                remembered_at_ms.max(self.remembered_at_ms().saturating_add(1)),
+            ));
+        }
+        true
+    }
+    fn remembered_at_ms(&self) -> u64 {
+        self.0.as_ref().map_or(0, |(_, _, at)| *at)
+    }
+    fn text(&self) -> Option<&str> {
+        self.0.as_ref().map(|(_, text, _)| text.as_str())
+    }
+}
+
+struct DownloadJob {
+    config: AppConfig,
+    cancellation: Arc<smalltalkai::models::DownloadCancellation>,
+    running: bool,
+}
+#[derive(Default)]
+struct DownloadJobs {
+    jobs: HashMap<String, DownloadJob>,
+    queue: VecDeque<String>,
+    running: usize,
+}
+impl DownloadJobs {
+    fn start_queued(&mut self, tx: &Sender<BackgroundResult>) {
+        while self.running < 2 {
+            let Some(filename) = self.queue.pop_front() else {
+                break;
+            };
+            let Some(job) = self.jobs.get_mut(&filename) else {
+                continue;
+            };
+            job.running = true;
+            self.running += 1;
+            let _ = tx.send(BackgroundResult::DownloadProgress {
+                filename: filename.clone(),
+                downloaded: 0,
+                total: None,
+            });
+            let config = job.config.clone();
+            let cancellation = Arc::clone(&job.cancellation);
+            let tx = tx.clone();
+            std::thread::spawn(move || {
+                let progress_tx = tx.clone();
+                let result = smalltalkai::models::download_model_cancellable(
+                    &config,
+                    &filename,
+                    &cancellation,
+                    |downloaded, total| {
+                        let _ = progress_tx.send(BackgroundResult::DownloadProgress {
+                            filename: filename.clone(),
+                            downloaded,
+                            total,
+                        });
+                    },
+                )
+                .map_err(|error| error.to_string());
+                let cancelled = cancellation.finish();
+                let _ = tx.send(BackgroundResult::DownloadFinished {
+                    filename,
+                    result,
+                    cancelled,
+                });
+            });
+        }
+    }
+}
+
+struct ControlContext<'a> {
+    config: &'a mut AppConfig,
+    worker: &'a Arc<Mutex<WorkerSupervisor>>,
+    worker_pid: &'a Arc<AtomicU32>,
+    background_tx: &'a Sender<BackgroundResult>,
+    downloads: &'a mut DownloadJobs,
+    overlay: &'a OverlayHandle,
+    recording_active: &'a Arc<AtomicBool>,
+    capture: &'a mut Option<audio::CaptureHandle>,
+    capture_gain: &'a mut f32,
+    frame_tx: &'a Sender<Vec<i16>>,
+    audio_event_tx: &'a Sender<AudioEvent>,
+    cancel_generation: &'a Arc<AtomicU64>,
+    events: &'a mut EventBuffer,
+    active: &'a mut Option<Recording>,
+    transcribing: &'a mut HashSet<u64>,
+    warming: &'a mut HashSet<u64>,
+    pending_model_tests: &'a mut usize,
+    cleaning: &'a mut HashSet<u64>,
+    delivering: &'a mut HashSet<u64>,
+    cleanup_history: &'a mut VecDeque<CleanupHistoryEntry>,
+    last_delivery: &'a mut LastDeliveryCache,
+    shutting_down: &'a mut bool,
+}
+
+struct BackgroundContext<'a> {
+    reload_config: &'a mut bool,
+    downloads: &'a mut DownloadJobs,
+    overlay: &'a OverlayHandle,
+    events: &'a mut EventBuffer,
+    log_transcripts: bool,
+    cleanup_config: &'a CleanupConfig,
+    delivery_mode: smalltalkai::config::TextDeliveryMode,
+    background_tx: &'a Sender<BackgroundResult>,
+    active_recording: bool,
+    transcribing: &'a mut HashSet<u64>,
+    warming: &'a mut HashSet<u64>,
+    pending_model_tests: &'a mut usize,
+    cleaning: &'a mut HashSet<u64>,
+    delivering: &'a mut HashSet<u64>,
+    cleanup_history: &'a mut VecDeque<CleanupHistoryEntry>,
+    cancel_generation: &'a AtomicU64,
+}
+
+#[derive(Debug, Default)]
+struct EventBuffer {
+    next_seq: u64,
+    items: VecDeque<ServiceEvent>,
+}
+impl EventBuffer {
+    fn push(&mut self, mut event: ServiceEvent) {
+        self.next_seq += 1;
+        event.seq = self.next_seq;
+        self.items.push_back(event);
+        while self.items.len() > EVENT_HISTORY_LIMIT {
+            self.items.pop_front();
+        }
+    }
+    fn after(&self, seq: u64) -> Vec<ServiceEvent> {
+        self.items
+            .iter()
+            .filter(|event| event.seq > seq)
+            .cloned()
+            .collect()
+    }
+}
+
+fn main() -> Result<()> {
+    let args = Args::parse();
+    if let Some(config) = &args.config {
+        std::env::set_var("SIMPLE_STT_CONFIG", config);
+    }
+    let state_file = args
+        .state_file
+        .unwrap_or_else(AppConfig::service_state_path);
+    let mut config = AppConfig::load()?;
+    config.validate()?;
+    let locale = smalltalkai::localization::set_language(config.general.ui_language);
+    smalltalkai::logging::init_component(
+        "capture",
+        &AppConfig::capture_log_path(),
+        &config.diagnostics.log_level,
+    )?;
+    tracing::info!(pid = std::process::id(), config = %AppConfig::config_path().display(), "capture service starting");
+
+    let overlay = OverlayHandle::spawn()?;
+    overlay.set_locale(locale);
+    #[cfg(target_os = "linux")]
+    overlay.set_theme(config.general.ui_theme);
+    overlay.set_shortcuts(
+        smalltalkai::shortcuts::current(&config, locale),
+        config.general.shortcut_reminders,
+    );
+    let recording_active = Arc::new(AtomicBool::new(false));
+    let cancel_generation = Arc::new(AtomicU64::new(0));
+    let (frame_tx, frame_rx) = bounded::<Vec<i16>>(4096);
+    let (audio_event_tx, audio_event_rx) = unbounded::<AudioEvent>();
+    let _device_notifications = audio::watch_device_changes(audio_event_tx.clone())
+        .map_err(|error| {
+            tracing::warn!(%error, "Audio endpoint notifications unavailable; recording-start recovery remains active");
+            error
+        })
+        .ok();
+    let mut capture = audio::start_capture(
+        &config.audio.preferred_device_id,
+        config.audio.gain,
+        frame_tx.clone(),
+        Some(overlay.level_cell()),
+        Some(Arc::clone(&recording_active)),
+        Some(audio_event_tx.clone()),
+    )
+    .map_err(|error| {
+        tracing::warn!(%error, "no microphone available at capture-service startup; will retry when recording starts");
+        error
+    })
+    .ok();
+    if let Some(handle) = &capture {
+        log_audio_selection(handle.selection());
+    }
+    let mut capture_gain = config.audio.gain;
+
+    let supervisor = WorkerSupervisor::new(idle_worker_config(&config)?);
+    let worker_pid = supervisor.pid_tracker();
+    let worker = Arc::new(Mutex::new(supervisor));
+    let (control_tx, control_rx) = unbounded::<ControlRequest>();
+    #[cfg(windows)]
+    let _capture_token = if state_file == AppConfig::service_state_path() {
+        Some(smalltalkai::capture::state::PublishedCaptureToken::new(
+            &args.token,
+        )?)
+    } else {
+        None
+    };
+    let server = ipc_server::spawn(args.token, control_tx)?;
+    ServiceState::new(server.address.clone()).save_atomic(&state_file)?;
+    tracing::info!(address = %server.address, state_file = %state_file.display(), "capture service ready");
+
+    let (background_tx, background_rx) = unbounded::<BackgroundResult>();
+    let mut events = EventBuffer::default();
+    let mut downloads = DownloadJobs::default();
+    events.push(ServiceEvent::simple("service_ready"));
+    let timer = tick(Duration::from_millis(250));
+    let mut active: Option<Recording> = None;
+    let mut transcribing = HashSet::<u64>::new();
+    let mut warming = HashSet::<u64>::new();
+    let mut pending_model_tests = 0usize;
+    let mut cleaning = HashSet::<u64>::new();
+    let mut delivering = HashSet::<u64>::new();
+    let mut cleanup_history = VecDeque::<CleanupHistoryEntry>::new();
+    let mut last_delivery = LastDeliveryCache::default();
+    let mut shutting_down = false;
+    let mut preferred_detected_notice_sent = false;
+    let mut device_recovery: Option<DeviceRecovery> = None;
+
+    while !shutting_down {
+        let stop_due = active
+            .as_ref()
+            .filter(|recording| !recording.stop_ready)
+            .and_then(|recording| recording.stop_deadline)
+            .map(|deadline| {
+                crossbeam_channel::after(deadline.saturating_duration_since(Instant::now()))
+            })
+            .unwrap_or_else(crossbeam_channel::never);
+        select! {
+            recv(stop_due) -> _ => {
+                if let GraceTick::Finish(session_id) = advance_stop_grace(&mut active, &frame_rx, Instant::now()) {
+                    let _ = handle_control(ShellCommand::StopRecording { session_id }, ControlContext {
+                        config: &mut config, worker: &worker, worker_pid: &worker_pid,
+                        background_tx: &background_tx, downloads: &mut downloads, overlay: &overlay,
+                        recording_active: &recording_active, capture: &mut capture,
+                        capture_gain: &mut capture_gain, frame_tx: &frame_tx,
+                        audio_event_tx: &audio_event_tx, cancel_generation: &cancel_generation,
+                        events: &mut events, active: &mut active, transcribing: &mut transcribing,
+                        warming: &mut warming, pending_model_tests: &mut pending_model_tests,
+                        cleaning: &mut cleaning, delivering: &mut delivering,
+                        cleanup_history: &mut cleanup_history, last_delivery: &mut last_delivery,
+                        shutting_down: &mut shutting_down,
+                    });
+                }
+            },
+            recv(frame_rx) -> message => if let (Some(recording), Ok(frame)) = (&mut active, message) { recording.samples.extend_from_slice(&frame); },
+            recv(audio_event_rx) -> message => if let Ok(audio_event) = message {
+                match audio_event {
+                    AudioEvent::StreamError { generation, error } => {
+                        if audio_error_is_current(capture.as_ref().map(|handle| handle.generation()), generation) {
+                            tracing::error!(%error, generation, "audio service stream failure");
+                            capture = None;
+                            device_recovery = Some(DeviceRecovery::new(Instant::now()));
+                            overlay.notify_warning(tr("notice.microphoneDisconnected"), Duration::from_secs(3));
+                            events.push(notice_event(NoticeLevel::Warning, "notice.microphoneDisconnected"));
+                        } else {
+                            tracing::debug!(%error, generation, "ignoring stale audio-stream error");
+                        }
+                    }
+                    AudioEvent::DeviceTopologyChanged => {
+                        tracing::debug!("audio endpoint topology changed");
+                        if device_recovery.is_none() {
+                            device_recovery = Some(DeviceRecovery::new(Instant::now()));
+                        }
+                    }
+                }
+            },
+            recv(background_rx) -> message => if let Ok(result) = message {
+                let mut reload_config = false;
+                handle_background(result, &mut BackgroundContext {
+                    reload_config: &mut reload_config,
+                    downloads: &mut downloads,
+                    overlay: &overlay,
+                    events: &mut events,
+                    log_transcripts: config.diagnostics.log_transcripts,
+                    cleanup_config: &config.cleanup,
+                    delivery_mode: config.output.delivery_mode,
+                    background_tx: &background_tx,
+                    active_recording: active.is_some(),
+                    transcribing: &mut transcribing,
+                    warming: &mut warming,
+                    pending_model_tests: &mut pending_model_tests,
+                    cleaning: &mut cleaning,
+                    delivering: &mut delivering,
+                    cleanup_history: &mut cleanup_history,
+                    cancel_generation: &cancel_generation,
+                });
+                if reload_config {
+                    match AppConfig::load() {
+                        Ok(next) => {
+                            config = next;
+                            events.push(ServiceEvent::simple("configuration_reloaded"));
+                        }
+                        Err(error) => tracing::warn!(%error, "could not reload automatic selections"),
+                    }
+                }
+            },
+            recv(control_rx) -> message => if let Ok(request) = message {
+                let response_written = request.response_written;
+                let response = handle_control(request.command, ControlContext {
+                    config: &mut config,
+                    worker: &worker,
+                    worker_pid: &worker_pid,
+                    background_tx: &background_tx,
+                    downloads: &mut downloads,
+                    overlay: &overlay,
+                    recording_active: &recording_active,
+                    capture: &mut capture,
+                    capture_gain: &mut capture_gain,
+                    frame_tx: &frame_tx,
+                    audio_event_tx: &audio_event_tx,
+                    cancel_generation: &cancel_generation,
+                    events: &mut events,
+                    active: &mut active,
+                    transcribing: &mut transcribing,
+                    warming: &mut warming,
+                    pending_model_tests: &mut pending_model_tests,
+                    cleaning: &mut cleaning,
+                    delivering: &mut delivering,
+                    cleanup_history: &mut cleanup_history,
+                    last_delivery: &mut last_delivery,
+                    shutting_down: &mut shutting_down,
+                });
+                let _ = request.reply.send(response);
+                if shutting_down {
+                    let _ = response_written.recv_timeout(Duration::from_secs(5));
+                }
+            },
+            recv(timer) -> _ => {
+                let finish_session = match advance_stop_grace(&mut active, &frame_rx, Instant::now()) {
+                    GraceTick::Countdown(milliseconds) => {
+                        overlay.notify_info(smalltalkai::localization::format(
+                            "notice.recordingCountdownMs", &[("milliseconds", &milliseconds.to_string())]
+                        ), None);
+                        None
+                    }
+                    GraceTick::Finish(session_id) => Some(session_id),
+                    GraceTick::None => None,
+                };
+                if let Some(session_id) = finish_session {
+                    let _ = handle_control(ShellCommand::StopRecording { session_id }, ControlContext {
+                        config: &mut config, worker: &worker, worker_pid: &worker_pid,
+                        background_tx: &background_tx, downloads: &mut downloads, overlay: &overlay,
+                        recording_active: &recording_active, capture: &mut capture,
+                        capture_gain: &mut capture_gain, frame_tx: &frame_tx,
+                        audio_event_tx: &audio_event_tx, cancel_generation: &cancel_generation,
+                        events: &mut events, active: &mut active, transcribing: &mut transcribing,
+                        warming: &mut warming, pending_model_tests: &mut pending_model_tests, cleaning: &mut cleaning, delivering: &mut delivering,
+                        cleanup_history: &mut cleanup_history, last_delivery: &mut last_delivery,
+                        shutting_down: &mut shutting_down,
+                    });
+                }
+                if active.is_none() {
+                    preferred_detected_notice_sent = false;
+                }
+                if device_recovery.as_ref().is_some_and(|retry| Instant::now() >= retry.next_attempt) {
+                    let now = Instant::now();
+                    let recovered = if active.is_some() {
+                        if config.audio.preferred_device_id.trim().is_empty() {
+                            true
+                        } else {
+                            audio::resolve_input_device(&config.audio.preferred_device_id).is_ok_and(|desired| {
+                                let preferred_ready = !desired.using_default_fallback;
+                                if preferred_ready && !preferred_detected_notice_sent {
+                                    preferred_detected_notice_sent = true;
+                                    overlay.notify_info(
+                                        tr("notice.microphoneReturn"),
+                                        Some(Duration::from_secs(4)),
+                                    );
+                                    events.push(notice_event(
+                                        NoticeLevel::Info,
+                                        "notice.microphoneReturn",
+                                    ));
+                                }
+                                preferred_ready
+                            })
+                        }
+                    } else {
+                        match refresh_audio_capture(
+                            &config,
+                            &mut capture,
+                            &mut capture_gain,
+                            &frame_tx,
+                            &audio_event_tx,
+                            &overlay,
+                            &recording_active,
+                        ) {
+                            Ok(preferred_restored) => {
+                                if preferred_restored {
+                                    overlay.notify_info(
+                                        tr("notice.microphoneReady"),
+                                        Some(Duration::from_secs(3)),
+                                    );
+                                    events.push(notice_event(
+                                        NoticeLevel::Info,
+                                        "notice.microphoneReady",
+                                    ));
+                                } else if capture.as_ref().is_some_and(|handle| {
+                                    handle.selection().using_default_fallback
+                                }) && device_recovery
+                                    .as_ref()
+                                    .is_some_and(|recovery| !recovery.fallback_notice_sent)
+                                {
+                                    if let Some(recovery) = device_recovery.as_mut() {
+                                        recovery.fallback_notice_sent = true;
+                                    }
+                                    overlay.notify_warning(
+                                        tr("notice.microphoneFallback"),
+                                        Duration::from_secs(4),
+                                    );
+                                    events.push(notice_event(
+                                        NoticeLevel::Warning,
+                                        "notice.microphoneFallback",
+                                    ));
+                                }
+                                config.audio.preferred_device_id.trim().is_empty()
+                                    || capture.as_ref().is_some_and(|handle| !handle.selection().using_default_fallback)
+                            }
+                            Err(error) => {
+                                tracing::debug!(%error, "microphone not ready after endpoint change");
+                                false
+                            }
+                        }
+                    };
+                    if recovered {
+                        device_recovery = None;
+                    } else if !device_recovery.as_mut().is_some_and(|retry| retry.retry(now)) {
+                        tracing::debug!("preferred microphone did not become ready during bounded endpoint-change retries");
+                        device_recovery = None;
+                    }
+                }
+                // Check the actual busy state in the capture event loop. A
+                // delayed background snapshot could otherwise unload a worker
+                // after a new recording or model test has already started.
+                let busy = active.is_some() || !transcribing.is_empty() || !warming.is_empty() || !cleaning.is_empty() || pending_model_tests > 0;
+                if nonzero_pid(&worker_pid).is_some() {
+                    if let Ok(mut supervisor) = worker.try_lock() {
+                        let language = supervisor.speech_language().to_owned();
+                        match supervisor.shutdown_if_idle(busy) {
+                            Ok(true) => {
+                                overlay.notify_info(speech_lifecycle_notice("unloaded", &language), Some(Duration::from_secs(2)));
+                                events.push(notice_event(NoticeLevel::Info, "notice.modelUnloaded"));
+                            }
+                            Ok(false) => {}
+                            Err(error) => tracing::warn!(%error, "worker shutdown failed"),
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(recording) = active.take() {
+        tracing::warn!(
+            session_id = recording.session_id,
+            "recording cancelled: capture service shutting down"
+        );
+    }
+    overlay.hide();
+    if let Err(error) = shutdown_shared(
+        Arc::clone(&worker),
+        Arc::clone(&worker_pid),
+        Duration::from_millis(config.speech.worker_shutdown_grace_ms),
+    ) {
+        tracing::error!(%error, "inference-worker shutdown failed while capture service was stopping");
+    }
+    if state_file.exists() {
+        fs::remove_file(&state_file).ok();
+    }
+    tracing::info!(pid = std::process::id(), "capture service stopped");
+    Ok(())
+}
+
+#[derive(Debug)]
+struct DeviceRecovery {
+    attempt: usize,
+    next_attempt: Instant,
+    fallback_notice_sent: bool,
+}
+
+impl DeviceRecovery {
+    fn new(now: Instant) -> Self {
+        Self {
+            attempt: 0,
+            next_attempt: now + DEVICE_RETRY_DELAYS[0],
+            fallback_notice_sent: false,
+        }
+    }
+
+    fn retry(&mut self, now: Instant) -> bool {
+        self.attempt += 1;
+        let Some(delay) = DEVICE_RETRY_DELAYS.get(self.attempt) else {
+            return false;
+        };
+        self.next_attempt = now + *delay;
+        true
+    }
+}
+
+fn log_audio_selection(selection: &audio::InputDeviceSelection) {
+    if selection.using_default_fallback {
+        tracing::warn!(
+            device_id = %selection.id,
+            device = %selection.label,
+            "preferred microphone unavailable; using system default temporarily"
+        );
+    } else {
+        tracing::info!(
+            device_id = %selection.id,
+            device = %selection.label,
+            "microphone capture active"
+        );
+    }
+}
+
+fn refresh_audio_capture(
+    config: &AppConfig,
+    capture: &mut Option<audio::CaptureHandle>,
+    capture_gain: &mut f32,
+    frame_tx: &Sender<Vec<i16>>,
+    audio_event_tx: &Sender<AudioEvent>,
+    overlay: &OverlayHandle,
+    recording_active: &Arc<AtomicBool>,
+) -> Result<bool> {
+    let was_using_fallback = capture
+        .as_ref()
+        .is_some_and(|handle| handle.selection().using_default_fallback);
+    let desired = audio::resolve_input_device(&config.audio.preferred_device_id)?;
+    let device_changed = capture.as_ref().is_none_or(|handle| {
+        handle.selection().id != desired.id
+            || handle.selection().using_default_fallback != desired.using_default_fallback
+    });
+    let gain_changed = (*capture_gain - config.audio.gain).abs() > f32::EPSILON;
+    if !device_changed && !gain_changed {
+        return Ok(false);
+    }
+    let next_capture = audio::start_capture(
+        &config.audio.preferred_device_id,
+        config.audio.gain,
+        frame_tx.clone(),
+        Some(overlay.level_cell()),
+        Some(Arc::clone(recording_active)),
+        Some(audio_event_tx.clone()),
+    )?;
+    let preferred_restored = was_using_fallback && !next_capture.selection().using_default_fallback;
+    log_audio_selection(next_capture.selection());
+    *capture = Some(next_capture);
+    *capture_gain = config.audio.gain;
+    Ok(preferred_restored)
+}
+
+fn audio_error_is_current(active_generation: Option<u64>, error_generation: u64) -> bool {
+    active_generation == Some(error_generation)
+}
+
+fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellResponse {
+    let ControlContext {
+        config,
+        worker,
+        worker_pid,
+        background_tx,
+        downloads,
+        overlay,
+        recording_active,
+        capture,
+        capture_gain,
+        frame_tx,
+        audio_event_tx,
+        cancel_generation,
+        events,
+        active,
+        transcribing,
+        warming,
+        pending_model_tests,
+        cleaning,
+        delivering,
+        cleanup_history,
+        last_delivery,
+        shutting_down,
+    } = context;
+    match command {
+        ShellCommand::Ping => {
+            let mut response = ShellResponse::ok("pong");
+            response
+                .values
+                .insert("service_pid".into(), std::process::id().to_string());
+            if let Some(pid) = nonzero_pid(worker_pid) {
+                response.values.insert("worker_pid".into(), pid.to_string());
+            }
+            response
+        }
+        ShellCommand::StartRecording {
+            session_id,
+            target_window,
+        } => {
+            // Every start supersedes prior work, including a queued cancellation.
+            let generation = cancel_generation.fetch_add(1, Ordering::SeqCst) + 1;
+            let mut obsolete_shutdown = None;
+            let mut superseded = transcribing.iter().copied().collect::<HashSet<_>>();
+            superseded.extend(warming.iter().copied());
+            superseded.extend(cleaning.iter().copied());
+            superseded.extend(delivering.iter().copied());
+            if let Some(recording) = active.take() {
+                superseded.insert(recording.session_id);
+            }
+            let cancel_worker = !transcribing.is_empty() || !warming.is_empty();
+            if !superseded.is_empty() {
+                recording_active.store(false, Ordering::Relaxed);
+                transcribing.clear();
+                warming.clear();
+                cleaning.clear();
+                delivering.clear();
+                for old_session in superseded {
+                    events.push(terminal_notice_event_for_session(
+                        NoticeLevel::Info,
+                        "notice.superseded",
+                        old_session,
+                    ));
+                }
+                tracing::info!(
+                    generation,
+                    session_id,
+                    "new recording superseded older work"
+                );
+                if cancel_worker {
+                    let worker = Arc::clone(worker);
+                    let tracker = Arc::clone(worker_pid);
+                    let grace = Duration::from_millis(config.speech.worker_shutdown_grace_ms);
+                    let cancelled = Arc::clone(cancel_generation);
+                    obsolete_shutdown = Some(std::thread::spawn(move || {
+                        shutdown_shared_if_current(worker, tracker, grace, move || {
+                            cancelled.load(Ordering::SeqCst) == generation
+                        })
+                    }));
+                }
+            }
+            let language = if config.speech.selection_mode == ModelSelectionMode::FollowKeyboard
+                && (config.speech.has_remote_routes()
+                    || config.speech.assigned_models().next().is_some())
+            {
+                smalltalkai::capture::input_language::active_keyboard_language().ok()
+            } else {
+                None
+            };
+            let route_language = language.as_deref().unwrap_or("single");
+            let remote_stt = config.speech.provider_for(route_language)
+                == smalltalkai::config::SpeechProvider::RemoteOpenAiCompatible;
+            let (language, model_path) = if remote_stt {
+                let language = language.unwrap_or_else(|| "single".to_owned());
+                (
+                    language,
+                    config.model_dir_path().join("__remote_stt__.gguf"),
+                )
+            } else {
+                let runtime = smalltalkai::modules::stt_runtime(config, route_language);
+                let runtime_ready = smalltalkai::modules::runtime_ready(runtime.as_deref());
+                let model_ready = smalltalkai::modules::stt_model_ready(config, route_language);
+                if !runtime_ready || !model_ready {
+                    let message = smalltalkai::modules::requirement_message(
+                        "stt",
+                        runtime_ready,
+                        model_ready,
+                        language.as_deref(),
+                    );
+                    overlay.notify_warning(message, std::time::Duration::from_secs(6));
+                    return skipped_recording_response();
+                }
+                let resolved = match resolve_recording_model(config, || {
+                    language
+                        .clone()
+                        .context("Keyboard language unavailable; choose one model in Settings")
+                }) {
+                    Ok(resolved) => resolved,
+                    Err(error) => return ShellResponse::error(error.to_string()),
+                };
+                let Some((language, model_path)) = resolved else {
+                    overlay.hide();
+                    return skipped_recording_response();
+                };
+                (language, model_path)
+            };
+            let _ = smalltalkai::reader::pause_for_dictation();
+            let frozen_worker = match worker_config(config, &language, model_path) {
+                Ok(worker) => worker,
+                Err(error) => return ShellResponse::error(error.to_string()),
+            };
+            let preferred_restored = match refresh_audio_capture(
+                config,
+                capture,
+                capture_gain,
+                frame_tx,
+                audio_event_tx,
+                overlay,
+                recording_active,
+            ) {
+                Ok(preferred_restored) => preferred_restored,
+                Err(error) => {
+                    tracing::error!(%error, "microphone unavailable when recording was requested");
+                    overlay.notify_error(tr("notice.noMicrophone"), Duration::from_secs(3));
+                    events.push(notice_event(NoticeLevel::Error, "notice.noMicrophone"));
+                    return ShellResponse::error(error.to_string());
+                }
+            };
+            recording_active.store(true, Ordering::Relaxed);
+            *active = Some(Recording {
+                session_id,
+                worker_config: frozen_worker.clone(),
+                screen_context: Arc::new(ScreenCaptureSlot {
+                    value: Mutex::new(
+                        if config.cleanup.enabled && config.cleanup.screenshot.enabled {
+                            ScreenCaptureState::Pending
+                        } else {
+                            ScreenCaptureState::Complete(None)
+                        },
+                    ),
+                    ready: Condvar::new(),
+                }),
+                samples: Vec::new(),
+                started: Instant::now(),
+                stop_deadline: None,
+                stop_ready: false,
+                countdown_shown: None,
+            });
+            overlay.clear_notice();
+            overlay.start_recording(
+                target_window.unwrap_or_default() as isize,
+                smalltalkai::capture::overlay::RecordingIndicators {
+                    ai_cleanup: config.cleanup.enabled,
+                    screen_context: config.cleanup.enabled && config.cleanup.screenshot.enabled,
+                },
+            );
+            if config.cleanup.enabled && config.cleanup.screenshot.enabled {
+                let screenshot_config = config.cleanup.screenshot.clone();
+                let screen_context = Arc::clone(
+                    &active
+                        .as_ref()
+                        .expect("recording was just created")
+                        .screen_context,
+                );
+                overlay.notify_info(tr("notice.screenContext"), Some(Duration::from_secs(2)));
+                events.push(notice_event_for_session(
+                    NoticeLevel::Info,
+                    "notice.screenContext",
+                    session_id,
+                ));
+                std::thread::spawn(move || {
+                    match screen_context::capture(&screenshot_config, target_window) {
+                        Ok(Some(image)) => {
+                            screen_context.complete(Some(image));
+                            tracing::info!(session_id, "screen context captured in memory");
+                        }
+                        Ok(None) => {
+                            screen_context.complete(None);
+                            tracing::info!(session_id, "screen context skipped or denied");
+                        }
+                        Err(error) => {
+                            screen_context.complete(None);
+                            tracing::warn!(session_id, %error, "screen context unavailable; continuing text-only")
+                        }
+                    }
+                });
+            }
+            if preferred_restored {
+                overlay.notify_info(
+                    tr("notice.microphoneRestored"),
+                    Some(Duration::from_secs(3)),
+                );
+                events.push(notice_event(NoticeLevel::Info, "notice.microphoneRestored"));
+            }
+            let mut event = ServiceEvent::simple("recording_started");
+            event.session_id = Some(session_id);
+            event
+                .values
+                .insert("language".into(), language.as_str().into());
+            events.push(event);
+            if !remote_stt {
+                warming.insert(session_id);
+                let worker = Arc::clone(worker);
+                let cancel_generation = Arc::clone(cancel_generation);
+                let tx = background_tx.clone();
+                let route_language = frozen_worker.speech_language.clone();
+                let next_worker: Result<WorkerConfig> = Ok(frozen_worker);
+                std::thread::spawn(move || {
+                    if let Some(shutdown) = obsolete_shutdown {
+                        let result = shutdown
+                            .join()
+                            .map_err(|_| "worker shutdown thread panicked".to_owned())
+                            .and_then(|result| result.map_err(|error| error.to_string()));
+                        if let Err(error) = result {
+                            let _ = tx.send(BackgroundResult::ModelWarmed {
+                                generation,
+                                session_id: Some(session_id),
+                                language: route_language.clone(),
+                                result: Err(error),
+                            });
+                            return;
+                        }
+                    }
+                    if cancel_generation.load(Ordering::SeqCst) != generation {
+                        return;
+                    }
+                    let progress_tx = tx.clone();
+                    let result = worker
+                        .lock()
+                        .map_err(|_| "inference-worker mutex poisoned".to_owned())
+                        .and_then(|mut worker| {
+                            if cancel_generation.load(Ordering::SeqCst) != generation {
+                                return Ok(false);
+                            }
+                            worker
+                                .replace_config(next_worker.map_err(|error| error.to_string())?)
+                                .map_err(|error| error.to_string())?;
+                            worker
+                                .warm_up_with_progress(
+                                    || {
+                                        let _ = progress_tx.send(BackgroundResult::ModelLoading {
+                                            generation,
+                                            session_id,
+                                            language: route_language.clone(),
+                                        });
+                                    },
+                                    || {
+                                        let _ = progress_tx.send(BackgroundResult::ModelLoaded {
+                                            generation,
+                                            session_id: Some(session_id),
+                                            language: route_language.clone(),
+                                        });
+                                    },
+                                )
+                                .map_err(|error| error.to_string())
+                        });
+                    let _ = tx.send(BackgroundResult::ModelWarmed {
+                        generation,
+                        session_id: Some(session_id),
+                        language: route_language,
+                        result,
+                    });
+                });
+            }
+            tracing::info!(session_id, "recording start");
+            message_response(true, "capture.recordingStarted")
+        }
+        ShellCommand::TranscribeFile {
+            path,
+            language,
+            job_id,
+        } => {
+            if active.is_some()
+                || !transcribing.is_empty()
+                || !warming.is_empty()
+                || !cleaning.is_empty()
+                || !delivering.is_empty()
+            {
+                return ShellResponse::error(
+                    "capture service is busy; retry after dictation finishes",
+                );
+            }
+            if path.len() > 32_768 || path.contains('\0') {
+                return ShellResponse::error("invalid audio path");
+            }
+            let audio = PathBuf::from(path);
+            let metadata = match fs::metadata(&audio) {
+                Ok(metadata)
+                    if metadata.is_file()
+                        && metadata.len() > 0
+                        && metadata.len() <= 512 * 1024 * 1024 =>
+                {
+                    metadata
+                }
+                _ => {
+                    return ShellResponse::error(
+                        "audio must be a regular nonempty WAV file no larger than 512 MiB",
+                    )
+                }
+            };
+            let _ = metadata;
+            let language = match language {
+                Some(value) => {
+                    let normalized = match value.to_ascii_lowercase().as_str() {
+                        "english" => "en".to_owned(),
+                        "arabic" => "ar".to_owned(),
+                        _ => value.to_ascii_lowercase(),
+                    };
+                    if !smalltalkai::config::valid_language_id(&normalized) {
+                        return ShellResponse::error("invalid language identifier");
+                    }
+                    normalized
+                }
+                None if config.speech.has_remote_routes() => {
+                    if config.speech.selection_mode == ModelSelectionMode::SingleModel {
+                        "single".to_owned()
+                    } else {
+                        smalltalkai::capture::input_language::active_keyboard_language()
+                            .unwrap_or_else(|_| "single".to_owned())
+                    }
+                }
+                None => match resolve_recording_model(
+                    config,
+                    smalltalkai::capture::input_language::active_keyboard_language,
+                ) {
+                    Ok(Some((language, _))) => language,
+                    Ok(None) => {
+                        return ShellResponse::error("no model assigned for the current language")
+                    }
+                    Err(error) => return ShellResponse::error(error.to_string()),
+                },
+            };
+            if config.speech.provider_for(&language)
+                == smalltalkai::config::SpeechProvider::RemoteOpenAiCompatible
+            {
+                let remote_config = config.speech.remote_for(&language);
+                let language = if language == "single" {
+                    None
+                } else {
+                    Some(language)
+                };
+                let fallback_enabled = remote_config.fallback_to_local;
+                let fallback_config = config.clone();
+                let local_worker = Arc::clone(worker);
+                transcribing.insert(job_id);
+                let generation = cancel_generation.load(Ordering::SeqCst);
+                let cancelled = Arc::clone(cancel_generation);
+                let tx = background_tx.clone();
+                std::thread::spawn(move || {
+                    let result = if cancelled.load(Ordering::SeqCst) != generation {
+                        Err("transcription cancelled".to_owned())
+                    } else {
+                        let remote = smalltalkai::remote_stt::transcribe_wav(
+                            &remote_config,
+                            &audio,
+                            language.as_deref(),
+                        );
+                        smalltalkai::remote_stt::with_local_fallback(
+                            remote,
+                            fallback_enabled,
+                            || {
+                                anyhow::ensure!(
+                                    cancelled.load(Ordering::SeqCst) == generation,
+                                    "transcription cancelled"
+                                );
+                                let fallback_language =
+                                    smalltalkai::capture_cli::local_fallback_language(
+                                        &fallback_config,
+                                        language.as_deref(),
+                                    )?;
+                                let next = smalltalkai::capture_cli::local_fallback_worker_config(
+                                    &fallback_config,
+                                    &fallback_language,
+                                )?;
+                                let mut worker = local_worker.lock().map_err(|_| {
+                                    anyhow::anyhow!("inference worker mutex poisoned")
+                                })?;
+                                worker.replace_config(next)?;
+                                worker.transcribe_wav(job_id, &audio)
+                            },
+                        )
+                        .map_err(|error| error.to_string())
+                    };
+                    let _ = tx.send(BackgroundResult::CliTranscription {
+                        generation,
+                        job_id,
+                        result,
+                    });
+                });
+                return ShellResponse::ok("transcription accepted");
+            }
+            let Some(model_path) = config
+                .model_path_for(&language)
+                .filter(|path| path.is_file())
+            else {
+                return ShellResponse::error(format!(
+                    "no installed model assigned for language {language}"
+                ));
+            };
+            let runtime = smalltalkai::modules::stt_runtime(config, &language);
+            if !smalltalkai::modules::runtime_ready(runtime.as_deref()) {
+                return ShellResponse::error(format!(
+                    "STT runtime is not ready for language {language}"
+                ));
+            }
+            if language != "single" {
+                if let Some(filename) = model_path.file_name().and_then(|name| name.to_str()) {
+                    if let Some(model) = smalltalkai::models::catalog_for_config(config)
+                        .into_iter()
+                        .find(|model| model.file == filename)
+                    {
+                        let language_tag = format!("({language})");
+                        if !model.languages.is_empty()
+                            && !model
+                                .languages
+                                .iter()
+                                .any(|item| item.ends_with(&language_tag))
+                        {
+                            return ShellResponse::error(format!(
+                                "model {filename} does not support language {language}"
+                            ));
+                        }
+                    }
+                }
+            }
+            let next = match worker_config(config, &language, model_path) {
+                Ok(next) => next,
+                Err(error) => return ShellResponse::error(error.to_string()),
+            };
+            transcribing.insert(job_id);
+            let worker = Arc::clone(worker);
+            let generation = cancel_generation.load(Ordering::SeqCst);
+            let cancelled = Arc::clone(cancel_generation);
+            let tx = background_tx.clone();
+            std::thread::spawn(move || {
+                let result = (|| {
+                    let mut worker = worker
+                        .lock()
+                        .map_err(|_| "inference worker lock poisoned".to_owned())?;
+                    if cancelled.load(Ordering::SeqCst) != generation {
+                        return Err("transcription cancelled".to_owned());
+                    }
+                    worker
+                        .replace_config(next)
+                        .and_then(|_| worker.transcribe_wav(job_id, &audio))
+                        .map_err(|error| error.to_string())
+                })();
+                let _ = tx.send(BackgroundResult::CliTranscription {
+                    generation,
+                    job_id,
+                    result,
+                });
+            });
+            ShellResponse::ok("transcription accepted")
+        }
+        ShellCommand::StopRecording { session_id } => {
+            if let Some(recording) = active
+                .as_mut()
+                .filter(|recording| recording.session_id == session_id)
+            {
+                let was_scheduled = recording.stop_deadline.is_some();
+                let milliseconds = config.audio.stop_grace_ms;
+                if recording.schedule_stop(Instant::now(), milliseconds) {
+                    if !was_scheduled {
+                        overlay.notify_info(
+                            smalltalkai::localization::format(
+                                "notice.recordingCountdownMs",
+                                &[(
+                                    "milliseconds",
+                                    &countdown_millis(Duration::from_millis(milliseconds))
+                                        .to_string(),
+                                )],
+                            ),
+                            None,
+                        );
+                    }
+                    let remaining = recording
+                        .stop_deadline
+                        .map(|deadline| {
+                            countdown_millis(deadline.saturating_duration_since(Instant::now()))
+                        })
+                        .unwrap_or(0)
+                        .to_string();
+                    let args = [("milliseconds", remaining.as_str())];
+                    let mut response = ShellResponse::ok(smalltalkai::localization::format(
+                        "notice.recordingCountdownMs",
+                        &args,
+                    ));
+                    response
+                        .values
+                        .extend(smalltalkai::localization::message_values(
+                            "notice.recordingCountdownMs",
+                            &args,
+                        ));
+                    return response;
+                }
+            }
+            let Some(recording) = active.take() else {
+                return message_response(false, "capture.noRecording");
+            };
+            if recording.session_id != session_id {
+                *active = Some(recording);
+                return message_response(false, "capture.sessionMismatch");
+            }
+            recording_active.store(false, Ordering::Relaxed);
+            overlay.clear_notice();
+            let duration_ms = recording.started.elapsed().as_millis();
+            let frozen_worker = recording.worker_config;
+            let samples = recording.samples;
+            let screen_context = Arc::clone(&recording.screen_context);
+            tracing::info!(
+                session_id,
+                duration_ms,
+                samples = samples.len(),
+                "recording stop"
+            );
+            if samples.len() < MIN_RECORDING_SAMPLES {
+                overlay.notify_warning(tr("notice.recordingShort"), Duration::from_secs(2));
+                restore_overlay_work_state(overlay, false, !transcribing.is_empty());
+                events.push(terminal_notice_event_for_session(
+                    NoticeLevel::Warning,
+                    "notice.recordingShort",
+                    session_id,
+                ));
+                return message_response(true, "capture.recordingShort");
+            }
+            let remote_stt = config.speech.provider_for(&frozen_worker.speech_language)
+                == smalltalkai::config::SpeechProvider::RemoteOpenAiCompatible;
+            if !remote_stt && !frozen_worker.model_path.is_file() {
+                restore_overlay_work_state(overlay, false, !transcribing.is_empty());
+                events.push(terminal_notice_event_for_session(
+                    NoticeLevel::Info,
+                    "notice.dictationSkipped",
+                    session_id,
+                ));
+                return skipped_recording_response();
+            }
+            transcribing.insert(session_id);
+            overlay.set_primary(OverlayPrimary::Transcribing);
+            let mut event = ServiceEvent::simple("transcribing");
+            event.session_id = Some(session_id);
+            events.push(event);
+            if !remote_stt && nonzero_pid(worker_pid).is_none() {
+                overlay.notify_info(
+                    speech_lifecycle_notice("loading", &frozen_worker.speech_language),
+                    None,
+                );
+                let mut loading = ServiceEvent::simple("model_loading");
+                loading.session_id = Some(session_id);
+                events.push(loading);
+            }
+            let worker = Arc::clone(worker);
+            let generation = cancel_generation.load(Ordering::SeqCst);
+            let cancel_generation = Arc::clone(cancel_generation);
+            let tx = background_tx.clone();
+            let next_worker: Result<WorkerConfig> = Ok(frozen_worker);
+            let remote_config = config.speech.remote_for(
+                next_worker
+                    .as_ref()
+                    .map(|worker| worker.speech_language.as_str())
+                    .unwrap_or("single"),
+            );
+            let fallback_enabled = remote_config.fallback_to_local;
+            let fallback_config = config.clone();
+            let remote_language = if next_worker
+                .as_ref()
+                .is_ok_and(|worker| worker.speech_language != "single")
+            {
+                next_worker
+                    .as_ref()
+                    .ok()
+                    .map(|worker| worker.speech_language.clone())
+            } else {
+                None
+            };
+            std::thread::spawn(move || {
+                if cancel_generation.load(Ordering::SeqCst) != generation {
+                    return;
+                }
+                let result = if remote_stt {
+                    let remote = smalltalkai::remote_stt::transcribe_pcm(
+                        &remote_config,
+                        &samples,
+                        remote_language.as_deref(),
+                    );
+                    smalltalkai::remote_stt::with_local_fallback(remote, fallback_enabled, || {
+                        if cancel_generation.load(Ordering::SeqCst) != generation {
+                            anyhow::bail!("transcription superseded before local fallback");
+                        }
+                        let fallback_language = smalltalkai::capture_cli::local_fallback_language(
+                            &fallback_config,
+                            remote_language.as_deref(),
+                        )?;
+                        let next = smalltalkai::capture_cli::local_fallback_worker_config(
+                            &fallback_config,
+                            &fallback_language,
+                        )?;
+                        let mut worker = worker
+                            .lock()
+                            .map_err(|_| anyhow::anyhow!("inference worker mutex poisoned"))?;
+                        worker.replace_config(next)?;
+                        worker.transcribe_pcm(session_id, &samples)
+                    })
+                    .map_err(|error| error.to_string())
+                } else {
+                    next_worker
+                        .map_err(|error| error.to_string())
+                        .and_then(|next| {
+                            let mut worker = worker.lock().unwrap();
+                            if cancel_generation.load(Ordering::SeqCst) != generation {
+                                return Err("transcription superseded before inference".to_owned());
+                            }
+                            worker
+                                .replace_config(next)
+                                .and_then(|_| worker.transcribe_pcm(session_id, &samples))
+                                .map_err(|error| error.to_string())
+                        })
+                };
+                let screen_context = if result.is_ok() {
+                    screen_context.wait(Duration::from_secs(15))
+                } else {
+                    None
+                };
+                let _ = tx.send(BackgroundResult::Transcript {
+                    generation,
+                    session_id,
+                    result,
+                    screen_context,
+                });
+            });
+            message_response(true, "capture.transcriptionQueued")
+        }
+        ShellCommand::RememberDelivery { session_id, text } => {
+            if !last_delivery.remember(session_id, text, delivering.contains(&session_id)) {
+                return message_response(false, "capture.rememberFailed");
+            }
+            ShellResponse::ok("dictation remembered in memory")
+        }
+        ShellCommand::LastDelivery => {
+            let mut response = ShellResponse::ok("last dictation");
+            response.values.insert(
+                "remembered_at_ms".into(),
+                last_delivery.remembered_at_ms().to_string(),
+            );
+            if let Some(text) = last_delivery.text() {
+                response.values.insert("text".into(), text.to_owned());
+            }
+            response
+        }
+        ShellCommand::BeginDelivery { session_id } => {
+            let busy = active.is_some()
+                || !transcribing.is_empty()
+                || !cleaning.is_empty()
+                || !warming.is_empty();
+            if !begin_delivery_session(session_id, delivering, busy) {
+                return ShellResponse::error("delivery superseded by newer work");
+            }
+            overlay.clear_notice();
+            overlay.set_primary(OverlayPrimary::WaitingForKeys);
+            ShellResponse::ok("delivery started")
+        }
+        ShellCommand::DeliveryProgress { session_id, phase } => {
+            // A late delivery must never replace a newer recording's waveform.
+            if delivering.contains(&session_id)
+                && active.is_none()
+                && transcribing.is_empty()
+                && cleaning.is_empty()
+            {
+                overlay.set_primary(OverlayPrimary::for_delivery(phase));
+            }
+            ShellResponse::ok("delivery progress")
+        }
+        ShellCommand::DeliveryComplete { session_id } => {
+            let removed = delivering.remove(&session_id);
+            let pending =
+                !transcribing.is_empty() || !cleaning.is_empty() || !delivering.is_empty();
+            if removed {
+                restore_overlay_work_state(overlay, active.is_some(), pending);
+            }
+            tracing::info!(session_id, removed, "text delivery completed");
+            ShellResponse::ok("delivery completed")
+        }
+        ShellCommand::Cancel => {
+            // Do not start the optional reader just to stop it. Keep IPC and
+            // model cancellation off the capture service's control thread.
+            std::thread::spawn(|| {
+                if let Err(error) = smalltalkai::reader::action("stop", "") {
+                    tracing::debug!(%error, "could not stop reader during abort");
+                }
+            });
+            let generation = cancel_generation.fetch_add(1, Ordering::SeqCst) + 1;
+            let had_recording = active.take().is_some();
+            let had_transcribing = !transcribing.is_empty();
+            let had_warming = !warming.is_empty();
+            let had_cleaning = !cleaning.is_empty();
+            let had_delivering = !delivering.is_empty();
+            transcribing.clear();
+            warming.clear();
+            cleaning.clear();
+            delivering.clear();
+            recording_active.store(false, Ordering::Relaxed);
+            overlay.hide();
+            events.push(notice_event(NoticeLevel::Warning, "notice.cancelled"));
+            tracing::warn!(
+                generation,
+                had_recording,
+                had_transcribing,
+                had_warming,
+                had_cleaning,
+                had_delivering,
+                "global cancellation requested"
+            );
+            if had_transcribing || had_warming {
+                let worker = Arc::clone(worker);
+                let tracker = Arc::clone(worker_pid);
+                let tx = background_tx.clone();
+                let grace = Duration::from_millis(config.speech.worker_shutdown_grace_ms);
+                std::thread::spawn(move || {
+                    let result =
+                        shutdown_shared(worker, tracker, grace).map_err(|error| error.to_string());
+                    let _ = tx.send(BackgroundResult::ModelUnloaded { result });
+                });
+            }
+            message_response(true, "capture.cancelRequested")
+        }
+        ShellCommand::PollEvents { after_seq } => {
+            let mut response = ShellResponse::ok("events");
+            response.events = events.after(after_seq);
+            response
+                .values
+                .insert("latest_seq".into(), events.next_seq.to_string());
+            response
+        }
+        ShellCommand::ListCleanupHistory => {
+            if !config.diagnostics.log_transcripts {
+                cleanup_history.clear();
+            }
+            let mut response = ShellResponse::ok("cleanup history");
+            response.values.insert(
+                "history".into(),
+                serde_json::to_string(cleanup_history).unwrap_or_else(|_| "[]".into()),
+            );
+            response
+        }
+        ShellCommand::ClearCleanupHistory => {
+            cleanup_history.clear();
+            message_response(true, "capture.cleanupHistoryCleared")
+        }
+        ShellCommand::ReloadConfig => match AppConfig::load() {
+            Ok(next) => {
+                let audio_changed = next.audio != config.audio
+                    || next.diagnostics.log_level != config.diagnostics.log_level;
+                match idle_worker_config(&next) {
+                    Ok(next_worker) => {
+                        *config = next;
+                        if !config.diagnostics.log_transcripts {
+                            cleanup_history.clear();
+                        }
+                        let locale =
+                            smalltalkai::localization::set_language(config.general.ui_language);
+                        overlay.set_locale(locale);
+                        #[cfg(target_os = "linux")]
+                        overlay.set_theme(config.general.ui_theme);
+                        overlay.set_shortcuts(
+                            smalltalkai::shortcuts::current(config, locale),
+                            config.general.shortcut_reminders,
+                        );
+                        if audio_changed {
+                            let _ = audio_event_tx.send(AudioEvent::DeviceTopologyChanged);
+                            overlay.notify_info(
+                                tr("notice.microphoneSwitching"),
+                                Some(Duration::from_secs(2)),
+                            );
+                            events.push(notice_event(
+                                NoticeLevel::Info,
+                                "notice.microphoneSwitching",
+                            ));
+                        }
+                        let worker = Arc::clone(worker);
+                        let tx = background_tx.clone();
+                        if active.is_none() && transcribing.is_empty() && warming.is_empty() {
+                            std::thread::spawn(move || {
+                                let result = worker
+                                    .lock()
+                                    .map_err(|_| "inference-worker mutex poisoned".to_owned())
+                                    .and_then(|mut worker| {
+                                        worker
+                                            .update_runtime_config(next_worker)
+                                            .map_err(|error| error.to_string())
+                                    });
+                                let _ = tx.send(BackgroundResult::WorkerConfigReplaced { result });
+                            });
+                        }
+                        tracing::info!(
+                            audio_changed,
+                            "configuration reload accepted; worker changes queued"
+                        );
+                        let mut response = message_response(true, "capture.configReload");
+                        events.push(ServiceEvent::simple("configuration_reloaded"));
+                        response
+                            .values
+                            .insert("restart_audio_service".into(), "false".into());
+                        response
+                    }
+                    Err(error) => ShellResponse::error(error.to_string()),
+                }
+            }
+            Err(error) => ShellResponse::error(error.to_string()),
+        },
+        ShellCommand::UnloadModel => {
+            let worker = Arc::clone(worker);
+            let tracker = Arc::clone(worker_pid);
+            let tx = background_tx.clone();
+            let grace = Duration::from_millis(config.speech.worker_shutdown_grace_ms);
+            std::thread::spawn(move || {
+                let result =
+                    shutdown_shared(worker, tracker, grace).map_err(|error| error.to_string());
+                let _ = tx.send(BackgroundResult::ModelUnloaded { result });
+            });
+            message_response(true, "capture.unloadRequested")
+        }
+        ShellCommand::TestModel { language, filename } => {
+            let language_id = if language == smalltalkai::config::SpeechLanguage::Arabic {
+                "ar"
+            } else {
+                "en"
+            };
+            if config.speech.provider_for(language_id)
+                == smalltalkai::config::SpeechProvider::RemoteOpenAiCompatible
+            {
+                let audio = smalltalkai::models::smoke_audio_path_for(language);
+                if let Err(error) = smalltalkai::models::ensure_smoke_audio(&audio) {
+                    return ShellResponse::error(error.to_string());
+                }
+                let remote_config = config.speech.remote_for(language_id);
+                let language = language_id.to_owned();
+                let generation = cancel_generation.load(Ordering::SeqCst);
+                let cancelled = Arc::clone(cancel_generation);
+                let tx = background_tx.clone();
+                *pending_model_tests += 1;
+                std::thread::spawn(move || {
+                    let result = if cancelled.load(Ordering::SeqCst) != generation {
+                        Err("remote STT test cancelled".to_owned())
+                    } else {
+                        smalltalkai::remote_stt::transcribe_wav(
+                            &remote_config,
+                            &audio,
+                            Some(&language),
+                        )
+                        .map_err(|error| error.to_string())
+                    };
+                    let _ = tx.send(BackgroundResult::ModelTested { generation, result });
+                });
+                return message_response(true, "capture.modelTestQueued");
+            }
+            let filename = filename.or_else(|| {
+                config
+                    .speech
+                    .model_filename_for(language_id)
+                    .map(str::to_owned)
+            });
+            let Some(filename) = filename else {
+                return message_response(false, "error.noModel");
+            };
+            if let Err(error) = smalltalkai::config::validate_model_filename(&filename) {
+                return ShellResponse::error(error.to_string());
+            }
+            let model_path = config.model_dir_path().join(&filename);
+            if !model_path.is_file() {
+                return message_response(false, "error.modelMissing");
+            }
+            let audio = smalltalkai::models::smoke_audio_path_for(language);
+            if let Err(error) = smalltalkai::models::ensure_smoke_audio(&audio) {
+                return ShellResponse::error(error.to_string());
+            }
+            if nonzero_pid(worker_pid).is_none() {
+                overlay.notify_info(speech_lifecycle_notice("loading", language_id), None);
+                events.push(ServiceEvent::simple("model_loading"));
+            }
+            let worker = Arc::clone(worker);
+            let generation = cancel_generation.load(Ordering::SeqCst);
+            let cancel_generation = Arc::clone(cancel_generation);
+            let tx = background_tx.clone();
+            let next_worker = worker_config(config, language_id, model_path);
+            *pending_model_tests += 1;
+            std::thread::spawn(move || {
+                if cancel_generation.load(Ordering::SeqCst) != generation {
+                    let _ = tx.send(BackgroundResult::ModelTested {
+                        generation,
+                        result: Err("model test cancelled".into()),
+                    });
+                    return;
+                }
+                let result = next_worker
+                    .map_err(|error| error.to_string())
+                    .and_then(|next| {
+                        let mut worker = worker.lock().unwrap();
+                        if cancel_generation.load(Ordering::SeqCst) != generation {
+                            return Err("model test cancelled".to_owned());
+                        }
+                        worker
+                            .replace_config(next)
+                            .and_then(|_| worker.transcribe_wav(0, &audio))
+                            .map_err(|error| error.to_string())
+                    });
+                let _ = tx.send(BackgroundResult::ModelTested { generation, result });
+            });
+            message_response(true, "capture.modelTestQueued")
+        }
+        ShellCommand::DownloadModel { filename } => {
+            if let Err(error) = smalltalkai::config::validate_model_filename(&filename) {
+                return ShellResponse::error(error.to_string());
+            }
+            if downloads.jobs.contains_key(&filename) {
+                return message_response(true, "capture.downloadQueued");
+            }
+            downloads.jobs.insert(
+                filename.clone(),
+                DownloadJob {
+                    config: config.clone(),
+                    cancellation: Arc::new(smalltalkai::models::DownloadCancellation::default()),
+                    running: false,
+                },
+            );
+            downloads.queue.push_back(filename.clone());
+            let mut event = ServiceEvent::simple("model_download_queued");
+            event.values.insert("filename".into(), filename);
+            events.push(event);
+            downloads.start_queued(background_tx);
+            message_response(true, "capture.downloadQueued")
+        }
+        ShellCommand::CancelModelDownload { filename } => {
+            let Some(job) = downloads.jobs.get(&filename) else {
+                return ShellResponse::error("download is not active");
+            };
+            if !job.cancellation.cancel() {
+                return ShellResponse::error("download already finished");
+            }
+            if !job.running {
+                downloads.jobs.remove(&filename);
+                downloads.queue.retain(|queued| queued != &filename);
+                let mut event = ServiceEvent::simple("model_download_cancelled");
+                event.values.insert("filename".into(), filename);
+                events.push(event);
+            }
+            ShellResponse::ok("download cancellation requested")
+        }
+        ShellCommand::RemoveModel { filename } => {
+            if downloads.jobs.contains_key(&filename) {
+                return ShellResponse::error("Wait for the download to finish");
+            }
+            match smalltalkai::models::remove_model(&filename) {
+                Ok(next) => {
+                    *config = next;
+                    events.push(ServiceEvent::simple("configuration_reloaded"));
+                    message_response(true, "capture.modelRemoved")
+                }
+                Err(error) => ShellResponse::error(error.to_string()),
+            }
+        }
+        ShellCommand::ListInputs => match audio::list_input_devices() {
+            Ok(devices) => {
+                let mut response = ShellResponse::ok("microphone devices");
+                for (index, device) in devices.into_iter().enumerate() {
+                    response
+                        .values
+                        .insert(format!("input.{index:03}.label"), device.label);
+                    response
+                        .values
+                        .insert(format!("input.{index:03}.id"), device.id);
+                }
+                response
+            }
+            Err(error) => ShellResponse::error(error.to_string()),
+        },
+        ShellCommand::ListModels => {
+            let mut response = ShellResponse::ok("cached models");
+            response.values.insert(
+                "recommended_model".into(),
+                smalltalkai::models::recommended_model_for_device(&config.speech.inference_device)
+                    .into(),
+            );
+            for (index, model) in smalltalkai::models::installed_models(config)
+                .into_iter()
+                .enumerate()
+            {
+                response.values.insert(
+                    format!("installed_model.{index:03}"),
+                    format!(
+                        "{}|{}|{}|{}",
+                        model.file, model.size_mb, model.recommended, model.quant
+                    ),
+                );
+            }
+            for (index, model) in smalltalkai::models::downloadable_models(config)
+                .into_iter()
+                .enumerate()
+            {
+                response.values.insert(
+                    format!("catalog_model.{index:03}"),
+                    format!(
+                        "{}|{}|{}|{}",
+                        model.file, model.size_mb, model.recommended, model.quant
+                    ),
+                );
+            }
+            response
+        }
+        ShellCommand::RefreshModels => match smalltalkai::models::refresh_catalog_cache() {
+            Ok(files) => {
+                let mut response = message_response(true, "capture.catalogRefreshed");
+                response
+                    .values
+                    .insert("count".into(), files.len().to_string());
+                response
+            }
+            Err(error) => ShellResponse::error(error.to_string()),
+        },
+        ShellCommand::RefreshShortcuts | ShellCommand::ShowShortcuts => {
+            let locale = smalltalkai::localization::resolve(config.general.ui_language);
+            let text = smalltalkai::shortcuts::current(config, locale);
+            overlay.set_shortcuts(text.clone(), config.general.shortcut_reminders);
+            if matches!(command, ShellCommand::ShowShortcuts) {
+                let notice = if text.is_empty() {
+                    tr("shortcut.empty")
+                } else {
+                    format!("{}\n{text}", tr("shortcut.title"))
+                };
+                overlay.notify_info(notice, Some(Duration::from_secs(8)));
+            }
+            ShellResponse::ok("shortcuts refreshed")
+        }
+        ShellCommand::ShowNotice { level, text } => {
+            match level {
+                NoticeLevel::Info => overlay.notify_info(&text, Some(Duration::from_secs(2))),
+                NoticeLevel::Warning => overlay.notify_warning(&text, Duration::from_secs(3)),
+                NoticeLevel::Error => overlay.notify_error(&text, Duration::from_secs(3)),
+            }
+            message_response(true, "capture.noticeShown")
+        }
+        ShellCommand::Shutdown => {
+            recording_active.store(false, Ordering::Relaxed);
+            *shutting_down = true;
+            message_response(true, "capture.shutdown")
+        }
+    }
+}
+
+fn handle_background(result: BackgroundResult, context: &mut BackgroundContext<'_>) {
+    match result {
+        BackgroundResult::CliTranscription {
+            generation,
+            job_id,
+            result,
+        } => {
+            let cancelled = context.cancel_generation.load(Ordering::SeqCst) != generation;
+            if !cancelled {
+                context.transcribing.remove(&job_id);
+            }
+            let mut event = ServiceEvent::simple("cli_transcription");
+            event.values.insert("job_id".into(), job_id.to_string());
+            match if cancelled {
+                Err("transcription cancelled".to_owned())
+            } else {
+                result
+            } {
+                Ok(text) => {
+                    event.values.insert("text".into(), text);
+                }
+                Err(error) => {
+                    event.values.insert("error".into(), error);
+                }
+            }
+            context.events.push(event);
+        }
+        BackgroundResult::Transcript {
+            generation,
+            session_id,
+            result,
+            screen_context,
+        } => {
+            if context.cancel_generation.load(Ordering::SeqCst) != generation {
+                tracing::info!(
+                    session_id,
+                    generation,
+                    "discarding stale transcript after cancellation"
+                );
+                return;
+            }
+            context.transcribing.remove(&session_id);
+            let has_pending_work = !context.transcribing.is_empty()
+                || !context.cleaning.is_empty()
+                || !context.delivering.is_empty();
+            match result {
+                Ok(text) if text.trim().is_empty() => {
+                    context
+                        .overlay
+                        .notify_warning(tr("notice.noSpeech"), Duration::from_secs(2));
+                    restore_overlay_work_state(
+                        context.overlay,
+                        context.active_recording,
+                        has_pending_work,
+                    );
+                    context.events.push(terminal_notice_event_for_session(
+                        NoticeLevel::Warning,
+                        "notice.noSpeech",
+                        session_id,
+                    ));
+                }
+                Ok(text) => {
+                    if context.log_transcripts {
+                        tracing::info!(target: "smalltalkai_privacy", session_id, privacy_opt_in = true, transcript = %text, "transcript content logging enabled by user");
+                    }
+                    if context.cleanup_config.enabled {
+                        context.cleaning.insert(session_id);
+                        if !context.active_recording {
+                            context.overlay.set_primary(OverlayPrimary::Cleaning);
+                        }
+                        let heard = truncate_notice(&text, 72);
+                        context.overlay.notify_info(
+                            smalltalkai::localization::format("notice.heard", &[("text", &heard)]),
+                            None,
+                        );
+                        let mut event = ServiceEvent::simple("cleanup_started");
+                        event.session_id = Some(session_id);
+                        context.events.push(event);
+                        let tx = context.background_tx.clone();
+                        let config = context.cleanup_config.clone();
+                        let raw = text;
+                        std::thread::spawn(move || {
+                            let result =
+                                cleanup::clean_transcript(&config, &raw, screen_context.as_ref())
+                                    .map_err(|error| error.to_string());
+                            let _ = tx.send(BackgroundResult::CleanupFinished {
+                                generation,
+                                session_id,
+                                raw,
+                                result,
+                            });
+                        });
+                    } else {
+                        context.delivering.insert(session_id);
+                        restore_overlay_after_success(
+                            context.overlay,
+                            context.active_recording,
+                            true,
+                            context.delivery_mode,
+                        );
+                        push_transcript_event(context.events, session_id, text);
+                    }
+                }
+                Err(error) => {
+                    tracing::error!(session_id, %error, "speech engine failed");
+                    context
+                        .overlay
+                        .notify_error(tr("notice.engineFailed"), Duration::from_secs(3));
+                    restore_overlay_work_state(
+                        context.overlay,
+                        context.active_recording,
+                        has_pending_work,
+                    );
+                    context.events.push(terminal_notice_event_for_session(
+                        NoticeLevel::Error,
+                        "notice.engineFailed",
+                        session_id,
+                    ));
+                }
+            }
+        }
+        BackgroundResult::CleanupFinished {
+            generation,
+            session_id,
+            raw,
+            result,
+        } => {
+            if context.cancel_generation.load(Ordering::SeqCst) != generation {
+                tracing::info!(
+                    session_id,
+                    generation,
+                    "discarding stale AI cleanup after cancellation"
+                );
+                return;
+            }
+            context.cleaning.remove(&session_id);
+            match result {
+                Ok(cleaned) => {
+                    tracing::info!(target: "smalltalkai_privacy", session_id, raw_chars = raw.chars().count(), cleaned_chars = cleaned.text.chars().count(), latency_ms = cleaned.latency_ms, provider = %cleaned.provider, model = %cleaned.model, "AI cleanup complete");
+                    if context.log_transcripts {
+                        context.cleanup_history.push_front(CleanupHistoryEntry {
+                            raw,
+                            cleaned: cleaned.text.clone(),
+                            provider: cleaned.provider,
+                            model: cleaned.model,
+                            latency_ms: cleaned.latency_ms,
+                            outcome: "cleaned".into(),
+                        });
+                    } else {
+                        context.cleanup_history.clear();
+                    }
+                    trim_cleanup_history(context.cleanup_history);
+                    context.delivering.insert(session_id);
+                    restore_overlay_after_success(
+                        context.overlay,
+                        context.active_recording,
+                        true,
+                        context.delivery_mode,
+                    );
+                    push_transcript_event(context.events, session_id, cleaned.text);
+                }
+                Err(error) => {
+                    tracing::warn!(session_id, %error, "AI cleanup failed; delivering original transcript");
+                    let failure_notice =
+                        cleanup_failure_notice(&error, context.cleanup_config.timeout_ms);
+                    if context.log_transcripts {
+                        context.cleanup_history.push_front(CleanupHistoryEntry {
+                            raw: raw.clone(),
+                            cleaned: raw.clone(),
+                            provider: match context.cleanup_config.provider {
+                                smalltalkai::config::CleanupProvider::OpenAiCompatible => {
+                                    "openai_compatible"
+                                }
+                                smalltalkai::config::CleanupProvider::ChatGpt => "chatgpt",
+                            }
+                            .into(),
+                            model: match context.cleanup_config.provider {
+                                smalltalkai::config::CleanupProvider::OpenAiCompatible => {
+                                    context.cleanup_config.openai_compatible.model.clone()
+                                }
+                                smalltalkai::config::CleanupProvider::ChatGpt => {
+                                    context.cleanup_config.chatgpt.model.clone()
+                                }
+                            },
+                            latency_ms: 0,
+                            outcome: "original_used".into(),
+                        });
+                    } else {
+                        context.cleanup_history.clear();
+                    }
+                    trim_cleanup_history(context.cleanup_history);
+                    context
+                        .overlay
+                        .notify_warning(&failure_notice, Duration::from_secs(5));
+                    let id = cleanup_failure_id(&error);
+                    let args = [(
+                        "seconds",
+                        timeout_ms_seconds(context.cleanup_config.timeout_ms),
+                    )];
+                    let mut event = notice_event_for_session(NoticeLevel::Warning, id, session_id);
+                    event.text = failure_notice;
+                    event
+                        .values
+                        .extend(smalltalkai::localization::message_values(
+                            id,
+                            &[(args[0].0, &args[0].1)],
+                        ));
+                    context.events.push(event);
+                    context.delivering.insert(session_id);
+                    restore_overlay_work_state(context.overlay, context.active_recording, true);
+                    push_transcript_event(context.events, session_id, raw);
+                }
+            }
+        }
+        BackgroundResult::ModelUnloaded { result } => match result {
+            Ok(()) => {
+                context
+                    .overlay
+                    .notify_info(tr("notice.modelUnloaded"), Some(Duration::from_secs(2)));
+            }
+            Err(error) => tracing::warn!(%error, "worker shutdown failed"),
+        },
+        BackgroundResult::WorkerConfigReplaced { result } => match result {
+            Ok(()) => tracing::info!("disposable inference-worker configuration applied"),
+            Err(error) => {
+                tracing::error!(%error, "applying inference-worker configuration failed");
+                context
+                    .events
+                    .push(notice_event(NoticeLevel::Error, "notice.workerFailed"));
+            }
+        },
+        BackgroundResult::ModelLoading {
+            generation,
+            session_id,
+            language,
+        } => {
+            if context.cancel_generation.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            context
+                .overlay
+                .notify_info(speech_lifecycle_notice("loading", &language), None);
+            let mut loading = ServiceEvent::simple("model_loading");
+            loading.session_id = Some(session_id);
+            context.events.push(loading);
+        }
+        BackgroundResult::ModelLoaded {
+            generation,
+            session_id,
+            language,
+        } => {
+            if context.cancel_generation.load(Ordering::SeqCst) != generation {
+                tracing::info!(
+                    generation,
+                    "discarding stale model-loaded event after cancellation"
+                );
+                return;
+            }
+            tracing::info!("speech model loaded; priming inference engine");
+            context
+                .overlay
+                .notify_info(speech_lifecycle_notice("warming", &language), None);
+            let mut loaded = ServiceEvent::simple("model_loaded");
+            loaded.session_id = session_id;
+            context.events.push(loaded);
+        }
+        BackgroundResult::ModelWarmed {
+            generation,
+            session_id,
+            language,
+            result,
+        } => {
+            if let Some(session_id) = session_id {
+                context.warming.remove(&session_id);
+            }
+            if context.cancel_generation.load(Ordering::SeqCst) != generation {
+                tracing::info!(
+                    generation,
+                    "discarding stale model-warmed event after cancellation"
+                );
+                return;
+            }
+            match result {
+                Ok(true) => {
+                    tracing::info!("speech model warmed while recording");
+                    context.overlay.notify_info(
+                        speech_lifecycle_notice("ready", &language),
+                        Some(Duration::from_secs(2)),
+                    );
+                    let mut ready = ServiceEvent::simple("model_ready");
+                    ready.session_id = session_id;
+                    context.events.push(ready);
+                }
+                Ok(false) => {
+                    tracing::debug!("reusing ready speech model; no warm-up needed");
+                    let mut reused = ServiceEvent::simple("model_reused");
+                    reused.session_id = session_id;
+                    context.events.push(reused);
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "speech-model warm-up failed; transcription will retry");
+                    context
+                        .overlay
+                        .notify_warning(tr("notice.modelRetry"), Duration::from_secs(3));
+                }
+            }
+        }
+        BackgroundResult::ModelTested { generation, result } => {
+            *context.pending_model_tests = context.pending_model_tests.saturating_sub(1);
+            if context.cancel_generation.load(Ordering::SeqCst) != generation {
+                tracing::info!(
+                    generation,
+                    "discarding stale model-test event after cancellation"
+                );
+                return;
+            }
+            match result {
+                Ok(text) => {
+                    tracing::info!(target: "smalltalkai_privacy", model_test = true, transcript_chars = text.chars().count(), "model-test transcript ready");
+                    if context.log_transcripts {
+                        tracing::info!(target: "smalltalkai_privacy", model_test = true, privacy_opt_in = true, transcript = %text, "model-test transcript content logging enabled by user");
+                    }
+                    context
+                        .overlay
+                        .notify_info(tr("notice.testPassed"), Some(Duration::from_secs(2)));
+                    let mut event = ServiceEvent::simple("model_test_complete");
+                    event.text = smalltalkai::localization::format(
+                        "notice.testResult",
+                        &[("count", &text.chars().count().to_string())],
+                    );
+                    event
+                        .values
+                        .extend(smalltalkai::localization::message_values(
+                            "notice.testResult",
+                            &[("count", &text.chars().count().to_string())],
+                        ));
+                    context.events.push(event);
+                }
+                Err(error) => {
+                    tracing::error!(%error, "model test failed");
+                    context
+                        .overlay
+                        .notify_error(tr("notice.testFailed"), Duration::from_secs(3));
+                    context
+                        .events
+                        .push(notice_event(NoticeLevel::Error, "notice.testFailed"));
+                }
+            }
+        }
+        BackgroundResult::DownloadProgress {
+            filename,
+            downloaded,
+            total,
+        } => {
+            let mut event = ServiceEvent::simple("model_download_progress");
+            event.values.insert("filename".into(), filename);
+            event
+                .values
+                .insert("downloaded".into(), downloaded.to_string());
+            if let Some(total) = total {
+                event.values.insert("total".into(), total.to_string());
+            }
+            context.events.push(event);
+        }
+        BackgroundResult::DownloadFinished {
+            filename,
+            result,
+            cancelled,
+        } => {
+            context.downloads.jobs.remove(&filename);
+            context.downloads.running = context.downloads.running.saturating_sub(1);
+            context.downloads.start_queued(context.background_tx);
+            if cancelled {
+                let mut event = ServiceEvent::simple("model_download_cancelled");
+                event.values.insert("filename".into(), filename);
+                context.events.push(event);
+            } else {
+                match result {
+                    Ok(path) => {
+                        match smalltalkai::modules::persist_auto_select(&filename) {
+                            Ok(changes) if changes.stt => *context.reload_config = true,
+                            Ok(_) => {}
+                            Err(error) => {
+                                tracing::warn!(%error, "automatic selection after download failed")
+                            }
+                        }
+                        let mut event = ServiceEvent::simple("model_download_complete");
+                        event.values.insert("filename".into(), filename);
+                        event
+                            .values
+                            .insert("path".into(), path.display().to_string());
+                        context.events.push(event);
+                    }
+                    Err(error) => {
+                        tracing::error!(%error, "model download failed");
+                        let mut event = notice_event(NoticeLevel::Error, "notice.downloadFailed");
+                        event.kind = "model_download_failed".into();
+                        event.values.insert("filename".into(), filename);
+                        context.events.push(event);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn cleanup_failure_notice(error: &str, timeout_ms: u64) -> String {
+    smalltalkai::localization::format(
+        cleanup_failure_id(error),
+        &[("seconds", &timeout_ms_seconds(timeout_ms))],
+    )
+}
+fn timeout_ms_seconds(timeout_ms: u64) -> String {
+    timeout_ms.div_ceil(1_000).to_string()
+}
+fn cleanup_failure_id(error: &str) -> &'static str {
+    let detail = error.to_ascii_lowercase();
+    if detail.contains("timed out") || detail.contains("timeout") {
+        "notice.cleanupTimeout"
+    } else if detail.contains("http 401")
+        || detail.contains("http 403")
+        || detail.contains("authentication")
+    {
+        "notice.cleanupAuth"
+    } else if detail.contains("http 429") || detail.contains("rate limit") {
+        "notice.cleanupRate"
+    } else if detail.contains("token limit") || detail.contains("too many tokens") {
+        "notice.cleanupTokens"
+    } else if detail.contains("image") || detail.contains("vision") {
+        "notice.cleanupImage"
+    } else if detail.contains("sending cleanup request")
+        || detail.contains("connect")
+        || detail.contains("dns")
+    {
+        "notice.cleanupConnect"
+    } else if detail.contains("unreadable")
+        || detail.contains("decoding")
+        || detail.contains("response text")
+    {
+        "notice.cleanupResponse"
+    } else if detail.contains("empty text") {
+        "notice.cleanupEmpty"
+    } else {
+        "notice.cleanupFailed"
+    }
+}
+fn restore_overlay_after_success(
+    overlay: &OverlayHandle,
+    active_recording: bool,
+    has_pending_transcript: bool,
+    delivery_mode: smalltalkai::config::TextDeliveryMode,
+) {
+    if active_recording {
+        overlay.set_primary(OverlayPrimary::Recording);
+    } else if has_pending_transcript {
+        overlay.set_primary(
+            if delivery_mode == smalltalkai::config::TextDeliveryMode::Type {
+                OverlayPrimary::Typing
+            } else {
+                OverlayPrimary::Pasting
+            },
+        );
+    } else {
+        overlay.hide();
+    }
+}
+
+fn overlay_primary_for_work(
+    active_recording: bool,
+    has_pending_transcript: bool,
+) -> OverlayPrimary {
+    if active_recording {
+        OverlayPrimary::Recording
+    } else if has_pending_transcript {
+        OverlayPrimary::Transcribing
+    } else {
+        OverlayPrimary::Hidden
+    }
+}
+
+fn begin_delivery_session(session_id: u64, delivering: &mut HashSet<u64>, busy: bool) -> bool {
+    if busy || delivering.iter().any(|current| *current > session_id) {
+        return false;
+    }
+    delivering.clear();
+    delivering.insert(session_id);
+    true
+}
+
+fn restore_overlay_work_state(
+    overlay: &OverlayHandle,
+    active_recording: bool,
+    has_pending_transcript: bool,
+) {
+    overlay.set_primary(overlay_primary_for_work(
+        active_recording,
+        has_pending_transcript,
+    ));
+}
+
+fn push_transcript_event(events: &mut EventBuffer, session_id: u64, text: String) {
+    let mut event = ServiceEvent::simple("transcript");
+    event.session_id = Some(session_id);
+    event.text = text;
+    tracing::info!(target: "smalltalkai_privacy",
+        session_id,
+        transcript_chars = event.text.chars().count(),
+        "transcript ready"
+    );
+    events.push(event);
+}
+
+fn speech_lifecycle_notice(state: &str, language: &str) -> String {
+    let locale = smalltalkai::localization::current();
+    let primary = language.split(['-', '_']).next().unwrap_or("");
+    let language_key = format!("reader.language.{primary}");
+    let label = if smalltalkai::localization::contains(&language_key) {
+        smalltalkai::localization::translate(locale, &language_key, &[])
+    } else {
+        String::new()
+    };
+    smalltalkai::localization::translate(
+        locale,
+        &format!("notice.speech.{state}"),
+        &[("language", &label)],
+    )
+    .split_whitespace()
+    .collect::<Vec<_>>()
+    .join(" ")
+    .trim_start_matches('·')
+    .trim()
+    .to_owned()
+}
+
+fn truncate_notice(text: &str, limit: usize) -> String {
+    let mut value = text.chars().take(limit).collect::<String>();
+    if text.chars().count() > limit {
+        value.push('…');
+    }
+    value
+}
+
+fn trim_cleanup_history(history: &mut VecDeque<CleanupHistoryEntry>) {
+    while history.len() > 5 {
+        history.pop_back();
+    }
+}
+
+fn notice_event(level: NoticeLevel, text: &str) -> ServiceEvent {
+    let mut event = ServiceEvent::simple("notice");
+    event.level = level;
+    if smalltalkai::localization::contains(text) {
+        event.text = tr(text);
+        event
+            .values
+            .extend(smalltalkai::localization::message_values(text, &[]));
+    } else {
+        event.text = text.into();
+    }
+    event
+}
+fn notice_event_for_session(level: NoticeLevel, text: &str, session_id: u64) -> ServiceEvent {
+    let mut event = notice_event(level, text);
+    event.session_id = Some(session_id);
+    event
+}
+
+fn terminal_notice_event_for_session(
+    level: NoticeLevel,
+    text: &str,
+    session_id: u64,
+) -> ServiceEvent {
+    let mut event = notice_event_for_session(level, text, session_id);
+    event.values.insert("terminal".into(), "true".into());
+    event
+}
+fn skipped_recording_response() -> ShellResponse {
+    let mut response = message_response(true, "capture.skipped");
+    response.values.insert("recording".into(), "skipped".into());
+    response
+}
+
+fn resolve_recording_model(
+    config: &AppConfig,
+    keyboard: impl FnOnce() -> Result<String>,
+) -> Result<Option<(String, PathBuf)>> {
+    let language = match config.speech.selection_mode {
+        ModelSelectionMode::SingleModel => "single".to_owned(),
+        ModelSelectionMode::FollowKeyboard => {
+            if !config.speech.language_models.values().any(Option::is_some) {
+                return Ok(None);
+            }
+            keyboard()?
+        }
+    };
+    Ok(config
+        .model_path_for(&language)
+        .filter(|path| path.is_file())
+        .map(|path| (language, path)))
+}
+
+fn idle_worker_config(config: &AppConfig) -> Result<WorkerConfig> {
+    let filename = config
+        .speech
+        .assigned_models()
+        .next()
+        .unwrap_or("__unassigned.gguf");
+    worker_config(config, "idle", config.model_dir_path().join(filename))
+}
+
+fn worker_config(config: &AppConfig, language: &str, model_path: PathBuf) -> Result<WorkerConfig> {
+    Ok(WorkerConfig {
+        executable: sibling_executable("smalltalkai-infer")?,
+        runtime_dir: smalltalkai::modules::stt_runtime(config, language)
+            .unwrap_or_else(|| config.parakeet_runtime_dir_path()),
+        model_path,
+        log_path: AppConfig::infer_log_path(),
+        log_level: config.diagnostics.log_level.clone(),
+        inference_device: if config.speech.selection_mode == ModelSelectionMode::FollowKeyboard {
+            config
+                .speech
+                .language_devices
+                .get(language)
+                .copied()
+                .unwrap_or(config.speech.inference_device)
+        } else {
+            config.speech.inference_device
+        },
+        speech_language: language.into(),
+        idle_timeout: Duration::from_secs(config.speech.idle_worker_timeout_secs),
+        shutdown_grace: Duration::from_millis(config.speech.worker_shutdown_grace_ms),
+    })
+}
+fn sibling_executable(stem: &str) -> Result<PathBuf> {
+    let current = std::env::current_exe().context("resolving current executable")?;
+    let parent = current
+        .parent()
+        .context("capture executable has no parent directory")?;
+    Ok(parent.join(format!("{stem}{}", std::env::consts::EXE_SUFFIX)))
+}
+
+fn message_response(ok: bool, id: &str) -> ShellResponse {
+    let mut response = if ok {
+        ShellResponse::ok(tr(id))
+    } else {
+        ShellResponse::error(tr(id))
+    };
+    response
+        .values
+        .extend(smalltalkai::localization::message_values(id, &[]));
+    response
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_recording(session_id: u64) -> Recording {
+        Recording {
+            session_id,
+            worker_config: idle_worker_config(&AppConfig::default()).unwrap(),
+            screen_context: Arc::new(ScreenCaptureSlot {
+                value: Mutex::new(ScreenCaptureState::Complete(None)),
+                ready: Condvar::new(),
+            }),
+            samples: vec![1],
+            started: Instant::now(),
+            stop_deadline: None,
+            stop_ready: false,
+            countdown_shown: None,
+        }
+    }
+
+    #[test]
+    fn stop_grace_keeps_final_samples_and_duplicate_stop_does_not_extend_deadline() {
+        let now = Instant::now();
+        let mut recording = test_recording(1);
+        assert!(recording.schedule_stop(now, 2000));
+        recording.samples.extend_from_slice(&[2, 3]);
+        assert!(recording.schedule_stop(now + Duration::from_secs(1), 2000));
+        assert_eq!(recording.stop_deadline, Some(now + Duration::from_secs(2)));
+        assert_eq!(recording.samples, vec![1, 2, 3]);
+        recording.stop_ready = true;
+        assert!(!recording.schedule_stop(now + Duration::from_secs(2), 2000));
+    }
+
+    #[test]
+    fn cancelled_or_replaced_recording_does_not_transfer_stop_deadline() {
+        let now = Instant::now();
+        let mut active = Some(test_recording(1));
+        assert!(active.as_mut().unwrap().schedule_stop(now, 2000));
+        let cancelled = active.take().unwrap();
+        assert_eq!(cancelled.session_id, 1);
+        active = Some(test_recording(2));
+        assert!(active.as_ref().unwrap().stop_deadline.is_none());
+        assert!(!active.as_mut().unwrap().schedule_stop(now, 0));
+    }
+
+    #[test]
+    fn queued_audio_is_drained_at_deadline_and_only_finishes_once() {
+        let now = Instant::now();
+        let (tx, rx) = bounded(8);
+        let mut active = Some(test_recording(7));
+        assert!(active.as_mut().unwrap().schedule_stop(now, 2000));
+        tx.send(vec![2, 3]).unwrap();
+        assert_eq!(
+            advance_stop_grace(&mut active, &rx, now + Duration::from_secs(1)),
+            GraceTick::Countdown(1000)
+        );
+        tx.send(vec![4, 5]).unwrap();
+        assert_eq!(
+            advance_stop_grace(&mut active, &rx, now + Duration::from_secs(2)),
+            GraceTick::Finish(7)
+        );
+        assert_eq!(active.as_ref().unwrap().samples, vec![1, 2, 3, 4, 5]);
+        assert_eq!(
+            advance_stop_grace(&mut active, &rx, now + Duration::from_secs(3)),
+            GraceTick::None
+        );
+        active.take();
+        assert_eq!(
+            advance_stop_grace(&mut active, &rx, now + Duration::from_secs(3)),
+            GraceTick::None
+        );
+    }
+
+    #[test]
+    fn subsecond_countdown_tracks_the_grace_interval() {
+        let now = Instant::now();
+        let (_, rx) = bounded(8);
+        let mut active = Some(test_recording(9));
+        assert!(active.as_mut().unwrap().schedule_stop(now, 750));
+        assert_eq!(
+            advance_stop_grace(&mut active, &rx, now + Duration::from_millis(250)),
+            GraceTick::Countdown(500)
+        );
+        assert_eq!(
+            advance_stop_grace(&mut active, &rx, now + Duration::from_millis(500)),
+            GraceTick::Countdown(250)
+        );
+        assert_eq!(
+            advance_stop_grace(&mut active, &rx, now + Duration::from_millis(750)),
+            GraceTick::Finish(9)
+        );
+    }
+
+    #[test]
+    fn pending_deadline_is_discarded_on_cancel_or_new_recording() {
+        let now = Instant::now();
+        let (_, rx) = bounded(8);
+        let mut active = Some(test_recording(7));
+        assert!(active.as_mut().unwrap().schedule_stop(now, 2000));
+        active.take();
+        assert_eq!(
+            advance_stop_grace(&mut active, &rx, now + Duration::from_secs(2)),
+            GraceTick::None
+        );
+        active = Some(test_recording(8));
+        assert_eq!(
+            advance_stop_grace(&mut active, &rx, now + Duration::from_secs(2)),
+            GraceTick::None
+        );
+        assert_eq!(active.unwrap().session_id, 8);
+    }
+
+    #[test]
+    fn single_model_uses_global_device_and_keyboard_mode_uses_language_device() {
+        use smalltalkai::config::InferenceDevice;
+        let mut config = AppConfig::default();
+        config.speech.selection_mode = ModelSelectionMode::SingleModel;
+        config.speech.inference_device = InferenceDevice::Cpu;
+        config
+            .speech
+            .language_devices
+            .insert("single".into(), InferenceDevice::Gpu);
+        config
+            .speech
+            .language_devices
+            .insert("en".into(), InferenceDevice::Gpu);
+        assert_eq!(
+            worker_config(&config, "single", PathBuf::new())
+                .unwrap()
+                .inference_device,
+            InferenceDevice::Cpu
+        );
+        config.speech.selection_mode = ModelSelectionMode::FollowKeyboard;
+        assert_eq!(
+            worker_config(&config, "en", PathBuf::new())
+                .unwrap()
+                .inference_device,
+            InferenceDevice::Gpu
+        );
+    }
+
+    #[test]
+    fn retry_cache_preserves_final_unicode_payload_and_rejects_obsolete_empty_or_large_writes() {
+        let mut cache = LastDeliveryCache::default();
+        assert_eq!(cache.text(), None);
+        assert_eq!(cache.remembered_at_ms(), 0);
+        let final_text = "مرحبا world 🙂 ";
+        assert!(cache.remember(42, final_text.into(), true));
+        let first_at = cache.remembered_at_ms();
+        assert!(first_at > 0);
+        assert!(!cache.remember(43, "cancelled".into(), false));
+        assert!(!cache.remember(43, String::new(), true));
+        assert!(!cache.remember(43, "x".repeat(1024 * 1024 + 1), true));
+        assert!(cache.remember(41, "older".into(), true));
+        assert_eq!(cache.text(), Some(final_text));
+        assert_eq!(cache.remembered_at_ms(), first_at);
+        assert!(cache.remember(44, "new target text".into(), true));
+        assert_eq!(cache.text(), Some("new target text"));
+        assert!(cache.remembered_at_ms() > first_at);
+        assert_eq!(
+            LastDeliveryCache::default().text(),
+            None,
+            "new service has no persisted transcript"
+        );
+    }
+
+    #[test]
+    fn inactive_selections_skip_before_keyboard_or_worker_setup() {
+        let mut config = AppConfig::default();
+        assert!(
+            resolve_recording_model(&config, || panic!("single model must ignore keyboard"))
+                .unwrap()
+                .is_none()
+        );
+        config.speech.single_model_filename = Some("missing.gguf".into());
+        assert!(
+            resolve_recording_model(&config, || panic!("missing model must skip"))
+                .unwrap()
+                .is_none()
+        );
+        config.speech.selection_mode = ModelSelectionMode::FollowKeyboard;
+        config.speech.language_models.insert("ar".into(), None);
+        assert!(
+            resolve_recording_model(&config, || panic!("all None must skip"))
+                .unwrap()
+                .is_none()
+        );
+        config
+            .speech
+            .language_models
+            .insert("en".into(), Some("missing.gguf".into()));
+        for language in ["en", "ar", "fr"] {
+            assert!(resolve_recording_model(&config, || Ok(language.into()))
+                .unwrap()
+                .is_none());
+        }
+        let response = skipped_recording_response();
+        assert!(response.ok);
+        assert_eq!(response.values["recording"], "skipped");
+        assert!(response.events.is_empty());
+    }
+
+    #[test]
+    fn selection_is_permissive_and_recording_worker_is_frozen() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("arabic.gguf"), b"fixture").unwrap();
+        let mut config = AppConfig::default();
+        config.speech.model_dir = directory.path().to_string_lossy().into();
+        config.speech.selection_mode = ModelSelectionMode::FollowKeyboard;
+        config
+            .speech
+            .language_models
+            .insert("fr".into(), Some("arabic.gguf".into()));
+        let (language, path) = resolve_recording_model(&config, || Ok("fr".into()))
+            .unwrap()
+            .unwrap();
+        let frozen = worker_config(&config, &language, path.clone()).unwrap();
+        config.speech.language_models.insert("fr".into(), None);
+        config.speech.inference_device = smalltalkai::config::InferenceDevice::Cpu;
+        assert_eq!(frozen.model_path, path);
+        assert_eq!(frozen.speech_language, "fr");
+        assert!(resolve_recording_model(&config, || Ok("fr".into()))
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn event_buffer_assigns_monotonic_sequences() {
+        let mut events = EventBuffer::default();
+        events.push(ServiceEvent::simple("first"));
+        events.push(ServiceEvent::simple("second"));
+        assert_eq!(
+            events
+                .after(0)
+                .iter()
+                .map(|event| event.seq)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert_eq!(
+            events
+                .after(1)
+                .iter()
+                .map(|event| event.kind.as_str())
+                .collect::<Vec<_>>(),
+            vec!["second"]
+        );
+    }
+
+    #[test]
+    fn event_buffer_discards_oldest_items_at_the_history_limit() {
+        let mut events = EventBuffer::default();
+        for index in 0..=EVENT_HISTORY_LIMIT {
+            events.push(ServiceEvent::simple(format!("event-{index}")));
+        }
+        assert_eq!(events.items.len(), EVENT_HISTORY_LIMIT);
+        assert_eq!(events.items.front().unwrap().seq, 2);
+    }
+
+    #[test]
+    fn newer_overlay_work_survives_older_transcript_completion() {
+        assert_eq!(
+            overlay_primary_for_work(true, false),
+            OverlayPrimary::Recording
+        );
+        assert_eq!(
+            overlay_primary_for_work(false, true),
+            OverlayPrimary::Transcribing
+        );
+        assert_eq!(
+            overlay_primary_for_work(false, false),
+            OverlayPrimary::Hidden
+        );
+    }
+
+    #[test]
+    fn stale_audio_error_does_not_invalidate_replacement_stream() {
+        assert!(audio_error_is_current(Some(7), 7));
+        assert!(!audio_error_is_current(Some(8), 7));
+        assert!(!audio_error_is_current(None, 7));
+    }
+
+    #[test]
+    fn retry_registers_delivery_before_progress_and_rejects_newer_work() {
+        let mut delivering = HashSet::new();
+        assert!(begin_delivery_session(42, &mut delivering, false));
+        assert!(
+            delivering.contains(&42),
+            "retry progress must have a live session"
+        );
+        assert!(!begin_delivery_session(43, &mut delivering, true));
+        assert!(!begin_delivery_session(41, &mut delivering, false));
+        assert_eq!(delivering, HashSet::from([42]));
+        assert!(begin_delivery_session(43, &mut delivering, false));
+        assert_eq!(delivering, HashSet::from([43]));
+    }
+
+    #[test]
+    fn endpoint_recovery_retries_are_bounded() {
+        let start = Instant::now();
+        let mut recovery = DeviceRecovery::new(start);
+        assert_eq!(recovery.next_attempt, start + DEVICE_RETRY_DELAYS[0]);
+        for (attempt, delay) in DEVICE_RETRY_DELAYS.iter().enumerate().skip(1) {
+            let now = start + Duration::from_secs(attempt as u64);
+            assert!(recovery.retry(now));
+            assert_eq!(recovery.next_attempt, now + *delay);
+        }
+        assert!(!recovery.retry(start + Duration::from_secs(10)));
+    }
+
+    #[test]
+    fn screen_context_waits_for_async_capture() {
+        let slot = Arc::new(ScreenCaptureSlot {
+            value: Mutex::new(ScreenCaptureState::Pending),
+            ready: Condvar::new(),
+        });
+        let producer = Arc::clone(&slot);
+        std::thread::spawn(move || {
+            producer.complete(Some(cleanup::CleanupImage {
+                mime_type: "image/jpeg".into(),
+                base64_data: "test".into(),
+            }));
+        })
+        .join()
+        .unwrap();
+        assert_eq!(
+            slot.wait(Duration::from_secs(1))
+                .expect("screen context")
+                .base64_data,
+            "test"
+        );
+    }
+
+    #[test]
+    fn cleanup_failures_explain_the_actionable_reason() {
+        assert_eq!(
+            cleanup_failure_notice("operation timed out", 30_000),
+            "AI cleanup timed out after 30 seconds — original text used"
+        );
+        assert!(
+            cleanup_failure_notice("cleanup provider returned HTTP 401", 30_000)
+                .contains("API key or account was rejected")
+        );
+        assert!(cleanup_failure_notice(
+            "cleanup output reached the configured token limit",
+            30_000
+        )
+        .contains("output token limit reached"));
+    }
+
+    #[test]
+    fn localized_notices_keep_identity_and_terminal_metadata() {
+        let event = terminal_notice_event_for_session(NoticeLevel::Warning, "notice.noSpeech", 42);
+        assert_eq!(
+            event.values.get("message_id").map(String::as_str),
+            Some("notice.noSpeech")
+        );
+        assert_eq!(
+            event.values.get("terminal").map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(event.text, "No speech detected");
+        let response = message_response(true, "capture.modelTestQueued");
+        assert_eq!(
+            response.values.get("message_id").map(String::as_str),
+            Some("capture.modelTestQueued")
+        );
+    }
+
+    #[test]
+    fn screenshot_progress_is_nonterminal_but_recording_failures_are_terminal() {
+        let screenshot =
+            notice_event_for_session(NoticeLevel::Info, "Screen context requested", 42);
+        assert!(!screenshot.values.contains_key("terminal"));
+
+        let no_speech =
+            terminal_notice_event_for_session(NoticeLevel::Warning, "No speech detected", 42);
+        assert_eq!(
+            no_speech.values.get("terminal").map(String::as_str),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn cleanup_history_is_bounded_to_five_entries() {
+        let mut history = VecDeque::new();
+        for index in 0..8 {
+            history.push_front(CleanupHistoryEntry {
+                raw: index.to_string(),
+                cleaned: index.to_string(),
+                provider: "test".into(),
+                model: "test".into(),
+                latency_ms: 0,
+                outcome: "cleaned".into(),
+            });
+        }
+        trim_cleanup_history(&mut history);
+        assert_eq!(history.len(), 5);
+        assert_eq!(history.front().unwrap().raw, "7");
+        assert_eq!(history.back().unwrap().raw, "3");
+    }
+}

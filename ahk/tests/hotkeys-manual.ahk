@@ -23,7 +23,7 @@ Fail(message, exitCode := 1) {
     ExitApp(exitCode)
 }
 
-logger := ShellLog(A_Temp . "\simple-stt-hotkeys-manual.log")
+logger := ShellLog(A_Temp . "\smalltalkai-hotkeys-manual.log")
 capsController := CapsLockTapController(logger)
 manager := HotkeyManager(Down, Up, logger, capsController)
 manager.Configure("CapsLock+S", true, "preserve_tap")

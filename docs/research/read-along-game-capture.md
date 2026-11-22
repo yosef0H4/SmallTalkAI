@@ -9,12 +9,12 @@ native Windows exclusive fullscreen remain unverified.
 
 ### KDE Wayland
 
-Simple STT selects a rectangle, finds the visible KWin window at its center,
+SmallTalkAI selects a rectangle, finds the visible KWin window at its center,
 then stores the rectangle relative to that window's logical frame. The KWin
 query uses `workspace.stackingOrder` on the current desktop and activity.
-[Window query](../../reader/crates/readerd/src/read_along_capture/kde_backend.rs#L225-L247),
-[selection](../../reader/crates/readerd/src/read_along_capture/kde_backend.rs#L478-L512),
-[saved target](../../reader/crates/readerd/src/read_along_capture.rs#L196-L211).
+[Window query](../../reader/crates/smalltalkai-reader/src/read_along_capture/kde_backend.rs#L225-L247),
+[selection](../../reader/crates/smalltalkai-reader/src/read_along_capture/kde_backend.rs#L478-L512),
+[saved target](../../reader/crates/smalltalkai-reader/src/read_along_capture.rs#L196-L211).
 
 For each capture, the backend calls KWin ScreenShot2 `CaptureWindow` with
 `native-resolution=true`, `include-decoration=true`, and
@@ -22,7 +22,7 @@ For each capture, the backend calls KWin ScreenShot2 `CaptureWindow` with
 logical frame dimensions to screenshot pixel dimensions.
 The compositor uses the window's target scale and renders its scene item into
 an offscreen buffer. This is a window capture and can exclude overlapping
-windows. [Simple STT capture](../../reader/crates/readerd/src/read_along_capture/kde_backend.rs#L335-L419),
+windows. [SmallTalkAI capture](../../reader/crates/smalltalkai-reader/src/read_along_capture/kde_backend.rs#L335-L419),
 [KWin window rendering](https://github.com/KDE/kwin/blob/master/src/plugins/screenshot/screenshot.cpp#L192-L281).
 
 Wayland compositors can scan out a fullscreen client's buffer directly. KWin
@@ -34,7 +34,7 @@ states, and separate Gamescope sessions need their own checks.
 [KWin window rendering](https://github.com/KDE/kwin/blob/master/src/plugins/screenshot/screenshot.cpp#L192-L281).
 
 Keyboard advancement uses a keyboard-only XDG RemoteDesktop portal session;
-the portal requires permission, and Simple STT checks the selected KWin window
+the portal requires permission, and SmallTalkAI checks the selected KWin window
 is active before sending keys. When focus changes, the intended behavior is to
 wait for that same window rather than steal focus (`portal_keyboard.rs:42-61,
 95-130`; `kde_backend.rs:391-404,461-465`; `docs/architecture.md:229`). This
@@ -45,16 +45,16 @@ and its own controls advance dialogue with the configured key.
 
 ### Other Linux desktops
 
-On X11, Simple STT binds a window but reads the selected pixels from the root
+On X11, SmallTalkAI binds a window but reads the selected pixels from the root
 drawable through `GetImage`. Overlap can therefore change which pixels appear
 in the region. Outside KDE on Wayland, one-off Read Screen and OCR Copy use
 Lumine when installed and fall back to the interactive Screenshot portal.
 Saving a target for Repeat and Read-along needs a window-bound backend. A
 future portable Wayland approach could request a ScreenCast window stream
 where the portal backend offers one, then crop the authorized PipeWire stream.
-[X11 capture](../../reader/crates/readerd/src/read_along_capture/linux_backend.rs#L135-L165),
-[desktop support](../../reader/crates/readerd/src/read_along_capture.rs#L174-L194),
-[one-off capture](../../reader/crates/readerd/src/region_capture.rs#L38-L69),
+[X11 capture](../../reader/crates/smalltalkai-reader/src/read_along_capture/linux_backend.rs#L135-L165),
+[desktop support](../../reader/crates/smalltalkai-reader/src/read_along_capture.rs#L174-L194),
+[one-off capture](../../reader/crates/smalltalkai-reader/src/region_capture.rs#L38-L69),
 [XDG Screenshot](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Screenshot.html),
 [XDG ScreenCast](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html).
 
@@ -64,7 +64,7 @@ The picker freezes a frame before showing its window. It captures a fullscreen
 foreground window by HWND and remembers its identity and bounds before the game
 can lose focus. The picker draws from that captured frame and translates the
 selection back to the original pixels if the display mode changes.
-[Windows picker](../../reader/crates/readerd/src/read_along_capture/windows_picker.rs)
+[Windows picker](../../reader/crates/smalltalkai-reader/src/read_along_capture/windows_picker.rs)
 
 Windows Graphics Capture supplies the same frame pipeline for a single-monitor
 preview and saved-window capture. Short-lived helper processes keep a capture
@@ -73,7 +73,7 @@ and monitor targeting APIs. Capturing by window keeps a covering app out of
 Repeat and Read Along. GDI covers a virtual desktop spanning several monitors
 and serves as a compatibility fallback. A monitor-based fullscreen recapture
 requires the original game to be foreground and its selected region uncovered.
-[Frame pipeline](../../reader/crates/readerd/src/read_along_capture/windows_graphics.rs),
+[Frame pipeline](../../reader/crates/smalltalkai-reader/src/read_along_capture/windows_graphics.rs),
 [Windows Graphics Capture](https://learn.microsoft.com/en-us/windows/apps/develop/media-authoring-processing/screen-capture),
 [CreateForWindow](https://learn.microsoft.com/en-us/windows/win32/api/windows.graphics.capture.interop/nf-windows-graphics-capture-interop-igraphicscaptureiteminterop-createforwindow),
 [CreateForMonitor](https://learn.microsoft.com/en-us/windows/win32/api/windows.graphics.capture.interop/nf-windows-graphics-capture-interop-igraphicscaptureiteminterop-createformonitor)
@@ -144,4 +144,4 @@ dependencies or run a fixture.
 
 ## Executed GPU dialogue test
 
-On this Fedora KDE host, `/tmp/simple-stt-openai-e2e-venv/bin/python scripts/test-read-along-desktop.py --game-dialogue --fullscreen` passed actual region selection, KWin window capture, Paddle OCR, Kokoro speech, a RemoteDesktop Space press, and second-page speech. The fixture rendered its dialogue texture through OpenGL on AMD Radeon Graphics (radeonsi/renoir), rather than a GTK text label. It does not establish Ace Attorney, Proton/Vulkan, Gamescope or native Windows compatibility.
+On this Fedora KDE host, `/tmp/smalltalkai-openai-e2e-venv/bin/python scripts/test-read-along-desktop.py --game-dialogue --fullscreen` passed actual region selection, KWin window capture, Paddle OCR, Kokoro speech, a RemoteDesktop Space press, and second-page speech. The fixture rendered its dialogue texture through OpenGL on AMD Radeon Graphics (radeonsi/renoir), rather than a GTK text label. It does not establish Ace Attorney, Proton/Vulkan, Gamescope or native Windows compatibility.

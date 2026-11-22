@@ -8,6 +8,8 @@ export default defineConfig({
     host: "127.0.0.1",
     proxy: origin
       ? {
+          "/smalltalkai.png": origin,
+          "/favicon.ico": origin,
           "/api": {
             target: origin,
             changeOrigin: true,

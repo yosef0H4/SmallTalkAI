@@ -1,16 +1,16 @@
-# Simple STT Linux / Wayland overhaul
+# SmallTalkAI Linux / Wayland overhaul
 
-This branch keeps the original Simple STT memory model but replaces the Windows
+This branch keeps the original SmallTalkAI memory model but replaces the Windows
 AutoHotkey shell with a Rust Linux shell.
 
 ## What changed
 
-- **No AutoHotkey on Linux.** The Linux entry point is the Rust binary `simple-stt-linux`.
+- **No AutoHotkey on Linux.** The Linux entry point is the Rust binary `smalltalkai-linux`.
 - **Shared shortcut fields remain in JSON.** Settings displays them read-only on Linux;
   the desktop/compositor owns the actual bindings.
-- **Shared Settings UI.** Run `simple-stt-linux settings`; it launches the same
+- **Shared Settings UI.** Run `smalltalkai-linux settings`; it launches the same
   disposable browser editor used on Windows.
-- **Same Parakeet backend model.** `simple-stt-infer` loads the Parakeet C API
+- **Same Parakeet backend model.** `smalltalkai-infer` loads the Parakeet C API
   from `parakeet.dll` on Windows or `libparakeet.so` / `parakeet.so` on Linux.
 - **Same RAM-saving design.** Only the disposable inference worker loads the
   GGUF model. The capture daemon records audio and supervises the worker. When
@@ -65,7 +65,7 @@ external/parakeet-runtime/models/
 ```
 
 The default Linux config points there. You can also use absolute paths in
-`~/.config/simple-stt/config.json`:
+`~/.config/smalltalkai/config.json`:
 
 ```json
 {
@@ -97,14 +97,14 @@ ordering can change after reconnects or reboots.
 After installing the package:
 
 ```bash
-simple-stt daemon
+smalltalkai daemon
 ```
 
 The package already supplies the systemd user service:
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now simple-stt-linux.service
+systemctl --user enable --now smalltalkai-linux.service
 ```
 
 ## Bind desktop shortcuts
@@ -113,7 +113,7 @@ Wayland automatically binds shortcuts through the portal when the app starts.
 Use Settings → General → **Set up shortcuts**, or request configuration again:
 
 ```bash
-simple-stt configure-shortcuts
+smalltalkai configure-shortcuts
 ```
 
 On Wayland this requests the active portal session’s configuration UI. The app
@@ -126,16 +126,16 @@ prints the manual commands below.
 Print the commands:
 
 ```bash
-simple-stt print-shortcut-commands
+smalltalkai print-shortcut-commands
 ```
 
 Bind these in your desktop's shortcut settings:
 
 ```text
-Toggle dictation: simple-stt toggle
-Cancel dictation: simple-stt cancel
-Unload model:     simple-stt unload-model
-Stop daemon:      simple-stt shutdown
+Toggle dictation: smalltalkai toggle
+Cancel dictation: smalltalkai cancel
+Unload model:     smalltalkai unload-model
+Stop daemon:      smalltalkai shutdown
 ```
 
 Recommended first shortcut: `Super+Alt+Space` for toggle. Caps Lock and true
@@ -182,7 +182,7 @@ copies, and preservation-disabled paste retains the dictation for manual paste.
 
 The daemon publishes a freedesktop StatusNotifierItem used natively by KDE.
 Left-click opens Settings. The context menu can start or stop recording, open
-Settings, unload the speech model, or close Simple STT. Closing shuts down the
+Settings, unload the speech model, or close SmallTalkAI. Closing shuts down the
 capture service cleanly, so systemd's `Restart=on-failure` does not reopen it.
 
 With clipboard preservation disabled, publish the text and send the configured
@@ -191,7 +191,7 @@ portal shortcut. A failed shortcut leaves the text available for manual paste.
 For terminals, use:
 
 ```bash
-simple-stt toggle --shift-insert
+smalltalkai toggle --shift-insert
 ```
 
 or bind the stop/toggle shortcut with `--shift-insert` if your terminal drops
@@ -200,9 +200,9 @@ or bind the stop/toggle shortcut with `--shift-insert` if your terminal drops
 ## Process model
 
 ```text
-simple-stt-linux daemon
-  └── simple-stt-capture        # always-running, lightweight audio + IPC
-        └── simple-stt-infer    # disposable Parakeet worker, model lives here
+smalltalkai-linux daemon
+  └── smalltalkai-capture        # always-running, lightweight audio + IPC
+        └── smalltalkai-infer    # disposable Parakeet worker, model lives here
 ```
 
 The capture process checks for an idle worker every 250 ms. Once the configured

@@ -27,7 +27,7 @@ export const fields: Record<string, FieldSpec> = {
       ["press", "ui.press_to_show_shortcuts"],
     ],
   },
-  enabled: { path: "general.enabled", label: "ui.simple_stt.d84a2c", type: "checkbox" },
+  enabled: { path: "general.enabled", label: "ui.smalltalkai.d84a2c", type: "checkbox" },
   shortcutSystem: {
     path: "general.linux_hotkey_backend",
     label: "ui.shortcut_system.7d97bc",

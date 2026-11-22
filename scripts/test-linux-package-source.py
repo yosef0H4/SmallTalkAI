@@ -11,7 +11,7 @@ spec = importlib.util.spec_from_file_location('prepare', ROOT / 'scripts/prepare
 prepare = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(prepare)
 
-with tempfile.TemporaryDirectory(prefix='simple-stt-package-source-') as folder:
+with tempfile.TemporaryDirectory(prefix='smalltalkai-package-source-') as folder:
     root = Path(folder) / 'source'
     root.mkdir()
     target = Path(folder) / 'target'

@@ -13,7 +13,7 @@ call python scripts\verify-settings-frontend.py || exit /b 1
 echo INFO: running Rust tests
 cargo test --all-targets || exit /b 1
 
-cargo build -p simple-stt -p simple-stt-settings-window --bin simple-stt-settings --bin simple-stt-settings-window --bin simple-stt-capture || exit /b 1
+cargo build -p smalltalkai -p smalltalkai-settings-window --bin smalltalkai-settings --bin smalltalkai-settings-window --bin smalltalkai-capture || exit /b 1
 call python scripts\test-settings-single-instance.py || exit /b 1
 call python scripts\test-settings-selection-api.py || exit /b 1
 node scripts\test-settings-desktop.cjs || exit /b 1
@@ -36,5 +36,5 @@ node scripts\test-settings-compact.cjs || exit /b 1
 echo INFO: running AutoHotkey validation and runtime smoke
 call scripts\test-ahk-full.cmd || exit /b 1
 
-echo PASS: full SimpleStt validation suite
+echo PASS: full SmallTalkAI validation suite
 exit /b 0

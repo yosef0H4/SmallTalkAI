@@ -34,7 +34,7 @@ CASES = [
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     observations = []
-    with tempfile.TemporaryDirectory(prefix='simple-stt-pronunciation-') as tmp:
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-pronunciation-') as tmp:
         private = Path(tmp)
         env = dict(os.environ, XDG_DATA_HOME=tmp, XDG_CONFIG_HOME=tmp, XDG_CACHE_HOME=tmp,
                    XDG_RUNTIME_DIR=tmp, SIMPLE_STT_RUNTIME_ROOT=str(private / 'runtime'),
@@ -46,7 +46,7 @@ def main():
         }
         for model, path in models.items():
             with (OUT / f'{model}.log').open('w') as log:
-                child, events = workers.launch(BIN / 'reader-tts', ['--provider', 'local_supertonic' if model == 'supertonic3' else 'local_kokoro',
+                child, events = workers.launch(BIN / 'smalltalkai-tts', ['--provider', 'local_supertonic' if model == 'supertonic3' else 'local_kokoro',
                     '--model-dir', str(path), '--runtime-dir', str(RUNTIME), '--device', 'cuda'], env, log)
                 try:
                     for engine, language, name, text in CASES:
@@ -86,7 +86,7 @@ def main():
             config.write_text(json.dumps({'speech':{'selection_mode':'single_model','single_model_filename':model,
                 'model_dir':str(Path.home()/'.local/share/simple-stt/models'),
                 'runtime_dir':str(ROOT/'external/parakeet-runtime/parakeet-linux-vulkan'), 'inference_device':'gpu'}}))
-            result = subprocess.run([str(BIN/'simple-stt-linux'),'media','transcribe',observation['wav']],
+            result = subprocess.run([str(BIN/'smalltalkai-linux'),'media','transcribe',observation['wav']],
                 env={**env,'SIMPLE_STT_CONFIG':str(config)},capture_output=True,text=True,timeout=90)
             assert result.returncode == 0, result.stderr
             observation['asr_observation'] = result.stdout.strip()

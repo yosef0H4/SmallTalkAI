@@ -1,12 +1,12 @@
 [Desktop Entry]
 Type=Application
-Name=Simple STT
-Name[ar]=Simple STT
+Name=SmallTalkAI
+Name[ar]=SmallTalkAI
 Comment=Local dictation, read aloud, and screen text
 Comment[ar]=إملاء وقراءة واستخراج نص الشاشة محليًا
-TryExec=simple-stt
-Exec=simple-stt launch
-Icon=simple-stt
+TryExec=smalltalkai
+Exec=smalltalkai launch
+Icon=smalltalkai
 Terminal=false
 Categories=Utility;AudioVideo;
 StartupNotify=false

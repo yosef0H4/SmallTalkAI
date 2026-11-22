@@ -11,8 +11,8 @@ from fontTools.ttLib import TTFont
 
 
 UPSTREAM = "https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.7.2"
-FAMILY_NAME = "Simple STT Overlay Icons"
-FONT_NAME = "SimpleSTTOverlayIcons-Regular"
+FAMILY_NAME = "SmallTalkAI Overlay Icons"
+FONT_NAME = "SmallTalkAIOverlayIcons-Regular"
 
 # Keep the shared tooltip text at the same Unicode codepoints. Pango uses this
 # face only on recognized icons, and Windows can keep using its native glyphs.

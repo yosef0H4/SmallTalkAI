@@ -20,10 +20,10 @@ command = language_test.command
 
 def main():
     suffix = '.exe' if os.name == 'nt' else ''
-    with tempfile.TemporaryDirectory(prefix='simple-stt-recording-reuse-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-recording-reuse-') as temporary:
         directory = Path(temporary)
-        for source, target in [('simple-stt-capture', 'simple-stt-capture'),
-                               ('simple_stt_mock_infer', 'simple-stt-infer')]:
+        for source, target in [('smalltalkai-capture', 'smalltalkai-capture'),
+                               ('smalltalkai_mock_infer', 'smalltalkai-infer')]:
             shutil.copy2(ROOT / 'target/debug' / (source + suffix), directory / (target + suffix))
         for filename in ['hang.gguf', 'normal.gguf', 'other.gguf']:
             (directory / filename).touch()
@@ -40,7 +40,7 @@ def main():
         state_path = directory / 'state.json'
         token = secrets.token_hex(32)
         with (directory / 'capture.log').open('w') as output:
-            process = subprocess.Popen([str(directory / ('simple-stt-capture' + suffix)),
+            process = subprocess.Popen([str(directory / ('smalltalkai-capture' + suffix)),
                 '--config', str(config), '--state-file', str(state_path), '--token', token],
                 env=env, stdout=output, stderr=output)
             try:

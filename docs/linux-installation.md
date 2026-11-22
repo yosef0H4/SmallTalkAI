@@ -2,8 +2,8 @@
 
 The Linux release builds produce two x86_64 packages:
 
-- Fedora 44: `simple-stt-0.3.1-46.fc44.x86_64.rpm`
-- Arch Linux / Omarchy: `simple-stt-0.3.1-39-x86_64.pkg.tar.zst`
+- Fedora 44: `smalltalkai-0.3.1-48.fc44.x86_64.rpm`
+- Arch Linux / Omarchy: `smalltalkai-0.3.1-39-x86_64.pkg.tar.zst`
 
 These packages include the app, Settings, reading/OCR workers, paste helper and Arabic fonts.
 Native runtimes and models are optional downloads in Settings → Models.
@@ -21,11 +21,11 @@ From the directory containing your downloaded package:
 
 ```sh
 # Fedora 44
-sudo dnf install ./simple-stt-0.3.1-46.fc44.x86_64.rpm
+sudo dnf install ./smalltalkai-0.3.1-48.fc44.x86_64.rpm
 
 # Arch / Omarchy (update the system first, as usual for Arch packages)
 sudo pacman -Syu
-sudo pacman -U ./simple-stt-0.3.1-39-x86_64.pkg.tar.zst
+sudo pacman -U ./smalltalkai-0.3.1-39-x86_64.pkg.tar.zst
 ```
 
 After installing or upgrading, reload the user service definitions from your
@@ -35,7 +35,7 @@ desktop session:
 systemctl --user daemon-reload
 ```
 
-Open **Simple STT** from the application menu or run `simple-stt` to start the
+Open **SmallTalkAI** from the application menu or run `smalltalkai` to start the
 service and open Settings. Opening the app again reuses the running service.
 
 On Wayland, the first launch requests desktop shortcut permission. Use
@@ -54,22 +54,22 @@ them in Settings → Models. Then try a short recording in an ordinary text edit
 ## Start at login and quit for the current session
 
 The package leaves automatic startup off until you enable it for your account.
-Run this once as your regular user to start Simple STT in the tray at each
+Run this once as your regular user to start SmallTalkAI in the tray at each
 graphical login:
 
 ```sh
-systemctl --user enable simple-stt-linux.service
+systemctl --user enable smalltalkai-linux.service
 ```
 
-Choose **Close Simple STT** in the tray to stop the app. It stays closed until
+Choose **Close SmallTalkAI** in the tray to stop the app. It stays closed until
 you open it again or log in to a new desktop session. Closing the Settings
 window leaves the tray and dictation running.
 
 After quitting, check that login startup is enabled and the service is stopped:
 
 ```sh
-systemctl --user is-enabled simple-stt-linux.service  # enabled
-systemctl --user is-active simple-stt-linux.service   # inactive
+systemctl --user is-enabled smalltalkai-linux.service  # enabled
+systemctl --user is-active smalltalkai-linux.service   # inactive
 ```
 
 ## Settings and models
@@ -78,9 +78,16 @@ Settings and state use the stable `installed` profile under
 `~/.config/simple-stt/instances/installed/` and
 `~/.local/share/simple-stt/instances/installed/`. Downloaded optional assets default to
 `~/.local/share/simple-stt/instances/installed/assets/`. XDG directory overrides
-are respected.
+are respected. The package keeps these paths and the existing credential and portal
+identifiers so SmallTalkAI can use profiles created by Simple STT.
 The app binaries are read-only package files in
-`/usr/lib/simple-stt/`; upgrades preserve user settings and models.
+`/usr/lib/smalltalkai/`; upgrades preserve user settings and models.
+
+On a branded upgrade, quit the desktop app from its tray menu before installing
+the package. If you run the headless API as a user service, stop it before the
+upgrade, then reload the user manager and restart it using
+`smalltalkai-server.service`. The old service names and command names are
+compatibility links.
 
 ## Switching from a checkout installation
 
@@ -88,29 +95,29 @@ A service created with `install-user-service` overrides the packaged service.
 Stop the old service and keep a backup of that override before trying the RPM:
 
 ```sh
-systemctl --user disable --now simple-stt-linux.service
-mv ~/.config/systemd/user/simple-stt-linux.service \
-   ~/.config/systemd/user/simple-stt-linux.service.checkout-backup
+systemctl --user disable --now smalltalkai-linux.service
+mv ~/.config/systemd/user/smalltalkai-linux.service \
+   ~/.config/systemd/user/smalltalkai-linux.service.checkout-backup
 systemctl --user daemon-reload
-systemctl --user start simple-stt-linux.service
+systemctl --user start smalltalkai-linux.service
 ```
 
 Run these commands only if that user service file exists. Verify the service now
-uses `/usr/bin/simple-stt`, rather than a checkout's `target/release` directory:
+uses `/usr/bin/smalltalkai`, rather than a checkout's `target/release` directory:
 
 ```sh
-systemctl --user show simple-stt-linux.service -p FragmentPath -p ExecStart
+systemctl --user show smalltalkai-linux.service -p FragmentPath -p ExecStart
 ```
 
 The installed profile starts independently; the checkout profile is preserved.
 Install and select the required optional assets in installed Settings.
 Old manually installed application-menu entries may still launch the checkout;
-use `simple-stt launch` during testing. If the menu starts a standalone reader
+use `smalltalkai launch` during testing. If the menu starts a standalone reader
 instead, check whether
 `~/.local/share/applications/io.github.yosef0H4.simple_stt.desktop` runs
-`readerctl read-selection`. Move that old entry outside the applications
+`smalltalkai-readerctl read-selection`. Move that old entry outside the applications
 directory to restore the packaged launcher. Rebind any desktop shortcuts that contain
-a checkout path to `simple-stt toggle`, `simple-stt cancel`, etc.; the app's
+a checkout path to `smalltalkai toggle`, `smalltalkai cancel`, etc.; the app's
 built-in shortcuts can also be configured in Settings.
 
 To go back to the checkout, stop the packaged service, restore the backed-up
@@ -150,7 +157,7 @@ system. They are not universal Linux binaries. Windows packaging remains separat
 
 ## Inspect clipboard buffering
 
-Enable Settings → Advanced → Diagnostics → **Clipboard buffer notices**, then Save. This developer option is off by default. Each current copy shows a buffering notice followed by ready or failed in the existing overlay. New copies replace unfinished buffers. For metadata-only troubleshooting logs, run `journalctl --user -u simple-stt-linux.service --since "5 minutes ago"`; copied content is never included in buffer logs.
+Enable Settings → Advanced → Diagnostics → **Clipboard buffer notices**, then Save. This developer option is off by default. Each current copy shows a buffering notice followed by ready or failed in the existing overlay. New copies replace unfinished buffers. For metadata-only troubleshooting logs, run `journalctl --user -u smalltalkai-linux.service --since "5 minutes ago"`; copied content is never included in buffer logs.
 
 For repeated local test builds, `SIMPLE_STT_REUSE_BUILDER=1` reuses an existing
 Podman builder instead of refreshing its base image and toolchain. Omit this

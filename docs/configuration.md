@@ -1,6 +1,6 @@
 # Configuration schema and ownership
 
-`config.json` is Simple STT's canonical, portable configuration. The disposable `simple-stt-settings` browser process is only a visual editor for it. Windows uses `%APPDATA%\simple-stt\instances\<runtime-id>\config.json`; Linux uses the matching XDG config directory. `SIMPLE_STT_CONFIG` overrides the path for development and tests.
+`config.json` is SmallTalkAI's canonical, portable configuration. The disposable `smalltalkai-settings` browser process is only a visual editor for it. Windows uses `%APPDATA%\smalltalkai\instances\<runtime-id>\config.json`; Linux uses the matching XDG config directory. `SIMPLE_STT_CONFIG` overrides the path for development and tests.
 
 The current schema is version 9:
 
@@ -101,15 +101,15 @@ The default finish delay is 500 ms. Existing saved custom delays are preserved. 
 
 ## Generate a server token over SSH
 
-`simple-stt credentials generate server` prints the existing shared token or securely generates and saves one in the credential vault. `--replace` rotates it; restart the server and update clients afterward. One token authenticates every media endpoint.
+`smalltalkai credentials generate server` prints the existing shared token or securely generates and saves one in the credential vault. `--replace` rotates it; restart the server and update clients afterward. One token authenticates every media endpoint.
 
 On a headless host without a keyring, generate to a private file and explicitly supply it to the server:
 
 ```sh
 umask 077
-simple-stt credentials generate server --stdout > ~/simple-stt-server.token
-export SIMPLE_TTS_SERVER_TOKEN="$(cat ~/simple-stt-server.token)"
-simple-stt serve
+smalltalkai credentials generate server --stdout > ~/smalltalkai-server.token
+export SIMPLE_TTS_SERVER_TOKEN="$(cat ~/smalltalkai-server.token)"
+smalltalkai serve
 ```
 
 Generate the file once and reuse it for later starts. `--stdout` never reads the keyring or saves anything itself. It prints only the new token. An environment override prevents accidental vault rotation; unset it to manage the vault token.

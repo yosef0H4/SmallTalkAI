@@ -28,7 +28,7 @@ NoopNotice(*) {
 
 childPid := 0
 exitCode := 0
-childScript := A_Temp . "\simple-stt-paste-latency-child-" . A_TickCount . ".ahk"
+childScript := A_Temp . "\smalltalkai-paste-latency-child-" . A_TickCount . ".ahk"
 try {
     childSource := StrReplace(FileRead(A_ScriptFullPath, "UTF-8"), "#Include ..\lib\", "#Include " . A_ScriptDir . "\..\lib\")
     FileAppend(childSource, childScript, "UTF-8")
@@ -37,7 +37,7 @@ try {
     if !WinWait("SimpleStt blocked paste probe ahk_pid " . childPid, , 5)
         throw Error("blocked paste target did not start")
     controlHwnd := ControlGetHwnd("Edit1", "ahk_pid " . childPid)
-    instance := Typist(ShellLog(A_Temp . "\simple-stt-paste-latency.log"), NoopNotice)
+    instance := Typist(ShellLog(A_Temp . "\smalltalkai-paste-latency.log"), NoopNotice)
     started := A_TickCount
     result := instance.ReadEditText(controlHwnd)
     elapsed := A_TickCount - started

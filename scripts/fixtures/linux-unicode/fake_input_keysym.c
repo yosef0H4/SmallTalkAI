@@ -57,7 +57,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "KWin fake-input protocol v6 unavailable\n");
         wl_registry_destroy(registry); wl_display_disconnect(display); return 4;
     }
-    org_kde_kwin_fake_input_authenticate(fake_input, "Simple STT E2E", "Private Unicode input test");
+    org_kde_kwin_fake_input_authenticate(fake_input, "SmallTalkAI E2E", "Private Unicode input test");
     if (stream || keycode_stream) {
         if (wl_display_roundtrip(display) < 0) return 5;
         char line[128];

@@ -93,7 +93,7 @@ function processAlive(pid) {
 async function main() {
   assert.equal(process.platform, "win32", "This test drives Windows native window controls");
   const bin = path.resolve(process.argv[2] || "target/debug");
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "simple-stt-settings-window-"));
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "smalltalkai-settings-window-"));
   const config = path.join(temp, "config.json");
   const port = await freePort();
   const cdp = `http://127.0.0.1:${port}`;
@@ -115,7 +115,7 @@ async function main() {
     return child;
   }
   function runCapture() {
-    return launch("simple-stt-capture", ["--token", randomBytes(32).toString("hex"), "--config", config]);
+    return launch("smalltalkai-capture", ["--token", randomBytes(32).toString("hex"), "--config", config]);
   }
   async function settingsPage() {
     await waitFor("WebView2 debug listener", async () => (await fetch(`${cdp}/json/version`)).ok);
@@ -135,13 +135,13 @@ async function main() {
   }
   try {
     const started = Date.now();
-    const launcher = launch("simple-stt-settings");
+    const launcher = launch("smalltalkai-settings");
     const { page, context, pid: host } = await settingsPage();
     const startup = Date.now() - started;
     assert.equal(launcher.exitCode, 0, "Only the Tauri Settings process should remain");
     assert.equal(nativeWindow(host, "state"), "visible", "The Settings server must own the window");
     assert.equal(nativeWindow(host, "minimize"), "minimized");
-    const duplicate = launch("simple-stt-settings");
+    const duplicate = launch("smalltalkai-settings");
     await waitFor("second launch to exit", () => duplicate.exitCode !== null);
     assert.equal(duplicate.exitCode, 0);
     await waitFor("existing native window to restore", () => nativeWindow(host, "state") === "visible");
@@ -219,7 +219,7 @@ async function main() {
     assert.equal(capture.exitCode, null, "Closing Settings stopped the capture service");
     console.log("PASS: titlebar Close guards the draft and releases Settings and all profile WebView2 processes; capture stays running");
 
-    launch("simple-stt-settings");
+    launch("smalltalkai-settings");
     const { page: fresh, pid: reopened } = await settingsPage();
     assert.equal(await fresh.locator("#ui-language").getAttribute("data-value"), "en");
     assert.equal(await fresh.getByRole("button", { name: "Close Settings" }).count(), 1);

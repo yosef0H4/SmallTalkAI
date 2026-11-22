@@ -59,7 +59,7 @@ def models_and_audio(root: Path):
 
 
 def process_recycle(root: Path, runtime: Path, cases, count: int, device: str):
-    executable = root / "target/release/simple-stt-infer.exe"
+    executable = root / "target/release/smalltalkai-infer.exe"
     samples = []
     expected = {}
     for index in range(count):
@@ -131,7 +131,7 @@ def same_process(runtime: Path, cases, count: int, device: str):
 
 
 def two_warm_workers(root: Path, runtime: Path, cases, count: int, device: str):
-    executable = root / "target/release/simple-stt-infer.exe"
+    executable = root / "target/release/smalltalkai-infer.exe"
     workers = []
     expected = {}
     try:

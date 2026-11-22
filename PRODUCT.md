@@ -1,4 +1,4 @@
-# Simple STT
+# SmallTalkAI
 
 <!-- impeccable:product-schema 1 -->
 

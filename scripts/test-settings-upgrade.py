@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
-BINARY = ROOT / 'target/debug/simple-stt-settings'
+BINARY = ROOT / 'target/debug/smalltalkai-settings'
 
 
 def main():
@@ -19,9 +19,9 @@ def main():
         print('SKIP atomic running-executable replacement: Linux package-upgrade regression')
         return
     children = []
-    with tempfile.TemporaryDirectory(prefix='simple-stt-settings-upgrade-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-settings-upgrade-') as temporary:
         private = Path(temporary)
-        executable = private / 'simple-stt-settings'
+        executable = private / 'smalltalkai-settings'
         shutil.copy2(BINARY, executable)
         env = dict(os.environ, SIMPLE_STT_CONFIG=str(private / 'config.json'),
                    SIMPLE_STT_RUNTIME_ROOT=str(private / 'runtime'),

@@ -26,7 +26,7 @@ desktop = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(desktop)
 Gtk, GLib = desktop.Gtk, desktop.GLib
 folder = Path(os.environ.get('SIMPLE_STT_PORTAL_TEST_DIR',
-    str(Path(tempfile.gettempdir()) / f'simple-stt-portal-e2e-{os.getuid()}')))
+    str(Path(tempfile.gettempdir()) / f'smalltalkai-portal-e2e-{os.getuid()}')))
 folder.mkdir(mode=0o700, parents=True, exist_ok=True)
 window = Gtk.Window(title=desktop.TITLE)
 window.set_default_size(700, 300)
@@ -63,7 +63,7 @@ def run():
         hashed = 0xcbf29ce484222325
         for byte in str(runtime).encode():
             hashed = ((hashed ^ byte) * 0x100000001b3) & ((1 << 64) - 1)
-        state_root = data / 'simple-stt' / 'instances' / f'runtime-{hashed:016x}'
+        state_root = data / 'smalltalkai' / 'instances' / f'runtime-{hashed:016x}'
         state_dir = state_root / 'state'
         state_dir.mkdir(parents=True, exist_ok=True)
         (state_root / 'linux-token').write_text('isolated-portal-test')
@@ -108,7 +108,7 @@ def run():
         # Two deliveries also exercise persistence and rotation of restore tokens.
         for number in (1, 2):
             assert desktop.query_target(folder)['active'], 'owned editor lost focus before delivery'
-            proc = subprocess.run([str(ROOT / 'target/debug/simple-stt-linux'), 'retry-delivery'],
+            proc = subprocess.run([str(ROOT / 'target/debug/smalltalkai-linux'), 'retry-delivery'],
                 env=env, capture_output=True, text=True, timeout=75)
             (folder / f'delivery-{number}.log').write_text(proc.stderr)
             assert proc.returncode == 0, proc.stderr

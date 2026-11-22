@@ -44,11 +44,11 @@ def main():
         (data / 'state').mkdir(parents=True)
         (data / 'state/linux-capture-state.json').write_bytes(state.read_bytes())
         (data / 'linux-token').write_text(TOKEN)
-        subprocess.run([str(binary / 'simple-stt-linux'), 'show-shortcuts'], env=env, capture_output=True, text=True, check=True)
+        subprocess.run([str(binary / 'smalltalkai-linux'), 'show-shortcuts'], env=env, capture_output=True, text=True, check=True)
         for command in ['show-shortcuts', 'refresh-shortcuts']:
-            result = subprocess.run([str(binary / 'simple-stt-ctl'), '--state-file', str(state), '--token', TOKEN, command], env=env, capture_output=True, text=True, check=True)
+            result = subprocess.run([str(binary / 'smalltalkai-ctl'), '--state-file', str(state), '--token', TOKEN, command], env=env, capture_output=True, text=True, check=True)
             assert 'status\tok' in result.stdout, result.stdout
-        settings = subprocess.Popen([str(binary / 'simple-stt-settings'), '--no-browser', '--state-file', str(state), '--service-token', TOKEN], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        settings = subprocess.Popen([str(binary / 'smalltalkai-settings'), '--no-browser', '--state-file', str(state), '--service-token', TOKEN], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
             url = urlparse(settings.stdout.readline().strip())
             token = parse_qs(url.fragment)['token'][0]

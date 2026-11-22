@@ -165,9 +165,9 @@ fn get(account: &str) -> Result<Option<String>> {
 fn set(account: &str, secret: &str) -> Result<()> {
     use std::io::Write;
     let label = if account == STT_KEY_ACCOUNT {
-        "Simple STT speech recognition"
+        "SmallTalkAI speech recognition"
     } else {
-        "Simple STT AI cleanup"
+        "SmallTalkAI AI cleanup"
     };
     let mut child = Command::new("secret-tool")
         .args(["store", "--label", label, "service", SERVICE, "account", account])

@@ -71,7 +71,7 @@ pub fn begin_browser_login() -> Result<BrowserLogin> {
         .append_pair("state", &state)
         .append_pair("id_token_add_organizations", "true")
         .append_pair("codex_cli_simplified_flow", "true")
-        .append_pair("originator", "simple_stt");
+        .append_pair("originator", "smalltalkai");
     Ok(BrowserLogin {
         authorization_url: url.into(),
         listener,
@@ -114,9 +114,9 @@ impl BrowserLogin {
             )
         })();
         let body = if result.is_ok() {
-            "<!doctype html><title>Simple STT connected</title><p>ChatGPT is connected. You can close this tab.</p>"
+            "<!doctype html><title>SmallTalkAI connected</title><p>ChatGPT is connected. You can close this tab.</p>"
         } else {
-            "<!doctype html><title>Simple STT connection failed</title><p>ChatGPT could not be connected. Return to Simple STT Settings for details.</p>"
+            "<!doctype html><title>SmallTalkAI connection failed</title><p>ChatGPT could not be connected. Return to SmallTalkAI Settings for details.</p>"
         };
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
@@ -133,7 +133,7 @@ pub fn begin_device_login() -> Result<DeviceLogin> {
         .post(format!("{ISSUER}/api/accounts/deviceauth/usercode"))
         .header(
             "User-Agent",
-            concat!("simple-stt/", env!("CARGO_PKG_VERSION")),
+            concat!("smalltalkai/", env!("CARGO_PKG_VERSION")),
         )
         .json(&json!({"client_id":CLIENT_ID}))
         .send()
@@ -174,7 +174,7 @@ impl DeviceLogin {
                 .post(format!("{ISSUER}/api/accounts/deviceauth/token"))
                 .header(
                     "User-Agent",
-                    concat!("simple-stt/", env!("CARGO_PKG_VERSION")),
+                    concat!("smalltalkai/", env!("CARGO_PKG_VERSION")),
                 )
                 .json(&json!({"device_auth_id":self.device_auth_id,"user_code":self.user_code}))
                 .send()

@@ -1,6 +1,6 @@
 ---
 name: rust-code-quality
-description: Run and interpret the Simple STT Rust quality workflow. Use when working on Rust formatting, Clippy, tests, coverage, cargo-crap/CRAP scores, or safe cleanup/refactoring in this repository.
+description: Run and interpret the SmallTalkAI Rust quality workflow. Use when working on Rust formatting, Clippy, tests, coverage, cargo-crap/CRAP scores, or safe cleanup/refactoring in this repository.
 ---
 
 # Rust Code Quality

@@ -14,10 +14,10 @@ Info(message) {
     SimpleSttConsoleLine("INFO: " . message)
 }
 
-ctl := SimpleSttResolveExe("simple-stt-ctl")
-capture := SimpleSttResolveExe("simple-stt-capture")
+ctl := SimpleSttResolveExe("smalltalkai-ctl")
+capture := SimpleSttResolveExe("smalltalkai-capture")
 if !FileExist(ctl) || !FileExist(capture) {
-    Fail("Build simple-stt-ctl.exe and simple-stt-capture.exe first.")
+    Fail("Build smalltalkai-ctl.exe and smalltalkai-capture.exe first.")
 }
 configFile := SimpleSttTempFile("ipc-smoke-config")
 state := SimpleSttTempFile("ipc-smoke-state")

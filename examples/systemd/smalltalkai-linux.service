@@ -1,0 +1,12 @@
+[Unit]
+Description=SmallTalkAI Linux capture daemon
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/path/to/smalltalkai/linux/smalltalkai-linux daemon
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

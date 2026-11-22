@@ -55,7 +55,7 @@ impl OverlayHandle {
         let (tx, rx) = channel::channel();
         let thread_level = Arc::clone(&level);
         std::thread::Builder::new()
-            .name("simple-stt-linux-overlay".to_owned())
+            .name("smalltalkai-linux-overlay".to_owned())
             .spawn(move || {
                 if let Err(error) = overlay_thread(rx, thread_level) {
                     tracing::warn!(%error, "linux layer-shell overlay disabled");
@@ -79,7 +79,7 @@ impl OverlayHandle {
             self.system_theme_watch.call_once(|| {
                 let tx = Arc::downgrade(&self.tx);
                 let _ = std::thread::Builder::new()
-                    .name("simple-stt-overlay-theme".into())
+                    .name("smalltalkai-overlay-theme".into())
                     .spawn(move || watch_system_theme(tx));
             });
         }
@@ -331,7 +331,7 @@ impl LayerOverlay {
             &self.qh,
             surface,
             Layer::Overlay,
-            Some("simple-stt"),
+            Some("smalltalkai"),
             None,
         );
         let input_region = match Region::new(&self.compositor) {

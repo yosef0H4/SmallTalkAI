@@ -68,7 +68,7 @@
     </div>
   {:else if ui.state?.platform === "linux" && backend !== "x11"}
     {@const command = ["toggle", "cancel", "cycle-delivery", "toggle-cleanup", "retry-delivery", "show-shortcuts"][index]}
-    <div class="field"><span>{t(label)}</span><code>simple-stt-linux {command}</code></div>
+    <div class="field"><span>{t(label)}</span><code>smalltalkai-linux {command}</code></div>
   {:else}
     <Shortcut {path} {label} />
   {/if}
@@ -132,8 +132,8 @@
       </p>
       <code
         >{tools.start_command ||
-          "systemctl --user start simple-stt-linux.service"}</code
-      ><code>{tools.stop_command || "simple-stt-linux shutdown"}</code>
+          "systemctl --user start smalltalkai-linux.service"}</code
+      ><code>{tools.stop_command || "smalltalkai-linux shutdown"}</code>
     </details>
   {/if}
   <div class="shortcut-cards">

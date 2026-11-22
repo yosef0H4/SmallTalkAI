@@ -5,7 +5,7 @@
 #Include ..\lib\Logging.ahk
 #Include ..\lib\Typist.ahk
 
-logger := ShellLog(A_Temp . "\simple-stt-typing-smoke.log")
+logger := ShellLog(A_Temp . "\smalltalkai-typing-smoke.log")
 global FinishedSessions := Array()
 typistInstance := Typist(logger, Notice, DeliveryFinished)
 

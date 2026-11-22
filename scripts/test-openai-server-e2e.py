@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real local inference through OpenAI's SDK and Simple STT's own clients.
+"""Real local inference through OpenAI's SDK and SmallTalkAI's own clients.
 
 Requires the openai Python package and installed local model/runtime assets.
 Creates private headless host/client profiles; never contacts OpenAI's cloud.
@@ -26,7 +26,7 @@ BINS = Path(os.environ.get('SIMPLE_STT_TEST_BIN_DIR', str(ROOT / 'target/debug')
 INSTALLED = Path.home() / '.local/share/simple-stt/instances/installed'
 VOICE_RUNTIME = os.environ.get('SIMPLE_STT_TEST_VOICE_RUNTIME', 'sherpa-cuda')
 STT_RUNTIME = os.environ.get('SIMPLE_STT_TEST_STT_RUNTIME', 'parakeet-cuda')
-folder = Path(tempfile.mkdtemp(prefix='simple-stt-openai-e2e-'))
+folder = Path(tempfile.mkdtemp(prefix='smalltalkai-openai-e2e-'))
 folder.chmod(0o700)
 token = secrets.token_urlsafe(32)
 processes = []
@@ -108,11 +108,11 @@ def descendants(parent):
 
 def model_workers(parent):
     return {pid: name for pid, name in descendants(parent).items()
-            if name in {'reader-tts', 'reader-ocr', 'simple-stt-infer'}}
+            if name in {'smalltalkai-tts', 'smalltalkai-ocr', 'smalltalkai-infer'}}
 
 
 def cli(env, *args, success=True):
-    result = subprocess.run([str(BINS / 'simple-stt-linux'), 'media', *args], env=env,
+    result = subprocess.run([str(BINS / 'smalltalkai-linux'), 'media', *args], env=env,
         capture_output=True, text=True, timeout=180)
     if success:
         assert result.returncode == 0, result.stderr
@@ -181,7 +181,7 @@ def main():
     reader['server'] = {'enabled': True, 'listen': f'127.0.0.1:{port}', 'allow_remote': False, 'max_clients': 4}
     host_dir, host_data, host_env = profile('host', reader, app)
     seed_crash_leftovers(host_data)
-    server = launch('server', [str(BINS / 'readerd'), '--config', str(host_data / 'config.json'), 'server'], host_env)
+    server = launch('server', [str(BINS / 'smalltalkai-reader'), '--config', str(host_data / 'config.json'), 'server'], host_env)
     sdk = OpenAI(api_key=token, base_url=url, max_retries=0, timeout=180)
     def ready():
         if server.poll() is not None:
@@ -220,14 +220,14 @@ def main():
     text = f'This is an end to end speech synthesis test. {tts_sentinel}.'
     response = sdk.audio.speech.create(model='kokoro-v1', voice='af_heart', input=text, response_format='wav')
     valid_wav(response.content)
-    first_tts = {pid for pid, name in model_workers(server.pid).items() if name == 'reader-tts'}
+    first_tts = {pid for pid, name in model_workers(server.pid).items() if name == 'smalltalkai-tts'}
     valid_wav(sdk.audio.speech.create(model='kokoro-v1', voice='af_heart', input='A second warm request.', response_format='wav').content)
-    second_tts = {pid for pid, name in model_workers(server.pid).items() if name == 'reader-tts'}
+    second_tts = {pid for pid, name in model_workers(server.pid).items() if name == 'smalltalkai-tts'}
     assert first_tts and first_tts == second_tts, 'TTS did not reuse its warm worker'
     with ThreadPoolExecutor(max_workers=2) as pool:
         for data in pool.map(lambda number: sdk.audio.speech.create(model='kokoro-v1', voice='af_heart', input=f'Concurrent request {number}.', response_format='wav').content, [1, 2]):
             valid_wav(data)
-    assert first_tts == {pid for pid, name in model_workers(server.pid).items() if name == 'reader-tts'}, 'concurrent speech requests duplicated the worker'
+    assert first_tts == {pid for pid, name in model_workers(server.pid).items() if name == 'smalltalkai-tts'}, 'concurrent speech requests duplicated the worker'
     print('PASS SDK speech: real non-silent WAV and warm worker reuse', flush=True)
     chat = sdk.chat.completions.create(model='simple-tts-ocr', messages=[{'role': 'user', 'content': [
         {'type': 'text', 'text': 'Transcribe the image without rewriting.'}, {'type': 'image_url', 'image_url': {'url': encoded}}]}])
@@ -241,11 +241,11 @@ def main():
     with (ROOT / 'fixtures/parakeet-smoke.wav').open('rb') as audio:
         transcript = sdk.audio.transcriptions.create(model='configured-stt', file=audio, language='en').text
     assert len(transcript.strip()) > 4, transcript
-    first_stt = {pid for pid, name in model_workers(server.pid).items() if name == 'simple-stt-infer'}
+    first_stt = {pid for pid, name in model_workers(server.pid).items() if name == 'smalltalkai-infer'}
     with (ROOT / 'fixtures/parakeet-smoke.wav').open('rb') as audio:
         repeated = sdk.audio.transcriptions.create(model='configured-stt', file=audio, language='en').text
     assert transcript == repeated
-    assert first_stt and first_stt == {pid for pid, name in model_workers(server.pid).items() if name == 'simple-stt-infer'}, 'STT worker was duplicated/reloaded'
+    assert first_stt and first_stt == {pid for pid, name in model_workers(server.pid).items() if name == 'smalltalkai-infer'}, 'STT worker was duplicated/reloaded'
     print('PASS SDK multipart STT: real transcription and warm worker reuse', flush=True)
     assert_no_internal_content(host_data)
     remote_reader = copy.deepcopy(reader)
@@ -262,7 +262,7 @@ def main():
     remote_app['speech']['remote_openai_compatible'] = {'base_url': url, 'model': 'configured-stt', 'fallback_to_local': False, 'timeout_ms': 180000}
     client_dir, client_data, client_env = profile('client', remote_reader, remote_app)
     seed_crash_leftovers(client_data)
-    client = launch('client', [str(BINS / 'readerd'), 'daemon', '--no-desktop'], client_env)
+    client = launch('client', [str(BINS / 'smalltalkai-reader'), 'daemon', '--no-desktop'], client_env)
     wait_for((client_data / 'simple-tts.sock').exists, 10, 'headless remote client')
     assert_no_internal_content(client_data)
     output = folder / 'client-speech.wav'
@@ -297,7 +297,7 @@ def main():
     with (ROOT / 'fixtures/parakeet-smoke.wav').open('rb') as audio:
         reloaded = sdk.audio.transcriptions.create(model='configured-stt', file=audio, language='en').text
     assert reloaded == transcript
-    reloaded_workers = {pid for pid, name in model_workers(server.pid).items() if name == 'simple-stt-infer'}
+    reloaded_workers = {pid for pid, name in model_workers(server.pid).items() if name == 'smalltalkai-infer'}
     assert reloaded_workers and first_stt != reloaded_workers, 'STT did not reload after idle exit'
     print('PASS next STT request lazily reloads after idle exit', flush=True)
     assert_no_internal_content(host_data)

@@ -28,7 +28,7 @@ pub fn address(profile: &Path) -> std::io::Result<String> {
         path.strip_prefix(r"\\?\").unwrap_or(&path).to_owned()
     };
     let hash = Sha256::digest(path.trim_end_matches('\\').to_lowercase().as_bytes());
-    Ok(format!(r"\\.\pipe\simple-stt-reader-{hash:x}"))
+    Ok(format!(r"\\.\pipe\smalltalkai-reader-{hash:x}"))
 }
 
 #[cfg(windows)]

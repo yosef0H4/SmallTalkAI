@@ -2,31 +2,31 @@
 
 ## Settings
 
-On Linux, `simple-stt settings` opens or focuses the native Settings window. The
-Windows tray and `runtime\simple-stt-settings.exe` open the same window.
+On Linux, `smalltalkai settings` opens or focuses the native Settings window. The
+Windows tray and `runtime\smalltalkai-settings.exe` open the same window.
 Closing it exits the webview and Settings server while the background app
 continues to run. The native window uses WebKitGTK on Linux and Microsoft Edge
 WebView2 on Windows.
 
 Pass `--browser` to open Settings in an external browser. For a headless
 session, pass `--no-browser` to print the authenticated loopback URL without
-starting a window. Both flags work with `simple-stt settings` on Linux and
-`simple-stt-settings.exe` on Windows. An SSH tunnel can forward the loopback
+starting a window. Both flags work with `smalltalkai settings` on Linux and
+`smalltalkai-settings.exe` on Windows. An SSH tunnel can forward the loopback
 port to a browser on another machine.
 
 ## Media
 
-On Linux, `simple-stt-linux` exposes non-interactive media operations under
-`simple-stt-linux media`. They use the same saved model, voice, device, and provider
+On Linux, `smalltalkai-linux` exposes non-interactive media operations under
+`smalltalkai-linux media`. They use the same saved model, voice, device, and provider
 configuration as the desktop services. These commands do not modify settings.
 
 ```text
-simple-stt-linux media transcribe recording.mp4 [--language english|arabic] [--json]
-simple-stt-ctl media transcribe recording.mp4 [--language english|arabic] [--json]
-simple-stt-linux media speak "Text to read" [--output speech.wav]
-simple-stt-linux media speak --file text.txt [--output speech.wav]
-cat text.txt | simple-stt-linux media speak [--output speech.wav]
-simple-stt-linux media ocr scan.png [--json]
+smalltalkai-linux media transcribe recording.mp4 [--language english|arabic] [--json]
+smalltalkai-ctl media transcribe recording.mp4 [--language english|arabic] [--json]
+smalltalkai-linux media speak "Text to read" [--output speech.wav]
+smalltalkai-linux media speak --file text.txt [--output speech.wav]
+cat text.txt | smalltalkai-linux media speak [--output speech.wav]
+smalltalkai-linux media ocr scan.png [--json]
 ```
 
 Transcription accepts audio or video understood by `ffmpeg`. The CLI converts
@@ -64,16 +64,16 @@ in file names or text remain data.
 
 ## Headless administration
 
-Both `simple-stt-ctl` and `simple-stt-linux` expose the same administration
+Both `smalltalkai-ctl` and `smalltalkai-linux` expose the same administration
 commands. They read and validate the full app or reader JSON configuration
 without starting audio or inference:
 
 ```text
-simple-stt-ctl config [--scope app|reader] path|show|defaults
-simple-stt-ctl config [--scope app|reader] get speech.language
-simple-stt-ctl config [--scope app|reader] set server.enabled true
-simple-stt-ctl config [--scope app|reader] import settings.json
-simple-stt-ctl config [--scope app|reader] edit
+smalltalkai-ctl config [--scope app|reader] path|show|defaults
+smalltalkai-ctl config [--scope app|reader] get speech.language
+smalltalkai-ctl config [--scope app|reader] set server.enabled true
+smalltalkai-ctl config [--scope app|reader] import settings.json
+smalltalkai-ctl config [--scope app|reader] edit
 ```
 
 `set` values must be JSON (`true`, `42`, `null`, objects, arrays, or quoted JSON
@@ -88,11 +88,11 @@ remove, or select assets. Selection always assigns a model and runtime
 explicitly; installation does not change settings:
 
 ```text
-simple-stt-ctl assets list
-simple-stt-ctl assets install kokoro
-simple-stt-ctl assets install tdt_ctc-110m-q8_0.gguf
-simple-stt-ctl assets select tts --model kokoro --runtime sherpa-cpu
-simple-stt-ctl assets remove kokoro
+smalltalkai-ctl assets list
+smalltalkai-ctl assets install kokoro
+smalltalkai-ctl assets install tdt_ctc-110m-q8_0.gguf
+smalltalkai-ctl assets select tts --model kokoro --runtime sherpa-cpu
+smalltalkai-ctl assets remove kokoro
 ```
 
 An asset cannot be removed while it or one of its dependencies is assigned.
@@ -102,12 +102,12 @@ arguments. Set a credential from a pipe or a named environment variable; the CLI
 never prints its value:
 
 ```text
-printf '%s' "$SIMPLE_STT_AI_API_KEY" | simple-stt-ctl credentials set ai --stdin
-simple-stt-ctl credentials set ocr --env OCR_API_KEY
-simple-stt-ctl credentials set stt --env SIMPLE_STT_STT_API_KEY
-simple-stt-ctl credentials list
-simple-stt-ctl credentials remove ai
-simple-stt-ctl credentials generate server --activate
+printf '%s' "$SIMPLE_STT_AI_API_KEY" | smalltalkai-ctl credentials set ai --stdin
+smalltalkai-ctl credentials set ocr --env OCR_API_KEY
+smalltalkai-ctl credentials set stt --env SIMPLE_STT_STT_API_KEY
+smalltalkai-ctl credentials list
+smalltalkai-ctl credentials remove ai
+smalltalkai-ctl credentials generate server --activate
 ```
 
 On a packaged Linux server, `credentials generate server --activate` writes the
@@ -125,7 +125,7 @@ advertises `configured-stt`, `kokoro-v1`, and `simple-tts-ocr`, with feature hin
 so STT discovery does not offer OCR or TTS aliases.
 
 The `stt` credential is independent from the `ai` cleanup credential. The
-legacy `simple-stt-ctl config-show` output includes `reader_read_along`, the
+legacy `smalltalkai-ctl config-show` output includes `reader_read_along`, the
 remote STT provider/fallback/timeout keys, and these numeric-second reader
 budgets: `request_budgets.connect_timeout_secs=3`,
 `request_budgets.queue_timeout_secs=30`,
@@ -153,9 +153,9 @@ networks, including Tailscale, and requires HTTPS for public hosts.
 See [provider client settings research](research/provider-client-settings.md)
 for the source-backed URL and discovery contract.
 
-`simple-stt-ctl serve` starts the installed headless reader API controller in the
+`smalltalkai-ctl serve` starts the installed headless reader API controller in the
 foreground. It does not require the capture service or a desktop session.
 
-`simple-stt-ctl media transcribe` returns only the transcript (or the requested
+`smalltalkai-ctl media transcribe` returns only the transcript (or the requested
 JSON object) on stdout. It shares the configured capture/remote STT path and
 does not type or deliver the result into the active application.

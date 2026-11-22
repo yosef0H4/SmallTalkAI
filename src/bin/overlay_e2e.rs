@@ -13,7 +13,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 #[cfg(target_os = "linux")]
-use simple_stt::capture::overlay::OverlayHandle;
+use smalltalkai::capture::overlay::OverlayHandle;
 
 #[cfg(target_os = "linux")]
 fn shot(name: &str) {
@@ -101,7 +101,7 @@ fn main() {
 
     overlay.hide();
     sleep(300);
-    use simple_stt::localization::{translate, Locale};
+    use smalltalkai::localization::{translate, Locale};
     overlay.set_locale(Locale::Ar);
     for (name, id) in [
         ("ar-loading", "notice.modelLoading"),
@@ -115,7 +115,7 @@ fn main() {
         shot(name);
     }
     overlay.clear_notice();
-    overlay.set_primary(simple_stt::capture::overlay::OverlayPrimary::Transcribing);
+    overlay.set_primary(smalltalkai::capture::overlay::OverlayPrimary::Transcribing);
     overlay.notify_info(
         "النموذج: \u{2066}lemura-arabic-q8_0.gguf\u{2069}",
         Some(Duration::from_secs(5)),
@@ -141,11 +141,11 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 fn render_offscreen() {
-    use simple_stt::capture::overlay::{
+    use smalltalkai::capture::overlay::{
         empty_visualizer_levels, overlay_render, set_visualizer_level, OverlayPrimary,
         RecordingIndicators,
     };
-    use simple_stt::localization::{translate, Locale};
+    use smalltalkai::localization::{translate, Locale};
     let directory = std::env::var("SIMPLE_STT_OVERLAY_SCREENSHOT_DIR")
         .unwrap_or_else(|_| "artifacts/localization/offscreen".into());
     std::fs::create_dir_all(&directory).expect("create screenshot directory");
@@ -153,14 +153,14 @@ fn render_offscreen() {
     set_visualizer_level(&mut waveform, 0.95);
     for locale in [Locale::En, Locale::Ar] {
         let activity =
-            |value: serde_json::Value| simple_stt::reader::activity_text(&value, locale, false);
+            |value: serde_json::Value| smalltalkai::reader::activity_text(&value, locale, false);
         let event = |feature: &str, model: &str, state: &str| {
-            simple_stt::reader::model_event_text(
+            smalltalkai::reader::model_event_text(
                 &serde_json::json!({"feature": feature, "model": model, "language": if feature == "tts" { "en" } else { "ar" }, "event": state}),
                 locale,
             )
         };
-        let read_along = simple_stt::reader::hud_text(&serde_json::json!({"state":"reading","activity":{"phase":"idle","message_id":"idle"},"chunk_text":if locale == Locale::Ar { "هذا هو النص الذي يُقرأ الآن." } else { "This is the sentence being read aloud." },"chunk":1,"chunk_total":6,"read_along_active":true,"next_page_activity":{"phase":"ocr"}}),locale,0).0;
+        let read_along = smalltalkai::reader::hud_text(&serde_json::json!({"state":"reading","activity":{"phase":"idle","message_id":"idle"},"chunk_text":if locale == Locale::Ar { "هذا هو النص الذي يُقرأ الآن." } else { "This is the sentence being read aloud." },"chunk":1,"chunk_total":6,"read_along_active":true,"next_page_activity":{"phase":"ocr"}}),locale,0).0;
         let mut reader_cases = vec![
             ("read-along-next-page", read_along.clone()),
             (
@@ -183,7 +183,7 @@ fn render_offscreen() {
             ),
             (
                 "reader-reading-copy-notice",
-                simple_stt::reader::hud_text(&serde_json::json!({"state":"reading","activity":{"phase":"reading","message_id":"reader.phase.reading"},"chunk_text":if locale == Locale::Ar { "هذا النص هو ما يُقرأ الآن." } else { "This passage remains visible alongside the clipboard notice." },"notice_text":"reader.clipboard_replaced"}),locale,0).0,
+                smalltalkai::reader::hud_text(&serde_json::json!({"state":"reading","activity":{"phase":"reading","message_id":"reader.phase.reading"},"chunk_text":if locale == Locale::Ar { "هذا النص هو ما يُقرأ الآن." } else { "This passage remains visible alongside the clipboard notice." },"notice_text":"reader.clipboard_replaced"}),locale,0).0,
             ),
             (
                 "reader-prewarm",
@@ -231,7 +231,7 @@ fn render_offscreen() {
             ));
         }
         let cases = [
-            ("compact-assigned", OverlayPrimary::Recording, simple_stt::shortcuts::summary(&std::collections::BTreeMap::from([
+            ("compact-assigned", OverlayPrimary::Recording, smalltalkai::shortcuts::summary(&std::collections::BTreeMap::from([
                 ("record".into(), "Meta+Z".into()),
                 ("cancel".into(), "Meta+Ctrl+Z".into()),
                 ("delivery".into(), "Meta+Ctrl+.".into()),
@@ -262,7 +262,7 @@ fn render_offscreen() {
             ("recording-warning", OverlayPrimary::Recording, translate(locale, "notice.microphoneFallback", &[])),
             ("multiline-warning", OverlayPrimary::Hidden, "تعذّر الاتصال بخدمة الصوت.\nتحقق من الميكروفون وأعد المحاولة.\nالملف: \u{2066}/home/user/models/arabic-q8.gguf\u{2069}".into()),
             ("wrapped-warning", OverlayPrimary::Recording, translate(locale, "notice.cleanupTimeout", &[("seconds", "120")])),
-            ("long-mixed-warning", OverlayPrimary::Recording, translate(locale, "error.missingBinary", &[("binary", "\u{2066}/home/user/simple-stt/runtime/arabic-models/lemura-arabic-asr-lite-q8_0.gguf\u{2069}")])),
+            ("long-mixed-warning", OverlayPrimary::Recording, translate(locale, "error.missingBinary", &[("binary", "\u{2066}/home/user/smalltalkai/runtime/arabic-models/lemura-arabic-asr-lite-q8_0.gguf\u{2069}")])),
         ];
         let bindings = [
             ("record", "Meta+Z"),
@@ -275,7 +275,7 @@ fn render_offscreen() {
         .into_iter()
         .map(|(id, chord)| (id.to_owned(), chord.to_owned()))
         .collect();
-        let shortcuts = simple_stt::shortcuts::summary(&bindings, locale);
+        let shortcuts = smalltalkai::shortcuts::summary(&bindings, locale);
         for (name, primary, notice, enabled) in [
             (
                 "reminders-recording",
@@ -384,19 +384,19 @@ fn render_offscreen() {
 
 #[cfg(target_os = "windows")]
 fn main() {
-    use simple_stt::capture::overlay::{OverlayHandle, OverlayPrimary};
+    use smalltalkai::capture::overlay::{OverlayHandle, OverlayPrimary};
     use std::time::Duration;
     let overlay = OverlayHandle::spawn().expect("spawn native tooltip");
     let locale = if std::env::args().any(|arg| arg == "--arabic") {
-        simple_stt::localization::Locale::Ar
+        smalltalkai::localization::Locale::Ar
     } else {
-        simple_stt::localization::Locale::En
+        smalltalkai::localization::Locale::En
     };
     overlay.set_locale(locale);
     if std::env::args().any(|arg| arg == "--reader") {
-        use simple_stt::{localization::Locale, reader, shortcuts};
+        use smalltalkai::{localization::Locale, reader, shortcuts};
         let passage = if locale == Locale::Ar {
-            "هذا النص هو ما يُقرأ الآن. اسم البرنامج Simple STT."
+            "هذا النص هو ما يُقرأ الآن. اسم البرنامج SmallTalkAI."
         } else {
             "Holmes is known for his proficiency with observation and deduction."
         };
@@ -429,8 +429,8 @@ fn main() {
         overlay.hide();
         return;
     }
-    let config = simple_stt::config::AppConfig::default();
-    overlay.set_shortcuts(simple_stt::shortcuts::current(&config, locale), true);
+    let config = smalltalkai::config::AppConfig::default();
+    overlay.set_shortcuts(smalltalkai::shortcuts::current(&config, locale), true);
     overlay.start_recording(0, Default::default());
     println!("recording");
     for index in 0..150 {

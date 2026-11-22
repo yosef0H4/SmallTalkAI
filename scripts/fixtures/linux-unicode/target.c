@@ -52,7 +52,7 @@ int main(int argc, char **argv) {
     result_path = argv[2];
     gtk_init(&argc, &argv);
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(window), "Simple STT Unicode E2E");
+    gtk_window_set_title(GTK_WINDOW(window), "SmallTalkAI Unicode E2E");
     gtk_window_set_default_size(GTK_WINDOW(window), 640, 160);
     GtkWidget *view = gtk_text_view_new();
     target_window = window;
@@ -68,7 +68,7 @@ int main(int argc, char **argv) {
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
     GtkTargetEntry targets[] = {
         {(gchar *)"text/plain;charset=utf-8", 0, 1},
-        {(gchar *)"application/x-simple-stt-e2e", 0, 2},
+        {(gchar *)"application/x-smalltalkai-e2e", 0, 2},
         {(gchar *)"image/png", 0, 3},
     };
     GtkClipboard *clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);

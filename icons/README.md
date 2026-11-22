@@ -1,3 +1,5 @@
 # Icons
 
-Place a branded distribution icon at `icons/simple-stt.ico` before packaging. The AHK development shell falls back to a stock Windows shell icon when the branded icon is absent.
+Linux packages install the `hicolor/` icons. Windows packages use
+`ahk/icons/smalltalkai.ico`. Settings embeds `smalltalkai-titlebar.png` for its
+title bar.

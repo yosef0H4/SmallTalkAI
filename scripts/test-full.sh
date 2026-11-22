@@ -7,7 +7,7 @@ python scripts/verify-settings-frontend.py
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --all-targets
-cargo build --bin simple-stt-settings
+cargo build --bin smalltalkai-settings
 python scripts/test-settings-single-instance.py
 python scripts/test-settings-upgrade.py
 python scripts/test-settings-selection-api.py

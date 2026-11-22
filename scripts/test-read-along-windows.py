@@ -182,7 +182,7 @@ def main():
     server = ThreadingHTTPServer(("127.0.0.1", 0), Fixture)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     app = tk.Tk()
-    app.title("Simple STT private read-along test")
+    app.title("SmallTalkAI private read-along test")
     app.geometry("600x310+360+270")
     if args.fullscreen:
         app.attributes("-fullscreen", True)
@@ -240,7 +240,7 @@ def main():
         app.update()
 
     try:
-        with tempfile.TemporaryDirectory(prefix="simple-stt-read-along-win-", dir=assets.parent if assets else None) as folder:
+        with tempfile.TemporaryDirectory(prefix="smalltalkai-read-along-win-", dir=assets.parent if assets else None) as folder:
             profile = Path(folder) if assets else Path(folder) / "reader"
             profile.mkdir(exist_ok=True)
             config = profile / "config.json"
@@ -249,16 +249,16 @@ def main():
                        SIMPLE_TTS_OCR_API_KEY="desktop-ocr-fixture", SIMPLE_TTS_SPEECH_API_KEY="desktop-tts-fixture", RUST_LOG="info")
             options = dict(env=env, creationflags=subprocess.CREATE_NO_WINDOW)
             defaults = subprocess.run(
-                [binaries / "simple-stt-ctl.exe", "config", "--scope", "reader", "defaults"],
+                [binaries / "smalltalkai-ctl.exe", "config", "--scope", "reader", "defaults"],
                 capture_output=True, check=True, timeout=10, **options,
             )
             settings = json.loads(defaults.stdout)
             if args.playback_device == "preferred":
-                devices = subprocess.run([binaries / "readerd.exe", "list-output-devices"],
+                devices = subprocess.run([binaries / "smalltalkai-reader.exe", "list-output-devices"],
                                          capture_output=True, check=True, timeout=5, **options)
                 settings["playback"]["output_device"] = json.loads(devices.stdout)[0]["id"]
             elif args.playback_device == "missing":
-                settings["playback"]["output_device"] = "wasapi:simple-stt-missing-endpoint-fixture"
+                settings["playback"]["output_device"] = "wasapi:smalltalkai-missing-endpoint-fixture"
             if args.playback_device or args.require_fullscreen_graphics:
                 settings["privacy"]["log_content"] = True
             base = f"http://127.0.0.1:{server.server_port}/v1"
@@ -291,7 +291,7 @@ def main():
 
             def cli(*args, check=True):
                 return subprocess.run(
-                    [binaries / "readerctl.exe", *args], capture_output=True,
+                    [binaries / "smalltalkai-readerctl.exe", *args], capture_output=True,
                     timeout=8, check=check, **options,
                 )
 
@@ -309,7 +309,7 @@ def main():
                 try:
                     crop = profile / "occluded-fullscreen-region.png"
                     subprocess.run(
-                        [binaries / "readerd.exe", "capture-window", str(root), str(os.getpid()),
+                        [binaries / "smalltalkai-reader.exe", "capture-window", str(root), str(os.getpid()),
                          "40", "40", "120", "90", crop],
                         capture_output=True, check=True, timeout=5, **options,
                     )
@@ -323,7 +323,7 @@ def main():
             def next_page():
                 # The Windows reader HUD sends this action through the profile pipe.
                 fingerprint = hashlib.sha256(str(profile.resolve()).lower().encode()).hexdigest()
-                address = r"\\.\pipe\simple-stt-reader-" + fingerprint
+                address = r"\\.\pipe\smalltalkai-reader-" + fingerprint
                 frame = b"\0" + json.dumps({"op": "action", "action": "read-along-next"}).encode()
                 with open(address, "r+b", buffering=0) as pipe:
                     pipe.write(len(frame).to_bytes(4, "little") + frame)
@@ -333,7 +333,7 @@ def main():
 
             with (output / "desktop-read-along.log").open("wb") as log:
                 daemon = subprocess.Popen(
-                    [binaries / "readerd.exe", "daemon", *([] if args.feedback else ["--no-desktop"])],
+                    [binaries / "smalltalkai-reader.exe", "daemon", *([] if args.feedback else ["--no-desktop"])],
                     stdout=log, stderr=log, **options,
                 )
                 try:
@@ -359,7 +359,7 @@ def main():
                             released = time.monotonic()
                             user32.mouse_event(4, 0, 0, 0, 0)
                             phase = "ocr_activity" if args.feedback == "copy-region" else "activity"
-                            assert pump(3, lambda: not picker_ready() and reader_tooltip(binaries / "reader-hud.exe")
+                            assert pump(3, lambda: not picker_ready() and reader_tooltip(binaries / "smalltalkai-reader-hud.exe")
                                         and status()[phase]["phase"] == "recognizing"), status()
                             print(f"PASS {args.feedback} showed OCR progress {1000*(time.monotonic()-released):.0f} ms after release, before OCR returned", flush=True)
                             if args.feedback == "copy-region":
@@ -370,7 +370,7 @@ def main():
                                 assert status()["notice_text"] != "Text copied"
                                 return
                         ocr_response.set()
-                        assert pump(5, lambda: spoken and reader_tooltip(binaries / "reader-hud.exe")
+                        assert pump(5, lambda: spoken and reader_tooltip(binaries / "smalltalkai-reader-hud.exe")
                                     and status()["activity"]["phase"] in ("loading_voice", "synthesizing")), status()
                         assert status()["audio_callback_frames"] == frames
                         speech_response.set()

@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 def measure(binary):
     results=[]
     for _ in range(5):
-        with tempfile.TemporaryDirectory(prefix='simple-stt-settings-memory-') as temp:
+        with tempfile.TemporaryDirectory(prefix='smalltalkai-settings-memory-') as temp:
             env=dict(os.environ,SIMPLE_STT_CONFIG=str(Path(temp)/'config.json'),
                      SIMPLE_STT_RUNTIME_ROOT=str(Path(temp)/'runtime'),XDG_DATA_HOME=str(Path(temp)/'data'))
             process=subprocess.Popen([str(binary.resolve()),'--no-browser'],env=env,cwd=temp,
@@ -39,7 +39,7 @@ def measure(binary):
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--baseline',type=Path,required=True);parser.add_argument('--current',type=Path,default=Path('target/release/simple-stt-settings'));parser.add_argument('--output',type=Path);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--baseline',type=Path,required=True);parser.add_argument('--current',type=Path,default=Path('target/release/smalltalkai-settings'));parser.add_argument('--output',type=Path);args=parser.parse_args()
     baseline=measure(args.baseline);current=measure(args.current);report={'baseline_rss':baseline,'current_rss':current,'delta':current-baseline,'allowance':max(2*1024*1024,int(baseline*.1))}
     print(json.dumps(report,indent=2))
     if args.output:

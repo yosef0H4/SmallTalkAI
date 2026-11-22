@@ -44,9 +44,9 @@ pub fn output_devices() -> Result<Value> {
         .parent()
         .context("Executable has no directory")?
         .join(if cfg!(windows) {
-            "readerd.exe"
+            "smalltalkai-reader.exe"
         } else {
-            "readerd"
+            "smalltalkai-reader"
         });
     let mut command = Command::new(executable);
     #[cfg(windows)]
@@ -75,9 +75,9 @@ fn command_in_profile(
         .parent()
         .context("Executable has no directory")?
         .join(if cfg!(windows) {
-            "readerctl.exe"
+            "smalltalkai-readerctl.exe"
         } else {
-            "readerctl"
+            "smalltalkai-readerctl"
         });
     anyhow::ensure!(executable.is_file(), "Reading components are not installed");
     initialize()?;

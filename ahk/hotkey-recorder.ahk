@@ -9,45 +9,70 @@ if A_Args.Length < 1 || A_Args.Length > 2
 
 outputPath := A_Args[1]
 allowCapsLock := A_Args.Length = 2 && A_Args[2] = "--allow-caps-lock"
-input := InputHook("L1")
-input.KeyOpt("{All}", "E")
-input.KeyOpt("{LCtrl}{RCtrl}{LAlt}{RAlt}{LShift}{RShift}{LWin}{RWin}{CapsLock}", "-E")
-; Capture CapsLock in this input hook so holding it cannot flood the hotkey dispatcher.
+modifiers := ["CapsLock", "LCtrl", "RCtrl", "LAlt", "RAlt", "LShift", "RShift", "LWin", "RWin"]
+modifierNames := Map()
+for modifier in modifiers
+    modifierNames[GetKeyVK(modifier)] := modifier
+held := Map()
+capsChord := ""
+input := InputHook("L0")
+input.KeyOpt("{All}", "N")
 input.KeyOpt("{CapsLock}", "S")
-if allowCapsLock {
-    input.KeyOpt("{CapsLock}", "N")
-    input.OnKeyUp := CaptureCapsUp
-}
+input.OnKeyDown := CaptureKeyDown
+input.OnKeyUp := CaptureKeyUp
 input.Start()
 input.Wait()
+ExitApp 1
 
-key := input.EndKey
-if key = "" || key = "Escape"
-    ExitApp 1
-
-parts := Array()
-for modifier in ["CapsLock", "LCtrl", "RCtrl", "LAlt", "RAlt", "LShift", "RShift", "LWin", "RWin"] {
-    if GetKeyState(modifier, "P")
-        parts.Push(modifier)
-}
-parts.Push(StrUpper(key))
-label := ""
-for index, part in parts
-    label .= (index > 1 ? "+" : "") . part
-
-try HotkeySpec.Parse(label)
-catch
-    ExitApp 3
-
-try FileDelete(outputPath)
-FileAppend(label, outputPath, "UTF-8")
-ExitApp 0
-
-CaptureCapsUp(hook, *) {
-    global outputPath
-    if hook.InProgress {
-        try FileDelete(outputPath)
-        FileAppend("CapsLock", outputPath, "UTF-8")
-        ExitApp 0
+CaptureKeyDown(hook, vk, sc) {
+    global modifierNames, modifiers, held, capsChord
+    key := GetKeyName(Format("vk{:02X}sc{:03X}", vk, sc))
+    if key = "Escape"
+        ExitApp 1
+    if capsChord != "" || key = ""
+        return
+    if modifierNames.Has(vk) {
+        held[modifierNames[vk]] := true
+        return
     }
+    if held.Count = 0
+        FinishCapture(StrUpper(key), 4)
+    ; Read the ordered hook events before stopping the hook, which suppresses Caps Lock.
+    prefix := ""
+    for modifier in modifiers {
+        if held.Has(modifier)
+            prefix .= modifier . "+"
+    }
+    label := prefix . StrUpper(key)
+    try HotkeySpec.Parse(label)
+    catch
+        ExitApp 3
+    if held.Has("CapsLock")
+        capsChord := label
+    else
+        FinishCapture(label)
+}
+
+CaptureKeyUp(hook, vk, sc) {
+    global modifierNames, held, capsChord, allowCapsLock
+    if !modifierNames.Has(vk)
+        return
+    modifier := modifierNames[vk]
+    if !held.Has(modifier)
+        return
+    held.Delete(modifier)
+    if modifier = "CapsLock" && capsChord != ""
+        FinishCapture(capsChord)
+    if held.Count = 0 {
+        if modifier = "CapsLock" && allowCapsLock
+            FinishCapture("CapsLock")
+        FinishCapture(modifier = "CapsLock" ? "Caps Lock" : modifier, 4)
+    }
+}
+
+FinishCapture(label, exitCode := 0) {
+    global outputPath
+    try FileDelete(outputPath)
+    FileAppend(label, outputPath, "UTF-8")
+    ExitApp exitCode
 }

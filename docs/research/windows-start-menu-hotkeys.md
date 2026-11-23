@@ -29,6 +29,8 @@ On a private Windows desktop, the real AutoHotkey publisher and native overlay r
 
 The Windows Settings recorder had its own CapsLock hotkey pair. Its down callback returned immediately, and shortcut capture excluded CapsLock as an ending key. Repeats could therefore reach AutoHotkeyâ€™s hotkey rate counter while capture kept waiting. The helper now captures CapsLock with its existing InputHook, suppresses the system toggle, and reads the physical modifier state when constructing the shortcut. A CapsLock release completes the capture only when Settings allows the standalone key. [AutoHotkey InputHook key options and callbacks](https://github.com/AutoHotkey/AutoHotkeyDocs/blob/v2/docs/lib/InputHook.htm#KeyOpt), [AutoHotkey hotkey dispatch](https://github.com/AutoHotkey/AutoHotkey/blob/v2.0/source/hotkey.cpp#L762-L825).
 
-An isolated callback check confirmed that the recorder writes bare CapsLock only when the requested Settings slot allows it.
+The initial InputHook implementation could lose Caps Lock after the letter ended capture. In a Windows test, Caps Lock+C reached the recorder as C while the post-capture Caps Lock state was up. The recorder now builds the chord from ordered key-down and key-up events. A lone key produces an inline warning that names the detected key.
+
+An isolated Windows Settings test recorded Caps Lock+C for Copy screen text and Caps Lock+W for Read selection, then saved and reloaded both bindings. It also verified the warning for C alone, standalone Caps Lock for Show shortcuts, and Escape cancellation.
 
 The recorder also outlived Settings when its window closed during capture. A native headless reproduction left the AutoHotkey child running on the baseline. After attaching the recorder to the existing Windows kill-on-close job, the same test stopped the child when Settings exited.

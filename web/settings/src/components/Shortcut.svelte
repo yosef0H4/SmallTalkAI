@@ -21,17 +21,24 @@
   }
   let dialog: HTMLDialogElement;
   let controller: AbortController | undefined;
+  let unmodifiedKey = $state("");
   onDestroy(() => controller?.abort());
   async function record() {
+    unmodifiedKey = "";
     controller = new AbortController();
     dialog.showModal();
     await run(async () => {
       try {
-        const result = await api<{ hotkey: string }>(
+        const result = await api<{ hotkey: string } | { unmodified_key: string } | { cancelled: true }>(
           "/api/hotkey-capture",
           { allow_caps_lock: path === "general.show_shortcuts_hotkey" && get("general.show_shortcuts_mode") === "hold" },
           controller?.signal,
         );
+        if ("unmodified_key" in result) {
+          unmodifiedKey = result.unmodified_key;
+          return;
+        }
+        if ("cancelled" in result) return;
         if (
           result.hotkey.toLowerCase() !== "none" && [
             ...hotkeys.map(([p]) => [p, get(p)]),
@@ -71,9 +78,20 @@
       onclick={() => change("None")}
     />
   </div>
+  {#if unmodifiedKey}
+    <p class="shortcut-warning" role="status">{t("ui.shortcut_modifier_required", { key: unmodifiedKey })}</p>
+  {/if}
 </div>
 <dialog bind:this={dialog} oncancel={() => controller?.abort()}>
   <Icon name="keyboard" size={28} />
   <h2>{t("ui.press_your_shortcut.64a18e")}</h2>
   <p>{t("ui.escape_to_cancel.a136d0")}</p>
 </dialog>
+
+<style>
+  .shortcut-warning {
+    grid-column: 1 / -1;
+    margin: 6px 0 0;
+    font-size: 0.875rem;
+  }
+</style>

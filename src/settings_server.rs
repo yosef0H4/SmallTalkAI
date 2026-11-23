@@ -745,12 +745,8 @@ fn hotkey_capture_response(
 ) -> Result<Response<std::io::Cursor<Vec<u8>>>> {
     #[cfg(windows)]
     {
-        let hotkey = capture_hotkey_with_ahk(_allow_caps_lock)?;
-        Ok(json_response(
-            StatusCode(200),
-            &json!({"hotkey": hotkey}),
-            state,
-        ))
+        let result = capture_hotkey_with_ahk(_allow_caps_lock)?;
+        Ok(json_response(StatusCode(200), &result, state))
     }
     #[cfg(not(windows))]
     {
@@ -763,7 +759,7 @@ fn hotkey_capture_response(
 }
 
 #[cfg(windows)]
-fn capture_hotkey_with_ahk(allow_caps_lock: bool) -> Result<String> {
+fn capture_hotkey_with_ahk(allow_caps_lock: bool) -> Result<Value> {
     let (runtime, script) = locate_hotkey_recorder()?;
     let output = std::env::temp_dir().join(format!(
         "smalltalkai-hotkey-{}-{}.txt",
@@ -789,15 +785,23 @@ fn capture_hotkey_with_ahk(allow_caps_lock: bool) -> Result<String> {
         })
         .context("binding the shortcut recorder to Settings")?;
     let status = child.wait().context("waiting for the shortcut recorder")?;
-    anyhow::ensure!(status.success(), "shortcut recording was cancelled");
-    let hotkey = fs::read_to_string(&output)
+    match status.code() {
+        Some(1) => return Ok(json!({"cancelled": true})),
+        Some(0 | 4) => {}
+        _ => anyhow::bail!("shortcut recorder exited with {status}"),
+    }
+    let key = fs::read_to_string(&output)
         .context("reading the recorded shortcut")?
         .trim_start_matches('\u{feff}')
         .trim()
         .to_owned();
     let _ = fs::remove_file(output);
-    anyhow::ensure!(!hotkey.is_empty(), "shortcut recording was cancelled");
-    Ok(hotkey)
+    anyhow::ensure!(!key.is_empty(), "shortcut recorder did not return a key");
+    if status.success() {
+        Ok(json!({"hotkey": key}))
+    } else {
+        Ok(json!({"unmodified_key": key}))
+    }
 }
 
 #[cfg(windows)]

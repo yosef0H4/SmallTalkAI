@@ -48,6 +48,7 @@ const f = require('./settings-fixture.cjs');
       .getByText('Compatible NVIDIA GPUs only. Can be faster. Uses more disk space and can use more memory.',{exact:true}).waitFor();
     await runtimeList.getByRole('option',{ name: 'Vulkan', exact: true }).click();
     await choose('stt.en.model','English Q8',/English Q8/);
+    await choose('stt.en.device','CPU',/^CPU$/);
     await choose('stt.en.device','GPU',/^GPU$/);
     config=await draft();
     assert.equal(config.speech.language_models.en,'english-q8.gguf');

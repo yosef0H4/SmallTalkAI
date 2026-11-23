@@ -78,6 +78,31 @@ helpManager.DisableBindings()
 if capsController.count != 0
     Fail("shared CapsLock controller should unregister all bindings")
 
+releaseManager := HotkeyManager(Down, Up, logger, capsController)
+releaseManager.Configure("CapsLock+F24", true, "preserve_tap")
+capsController.HandleCapsDown()
+beforeDown := DownCount
+beforeUp := UpCount
+releaseManager.WaitForKeyRelease()
+releaseManager.HandleUp()
+if DownCount != beforeDown + 1 || UpCount != beforeUp + 1
+    Fail("physical release should end a chord once even when its up hotkey is missing")
+capsController.Consume()
+capsController.HandleCapsUp()
+releaseManager.DisableBindings()
+
+capsController.ConfigureHint("Ctrl+F24", "preserve_tap", "shortcut-expiry-test")
+capsController.ShowHint()
+hintHwnd := capsController.hintWindow.Hwnd
+hintLease := DllCall("GetPropW", "ptr", hintHwnd, "str", "SmallTalkAIShortcutHold", "ptr")
+tick := DllCall("GetTickCount64", "uint64")
+if hintLease <= tick || hintLease > tick + 600
+    Fail("shortcut hint must publish a bounded deadline")
+capsController.RefreshHint()
+if DllCall("GetPropW", "ptr", hintHwnd, "str", "SmallTalkAIShortcutHold", "ptr")
+    Fail("shortcut hint should clear if the key was released without an up callback")
+capsController.ConfigureHint("None", "preserve_tap", "")
+
 screenshotNotice := Map(
     "kind", "notice",
     "session_id", 42,

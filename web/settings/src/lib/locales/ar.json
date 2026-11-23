@@ -394,7 +394,7 @@
   "module.install_runtime_first": "ثبّت بيئة تشغيل أولًا.",
   "module.show_runtimes": "بيئات التشغيل",
   "module.nvidia": "إنفيديا",
-  "module.processor": "المعالج",
+  "module.processor": "CPU",
   "module.recommendation.nvidia_driver_detected": "موصى به لبطاقة إنفيديا لديك.",
   "module.recommendation.vulkan_cpu_gpu": "يدعم المعالج وبطاقة الرسوميات.",
   "module.recommendation.small_capture_cpu": "موصى به للقطات الصغيرة والسريعة.",

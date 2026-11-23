@@ -259,7 +259,7 @@ if '"*CapsLock & "' in hotkeys_ahk:
     errors.append("CapsLock custom combination must not prepend wildcard; combinations already wildcard-match")
 need("ahk/lib/TabProtocol.ahk", 'StrReplace(value . "", "\\", "\\\\")', 'case "\\": out .= "\\"', "Loop 20", "unable to read helper response after retry")
 need("ahk/lib/Utils.ahk", 'DllCall("advapi32\\SystemFunction036"')
-need("ahk/hotkey-recorder.ahk", "#Requires AutoHotkey v2.0", "#SingleInstance Force", '#Include lib\\Utils.ahk', 'InputHook("L1")', 'Hotkey("*CapsLock", CaptureCapsDown, "On")', 'Hotkey("*CapsLock up", CaptureCapsUp, "On")', 'modifier = "CapsLock" && capsHeld', "HotkeySpec.Parse")
+need("ahk/hotkey-recorder.ahk", "#Requires AutoHotkey v2.0", "#SingleInstance Force", '#Include lib\\Utils.ahk', 'InputHook("L1")', 'input.KeyOpt("{CapsLock}", "S")', 'input.OnKeyUp := CaptureCapsUp', 'GetKeyState(modifier, "P")', "HotkeySpec.Parse")
 typist = need("ahk/lib/Typist.ahk", "SendText(", "paced_typing_enabled", "TypingDelay", "TransitionFactor", "BoundaryFactor", "GetFinger", "ClipboardAll()", 'A_Clipboard := this.text', 'deliveryMode != "smart_paste"', 'SendEvent("{Shift down}{Insert}{Shift up}")', 'Send("^+v")', 'Send("^v")', "RestoreClipboardIfOwned", "GetClipboardSequenceNumber", "WinActive(\"A\") != this.targetWindow", "AnyPhysicalModifierDown")
 need("ahk/lib/Typist.ahk", "CaptureEditPasteProbe", "SendMessageTimeoutW", "submitted_unverified", "pasteVerified")
 forbid("ahk/lib/Typist.ahk", "Sleep(60)", "SetTimer(this.timer, -400)")

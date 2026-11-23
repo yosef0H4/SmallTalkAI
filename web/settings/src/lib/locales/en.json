@@ -394,7 +394,7 @@
   "module.install_runtime_first": "Install a runtime first.",
   "module.show_runtimes": "View runtimes",
   "module.nvidia": "NVIDIA",
-  "module.processor": "Processor",
+  "module.processor": "CPU",
   "module.recommendation.nvidia_driver_detected": "Recommended for your NVIDIA graphics.",
   "module.recommendation.vulkan_cpu_gpu": "Supports CPU and GPU.",
   "module.recommendation.small_capture_cpu": "Recommended for quick, small captures.",

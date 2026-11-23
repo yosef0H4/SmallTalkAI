@@ -778,9 +778,17 @@ fn capture_hotkey_with_ahk(allow_caps_lock: bool) -> Result<String> {
     if allow_caps_lock {
         command.arg("--allow-caps-lock");
     }
-    let status = command
-        .status()
+    let mut child = command
+        .spawn()
         .context("starting the AutoHotkey shortcut recorder")?;
+    // Release the recorder's global input hook if the Settings process exits.
+    let _job = reader_core::windows_job::Job::attach(&child)
+        .inspect_err(|_| {
+            let _ = child.kill();
+            let _ = child.wait();
+        })
+        .context("binding the shortcut recorder to Settings")?;
+    let status = child.wait().context("waiting for the shortcut recorder")?;
     anyhow::ensure!(status.success(), "shortcut recording was cancelled");
     let hotkey = fs::read_to_string(&output)
         .context("reading the recorded shortcut")?

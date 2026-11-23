@@ -38,7 +38,7 @@ class HotkeySpec {
         }
         down := "$*" . symbols . finalKey
         up := down . " up"
-        return Map("label", display, "down", down, "up", up, "required", required, "uses_capslock", usesCapsLock)
+        return Map("label", display, "down", down, "up", up, "required", required, "uses_capslock", usesCapsLock, "key", finalKey)
     }
 
     static NormalizeModifier(value) {
@@ -117,19 +117,21 @@ class CapsLockTapController {
         this.capsPending := false
         this.capsConsumed := false
         this.capslockBehavior := "preserve_tap"
-        this.capsDownCallback := ObjBindMethod(this, "HandleCapsDown")
+        this.capsDownCallback := ObjBindMethod(this, "WaitForCapsRelease")
         this.capsUpCallback := ObjBindMethod(this, "HandleCapsUp")
         this.hintTimer := ObjBindMethod(this, "ShowHint")
+        this.hintRefreshTimer := ObjBindMethod(this, "RefreshHint")
         this.hintWindow := ""
         this.hintWake := ""
         this.hintOnCaps := false
+        this.hintKey := ""
     }
 
     Register(capslockBehavior) {
         this.capslockBehavior := capslockBehavior
         this.count += 1
         if !this.installed {
-            Hotkey("*CapsLock", this.capsDownCallback, "On")
+            Hotkey("*CapsLock", this.capsDownCallback, "On T1 B0")
             Hotkey("*CapsLock up", this.capsUpCallback, "On")
             this.installed := true
         }
@@ -167,17 +169,34 @@ class CapsLockTapController {
         if enabled
             this.capslockBehavior := capslockBehavior
         this.hintOnCaps := bareCaps
+        this.hintKey := enabled ? Trim(StrSplit(label, "+").Pop()) : ""
     }
 
     ShowHint() {
         if IsObject(this.hintWindow) && (!this.hintOnCaps || this.capsPending) {
-            DllCall("SetPropW", "ptr", this.hintWindow.Hwnd, "str", "SmallTalkAIShortcutHold", "ptr", 1)
-            this.WakeOverlay()
+            this.PublishHint()
+            SetTimer(this.hintRefreshTimer, 100)
         }
+    }
+
+    RefreshHint() {
+        if !IsObject(this.hintWindow) || !GetKeyState(this.hintKey, "P") {
+            this.HideHint()
+            return
+        }
+        this.PublishHint()
+    }
+
+    PublishHint() {
+        ; The overlay can expire the hint while an AutoHotkey dialog blocks callbacks.
+        deadline := DllCall("GetTickCount64", "uint64") + 600
+        DllCall("SetPropW", "ptr", this.hintWindow.Hwnd, "str", "SmallTalkAIShortcutHold", "ptr", deadline)
+        this.WakeOverlay()
     }
 
     HideHint() {
         SetTimer(this.hintTimer, 0)
+        SetTimer(this.hintRefreshTimer, 0)
         if IsObject(this.hintWindow) {
             DllCall("RemovePropW", "ptr", this.hintWindow.Hwnd, "str", "SmallTalkAIShortcutHold", "ptr")
             this.WakeOverlay()
@@ -194,6 +213,13 @@ class CapsLockTapController {
 
     Consume() {
         this.capsConsumed := true
+    }
+
+    WaitForCapsRelease(*) {
+        this.HandleCapsDown()
+        ; Keep this hotkey's single thread occupied so repeats cannot start new callbacks.
+        KeyWait("CapsLock")
+        this.HandleCapsUp()
     }
 
     HandleCapsDown(*) {
@@ -234,7 +260,7 @@ class HotkeyManager {
         this.capslockBehavior := "preserve_tap"
         this.capsRegistered := false
         this.releaseStops := true
-        this.downCallback := ObjBindMethod(this, "HandleDown")
+        this.downCallback := ObjBindMethod(this, "WaitForKeyRelease")
         this.upCallback := ObjBindMethod(this, "HandleUp")
         this.capsContextCallback := ObjBindMethod(this, "CapsContext")
     }
@@ -260,7 +286,7 @@ class HotkeyManager {
             HotIf(this.capsContextCallback)
         }
         try {
-            Hotkey(this.spec["down"], this.downCallback, "On")
+            Hotkey(this.spec["down"], this.downCallback, "On T1 B0")
             Hotkey(this.spec["up"], this.upCallback, "On")
         } finally {
             HotIf()
@@ -300,6 +326,16 @@ class HotkeyManager {
 
     CapsContext(*) {
         return this.recording || this.capsController.capsPending
+    }
+
+    WaitForKeyRelease(*) {
+        spec := this.spec
+        if !IsObject(spec)
+            return
+        this.HandleDown()
+        KeyWait(spec["key"])
+        if this.spec = spec
+            this.HandleUp()
     }
 
     HandleDown(*) {

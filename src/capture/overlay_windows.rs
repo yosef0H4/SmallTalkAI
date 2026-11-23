@@ -20,6 +20,7 @@ use windows_sys::Win32::Graphics::Gdi::{
     GetStockObject, MonitorFromPoint, DEFAULT_GUI_FONT, HFONT, LOGFONTW, MONITORINFO,
     MONITOR_DEFAULTTONEAREST,
 };
+use windows_sys::Win32::System::SystemInformation::GetTickCount64;
 use windows_sys::Win32::System::Threading::{
     CreateEventW, SetEvent, WaitForSingleObject, INFINITE,
 };
@@ -190,9 +191,7 @@ fn overlay_thread(
         }
         pump_messages();
         let publisher = unsafe { FindWindowW(std::ptr::null(), hint_window.as_ptr()) };
-        state.shortcuts_held = !publisher.is_null()
-            && !unsafe { GetPropW(publisher, windows_sys::w!("SmallTalkAIShortcutHold")) }
-                .is_null();
+        state.update_shortcut_hold(publisher);
         state.set_level(f32::from_bits(latest_level.load(Ordering::Relaxed)));
         state.tick();
         let timeout = if state.should_render() || (!reader && state.shortcuts_held) {
@@ -284,6 +283,14 @@ impl TooltipState {
         if self.content.primary == OverlayPrimary::Recording {
             self.target_level = level.clamp(0.0, 1.0);
         }
+    }
+
+    fn update_shortcut_hold(&mut self, publisher: HWND) {
+        self.shortcuts_held = !publisher.is_null()
+            && unsafe {
+                GetPropW(publisher, windows_sys::w!("SmallTalkAIShortcutHold")) as u64
+                    > GetTickCount64()
+            };
     }
 
     fn should_render(&self) -> bool {
@@ -704,6 +711,75 @@ mod tests {
         state.tick();
         assert_ne!(unsafe { IsWindowVisible(state.hwnd) }, 0);
         state.handle_command(WindowsCommand::Update(OverlayCommand::Hide));
+    }
+
+    #[test]
+    fn shortcut_tooltip_expires_without_a_release_callback() {
+        use super::*;
+        let mut state = TooltipState::new();
+        let publisher = unsafe {
+            CreateWindowExW(
+                0,
+                windows_sys::w!("Static"),
+                std::ptr::null(),
+                WS_POPUP,
+                0,
+                0,
+                1,
+                1,
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                std::ptr::null(),
+            )
+        };
+        assert!(!publisher.is_null());
+        state.handle_command(WindowsCommand::Update(OverlayCommand::SetShortcuts(
+            "[CapsLock][S]".into(),
+            false,
+        )));
+        let hold_property = windows_sys::w!("SmallTalkAIShortcutHold");
+        let deadline = unsafe { GetTickCount64() } + 350;
+        assert_ne!(
+            unsafe { SetPropW(publisher, hold_property, deadline as usize as HANDLE) },
+            0
+        );
+        state.update_shortcut_hold(publisher);
+        state.tick();
+        let tooltip = state.hwnd;
+        let initially_visible = !tooltip.is_null() && unsafe { IsWindowVisible(tooltip) } != 0;
+
+        thread::sleep(Duration::from_millis(375));
+        state.update_shortcut_hold(publisher);
+        state.tick();
+        let expired = state.hwnd.is_null() && unsafe { IsWindow(tooltip) } == 0;
+        let stale_marker_remained = !unsafe { GetPropW(publisher, hold_property) }.is_null();
+
+        assert_ne!(
+            unsafe {
+                SetPropW(
+                    publisher,
+                    hold_property,
+                    (GetTickCount64() + 350) as usize as HANDLE,
+                )
+            },
+            0,
+        );
+        state.update_shortcut_hold(publisher);
+        state.tick();
+        let reopened = !state.hwnd.is_null() && unsafe { IsWindowVisible(state.hwnd) } != 0;
+        state.handle_command(WindowsCommand::Update(OverlayCommand::Hide));
+        unsafe { DestroyWindow(publisher) };
+
+        assert!(
+            initially_visible,
+            "a current hold displays a native tooltip"
+        );
+        assert!(
+            stale_marker_remained && expired,
+            "a stalled publisher cannot keep the tooltip open"
+        );
+        assert!(reopened, "the overlay can display the next hold");
     }
 
     #[test]

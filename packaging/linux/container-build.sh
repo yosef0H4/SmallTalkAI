@@ -40,6 +40,7 @@ ln -s ../lib/smalltalkai/smalltalkai-ctl "$stage/usr/bin/smalltalkai-ctl"
 for binary in smalltalkai-linux smalltalkai-capture smalltalkai-infer smalltalkai-ctl smalltalkai-settings smalltalkai-settings-window smalltalkai-reader smalltalkai-readerctl smalltalkai-tts smalltalkai-ocr smalltalkai-reader-hud; do
   install -m 0755 "$CARGO_TARGET_DIR/release/$binary" "$app/$binary"
 done
+"$app/smalltalkai-ctl" assets stage-bundled "$app/bundled-runtimes"
 install -m 0755 resources/bin/smalltalkai-paste "$app/smalltalkai-paste"
 install -D -m 0644 fixtures/parakeet-smoke.wav "$app/fixtures/parakeet-smoke.wav"
 install -D -m 0644 fixtures/asr/arabic-sa.wav "$app/fixtures/asr/arabic-sa.wav"

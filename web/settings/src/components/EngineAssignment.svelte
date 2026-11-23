@@ -3,7 +3,7 @@
  import {localVoiceOptions,matchesSupertonicVoice} from '../lib/voices';
  import ModelTest from './ModelTest.svelte';
  import {moduleSearchText} from '../lib/search';
- import {runtimeLabel} from '../lib/module-labels';
+ import {runtimeHardware, runtimeLabel} from '../lib/module-labels';
  import IconButton from './IconButton.svelte';
  import Help from './Help.svelte';
  import RangeInput from './RangeInput.svelte';
@@ -12,15 +12,17 @@
  import {t} from '../lib/i18n';
  import {notice} from '../lib/state.svelte';
  let {feature,binding,language='',path,onchange}:{feature:Feature;binding:Binding;language?:string;path:string;onchange:(binding:Binding)=>void}=$props();
- const runtime=$derived(modules.runtimes.find(r=>r.id===binding.runtime));
- const runtimes=$derived([{value:'',label:'None'},...modules.runtimes.filter(r=>r.feature===feature&&r.installed).sort((a,b)=>Number(!!b.recommended)-Number(!!a.recommended)||a.label.localeCompare(b.label)).map(r=>({value:r.id,label:runtimeLabel(r),meta:r.label,search:moduleSearchText(r,modules.models,modules.runtimes,modules.assets?.assets,false)}))]);
- const models=$derived([{value:'',label:'None'},...modules.models.filter(m=>m.feature===feature&&m.installed&&modules.runtimes.some(r=>r.feature===feature&&r.installed&&r.engine===m.engine)&&(!binding.runtime||(runtime?.installed&&m.engine===runtime.engine))&&(!language||!m.languages.length||m.languages.includes(language))).sort((a,b)=>Number(b.recommended)-Number(a.recommended)||a.label.localeCompare(b.label)).map(m=>({value:m.id,label:m.label,search:moduleSearchText(m,modules.models,modules.runtimes,modules.assets?.assets,false)}))]);
+ const defaultRuntime=$derived(modules.runtimes.find(r=>r.feature===feature&&r.default));
+ const runtimeId=$derived(binding.runtime||defaultRuntime?.id||'');
+ const runtime=$derived(modules.runtimes.find(r=>r.id===runtimeId));
+ const runtimes=$derived([...(defaultRuntime?[]:[{value:'',label:'None'}]),...modules.runtimes.filter(r=>r.feature===feature&&r.installed).sort((a,b)=>Number(!!b.recommended)-Number(!!a.recommended)||a.label.localeCompare(b.label)).map(r=>({value:r.id,label:runtimeLabel(r),meta:[runtimeHardware(r), r.backend === 'cuda' ? t('module.runtime.cuda_tradeoff') : ''].filter(Boolean).join(' '),search:moduleSearchText(r,modules.models,modules.runtimes,modules.assets?.assets,false)}))]);
+ const models=$derived([{value:'',label:'None'},...modules.models.filter(m=>m.feature===feature&&m.installed&&modules.runtimes.some(r=>r.feature===feature&&r.installed&&r.engine===m.engine)&&(!runtimeId||(runtime?.installed&&m.engine===runtime.engine))&&(!language||!m.languages.length||m.languages.includes(language))).sort((a,b)=>Number(b.recommended)-Number(a.recommended)||a.label.localeCompare(b.label)).map(m=>({value:m.id,label:m.label,search:moduleSearchText(m,modules.models,modules.runtimes,modules.assets?.assets,false)}))]);
  async function refresh(){try{await refreshModules();}catch(error){notice(t('ui.operation_failed.c4e6ed'),'error',String(error));}}
  function changeRuntime(value:string){const r=modules.runtimes.find(r=>r.id===value);const model=modules.models.find(m=>m.id===binding.model);const clear=!!(r&&model&&r.engine!==model.engine);onchange({...binding,runtime:value||null,model:clear?null:binding.model,voice:clear?null:binding.voice,steps:clear?null:binding.steps,lowercase:clear?false:binding.lowercase,currency_words:binding.currency_words,clean_text:binding.clean_text,device:r?.backend==='cpu'?'cpu':binding.device});}
  const voices=$derived(localVoiceOptions(binding.model));
 </script>
 <div class="engine-assignment" data-module={feature} data-language={language||'single'}>
- <Combo label="module.runtime" path={`${path}.runtime`} value={binding.runtime||''} items={runtimes} unavailable onselect={changeRuntime}>
+ <Combo label="module.runtime" path={`${path}.runtime`} value={runtimeId} items={runtimes} unavailable onselect={changeRuntime}>
  {#snippet extra()}<IconButton icon="refresh" label="module.refresh" onclick={refresh}/>{/snippet}
  </Combo>
  {#if !modules.runtimes.some(r=>r.feature===feature&&r.installed)}<p class="inline-status">{t('module.install_runtime_first')}</p>{/if}

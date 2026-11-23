@@ -60,7 +60,10 @@
       .find(entry => entry.id === id && entry.feature === feature);
     if (!entry || entry.installed) return;
     try {
-      if (entry.asset) await api("/api/asset-action", { action: "install", id: entry.asset });
+      const managedAsset = kind === "runtime"
+        ? modules.runtimes.find(runtime => runtime.id === id && runtime.feature === feature)?.action_asset ?? entry.asset
+        : entry.asset;
+      if (managedAsset) await api("/api/asset-action", { action: "install", id: managedAsset });
       else if (kind === "model" && ui.state?.service_online) await download(id);
       await refreshModules();
     } catch (error) {
@@ -87,6 +90,21 @@
       current.models[index] = id;
     }
     if (await persist(current)) void queue(id, selection, feature);
+  }
+
+  async function cancelRuntime(id: string) {
+    const feature = features[index];
+    const runtime = modules.runtimes.find(entry => entry.id === id && entry.feature === feature);
+    const asset = runtime?.action_asset ?? runtime?.asset;
+    if (!asset) return;
+    try {
+      await api("/api/asset-action", { action: "cancel", id: asset });
+      const fallback = modules.runtimes.find(entry => entry.feature === feature && entry.default);
+      if (draft.runtimes[index] === id && fallback) await choose(fallback.id);
+      await refreshModules();
+    } catch (error) {
+      notice(t("assets.failed"), "error", String(error));
+    }
   }
 
   async function applyDraft() {
@@ -177,7 +195,7 @@
         {:else}
           <p>{t(sharedRuntime ? "setup.shared_runtime_help" : kind === "runtime" ? "setup.choose_runtime" : "setup.choose_model")}</p>
           <Models setup={{ feature: features[index], kind, engine: kind === "model" ? selectedRuntime?.engine : undefined,
-            selected: (kind === "runtime" ? draft.runtimes : draft.models)[index], choose, busy }} />
+            selected: (kind === "runtime" ? draft.runtimes : draft.models)[index], choose, cancelRuntime, busy }} />
         {/if}
       </div>
     </div>

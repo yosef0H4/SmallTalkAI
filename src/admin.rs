@@ -88,6 +88,10 @@ pub enum ConfigCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum AssetCommand {
+    #[command(hide = true)]
+    StageBundled {
+        directory: PathBuf,
+    },
     /// JSON inventory includes stable IDs, dependencies, install status and assignments.
     List,
     /// Wait for verified installation, including dependencies. Ctrl+C cancels safely.
@@ -603,6 +607,7 @@ fn generated_server_token(existing: Option<&str>, replace: bool) -> String {
 
 fn assets(command: AssetCommand) -> Result<()> {
     match command {
+        AssetCommand::StageBundled { directory } => crate::assets::stage_bundled(&directory),
         AssetCommand::List => {
             let config = load_app_config()?;
             let root = crate::assets::root();
@@ -614,7 +619,7 @@ fn assets(command: AssetCommand) -> Result<()> {
                         "id": asset.id,
                         "kind": asset.kind,
                         "platform": asset.platform,
-                        "installed": crate::assets::installed_at(&root, &asset),
+                        "installed": crate::assets::installed_at(&root, &asset) || reader_core::routing::bundled_asset(&asset.id).is_some(),
                         "directory": crate::assets::directory(&asset.id),
                         "dependencies": asset.dependencies,
                         "bytes": asset.bytes,
@@ -810,7 +815,8 @@ fn ensure_installed(id: &str) -> Result<()> {
         crate::assets::catalog().iter().any(|asset| {
             asset.id == id
                 && crate::assets::available(asset)
-                && crate::assets::installed_at(&crate::assets::root(), asset)
+                && (crate::assets::installed_at(&crate::assets::root(), asset)
+                    || reader_core::routing::bundled_asset(id).is_some())
         }),
         "asset {id} is not installed; run assets install {id}"
     );

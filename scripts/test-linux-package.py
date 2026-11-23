@@ -27,7 +27,10 @@ def main():
         assert not os.access(executable, os.W_OK), name
         result = subprocess.run(['ldd', str(executable)], capture_output=True, text=True, check=True)
         assert 'not found' not in result.stdout, result.stdout
-    assert not (root / 'runtime').exists(), 'base package must contain no bundled inference runtime'
+    bundled = root / 'bundled-runtimes'
+    assert {path.name for path in bundled.iterdir()} == {'parakeet-vulkan', 'sherpa-cpu'}
+    assert all((path / '.verified').is_file() for path in bundled.iterdir())
+    assert not list(bundled.rglob('*.gguf')) and not list(bundled.rglob('*.onnx'))
     assert (root / 'downloads.json').is_file()
     assert (root / 'lid.176.ftz').stat().st_size == 938013
     for name in ('fixtures/parakeet-smoke.wav', 'fixtures/asr/arabic-sa.wav'):

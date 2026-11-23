@@ -50,7 +50,7 @@
       const speech = ui.config?.speech;
       return {
         remote: language ? speech?.remote_languages?.[language] : undefined,
-        runtime: language ? speech?.language_runtimes?.[language] ?? null : singleSttRuntime,
+        runtime: (language ? speech?.language_runtimes?.[language] : null) ?? singleSttRuntime,
         model: language ? speech?.language_models[language] || null : speech?.single_model_filename || null,
         device: language ? speech?.language_devices?.[language] || "auto" : speech?.inference_device || "auto",
       };

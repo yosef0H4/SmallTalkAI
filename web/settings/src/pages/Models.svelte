@@ -14,7 +14,7 @@
   import Help from '../components/Help.svelte';
   import { api } from '../lib/api';
   import { t, languageName } from '../lib/i18n';
-  import { runtimeLabel, recommendationLabel } from '../lib/module-labels';
+  import { runtimeHardware, runtimeLabel, recommendationLabel } from '../lib/module-labels';
   import Icon from '../components/Icon.svelte';
   import IconButton from '../components/IconButton.svelte';
 
@@ -22,6 +22,7 @@
   let { setup }: { setup?: {
     feature: Feature; kind: Kind; engine?: string; selected?: string | null; busy: boolean;
     choose: (id: string) => void;
+    cancelRuntime: (id: string) => void;
   } } = $props();
   type CatalogFilter = { query: string; engine: string; installed: boolean; limit: number };
   const features = [
@@ -54,18 +55,26 @@
   const activePhases = ['queued', 'downloading', 'verifying', 'extracting'];
   const activeDownloads = $derived([
     ...jobs.filter(job => activePhases.includes(job.phase)).map(job => ({
-      ...job, label: modules.assets?.assets.find(asset => asset.id === job.id)?.label ?? job.id,
+      ...job, label: modules.assets?.assets.find(asset => asset.id === (job.job_id || job.id))?.label ?? job.id,
     })),
     ...Object.entries(ui.downloads).map(([id, job]) => ({id, label: id, ...job})),
   ]);
   const installedRuntimes = $derived(modules.runtimes.filter(runtime => runtime.feature === feature && runtime.installed));
+  function actionAsset(row: { asset: string | null; action_asset?: string | null }) {
+    return row.action_asset ?? row.asset;
+  }
+  function runtimeInstalled(row: { installed: boolean; asset: string | null; action_asset?: string | null }) {
+    return row.action_asset && row.action_asset !== row.asset
+      ? modules.assets?.assets.some(asset => asset.id === row.action_asset && asset.installed) ?? false
+      : row.installed;
+  }
   function catalogRows(kind: Kind, filter: CatalogFilter, selectedEngine: string) {
     const rows = kind === 'runtime'
       ? modules.runtimes.map(runtime => ({ ...runtime, kind: 'runtime' as const, languages: [] as string[] }))
       : modules.models.map(model => ({ ...model, kind: 'model' as const }));
     return rows.filter(row => row.feature === feature
       && (setup?.engine ? row.engine === setup.engine : selectedEngine === 'all' || row.engine === selectedEngine)
-      && (!filter.installed || row.installed)
+      && (!filter.installed || runtimeInstalled(row))
       && (!filter.query.trim() || matchesCatalogSearch(filter.query, row,
         moduleSearchText(row, modules.models, modules.runtimes, modules.assets?.assets))))
       .sort((a, b) => Number(!!b.recommended) - Number(!!a.recommended) || a.label.localeCompare(b.label));
@@ -173,12 +182,14 @@
   </div>
   <div id="{kind}-results" class="model-results">
     {#each rows.slice(0, filter.limit) as row (`${row.kind}-${row.id}`)}
-      {@const asset = modules.assets?.assets.find(entry => entry.id === row.asset)}
-      {@const job = row.asset ? jobs.find(job => (job.job_id || job.id) === row.asset) : ui.downloads[row.id]}
+      {@const actionId = actionAsset(row)}
+      {@const asset = modules.assets?.assets.find(entry => entry.id === actionId)}
+      {@const installed = runtimeInstalled(row)}
+      {@const job = actionId ? jobs.find(job => (job.job_id || job.id) === actionId) : ui.downloads[row.id]}
       {@const phase = job?.phase || (job ? 'downloading' : '')}
       {@const busy = activePhases.includes(phase)}
       {@const title = row.kind === 'runtime' ? runtimeLabel(row) : row.label}
-      {@const bytes = size(row.id, row.asset)}
+      {@const bytes = row.kind === 'runtime' && (row.bundled || installed) ? 0 : size(row.id, actionId)}
       <article class="model-result" data-model-id={row.id}>
         <div class="model-copy">
           <strong dir="auto">{title}</strong>
@@ -187,23 +198,41 @@
           {#if row.languages.length || bytes}
             <span>{languageSummary(row.languages)}{#if row.languages.length > 3}{' '}<span class="language-overflow"><bdi dir="ltr">+{row.languages.length - 3}</bdi><Help text={row.languages.map(languageName).join(', ')} /></span>{/if}{#if row.languages.length && bytes}{' · '}{/if}{#if bytes}<bdi dir="ltr">{Math.ceil(bytes / 1024 / 1024)} MB</bdi>{/if}</span>
           {/if}
-          <small dir="ltr">{row.kind === 'runtime' ? row.label : row.id}</small>
-          {#if setup && row.kind === 'runtime'}
-            <span>{t(`setup.backend.${row.backend}`)}</span>
+          {#if row.kind === 'runtime'}
+            <span dir="auto">{runtimeHardware(row)}</span>
+            {#if row.backend === 'cuda'}
+              <span>{t('module.runtime.cuda_tradeoff')}</span>
+              {#if row.action_asset}<span>{t('module.nvidia_shared')}</span>{/if}
+            {/if}
+          {:else}
+            <small dir="ltr">{row.id}</small>
           {/if}
         </div>
         <div class="model-actions">
-          {#if setup}
+          {#if row.kind === 'runtime'}
+            {#if busy}
+              <button type="button" aria-label={`${t('assets.cancel')} ${title}`} onclick={() => setup ? setup.cancelRuntime(row.id) : cancelDownload(row.id, actionId)}>{t('assets.cancel')}</button>
+            {:else if installed}
+              <button type="button" aria-pressed={(setup ? setup.selected === row.id : row.selected) ?? false}
+                disabled={setup?.busy} onclick={() => setup ? setup.choose(row.id) : assetAction('choose', row.id)}>{t('setup.use')}</button>
+            {:else if actionId}
+              <button type="button" disabled={setup?.busy || !asset?.available}
+                onclick={() => setup ? setup.choose(row.id) : assetAction('install', actionId)}>{t('assets.download')}</button>
+            {/if}
+            {#if !setup && !busy && installed && !row.bundled && actionId}
+              <IconButton icon="trash" label="assets.remove" onclick={() => assetAction('remove', actionId)} />
+            {/if}
+          {:else if setup}
             <button type="button" aria-pressed={setup.selected === row.id}
               disabled={setup.busy || (!row.installed && (row.asset ? !asset?.available : !ui.state?.service_online))}
               onclick={() => setup?.choose(row.id)}>{t(row.installed || busy ? 'setup.use' : 'assets.download')}</button>
           {:else if busy}<button type="button" aria-label={`${t('assets.cancel')} ${title}`} onclick={() => cancelDownload(row.id, row.asset)}>{t('assets.cancel')}</button>
           {:else if row.installed}<span title={t('ui.installed.7bb440')}>✓</span>
             {#if row.asset}<IconButton icon="trash" label="assets.remove" onclick={() => assetAction('remove', row.asset!)} />
-            {:else if row.kind === 'model'}<IconButton icon="trash" label="assets.remove" disabled={!ui.state?.service_online} onclick={() => assetAction('remove', row.id, false)} />{/if}
+            {:else}<IconButton icon="trash" label="assets.remove" disabled={!ui.state?.service_online} onclick={() => assetAction('remove', row.id, false)} />{/if}
           {:else if row.asset}<IconButton icon="download" label="assets.download" disabled={!asset?.available} onclick={() => assetAction('install', row.asset!)} />
-          {:else if row.kind === 'model'}<IconButton icon="download" label="assets.download" disabled={!ui.state?.service_online} onclick={() => download(row.id)} />
-          {:else}<small>{t('ui.unavailable.2c9c1f')}</small>{/if}
+          {:else}<IconButton icon="download" label="assets.download" disabled={!ui.state?.service_online} onclick={() => download(row.id)} />
+          {/if}
         </div>
         {#if busy && job}
           <div class="item-download" role="status">

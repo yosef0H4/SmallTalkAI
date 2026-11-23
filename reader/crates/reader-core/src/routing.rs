@@ -336,19 +336,50 @@ struct AssetReceipt {
 }
 
 pub fn asset_installed(id: &str, assets: &std::path::Path) -> bool {
+    bundled_asset(id).is_some() || receipt_matches(id, &assets.join(id))
+}
+
+fn receipt_matches(id: &str, directory: &std::path::Path) -> bool {
     let catalog: Vec<AssetReceipt> =
         serde_json::from_str(include_str!("../../../../assets/catalog/downloads.json"))
             .expect("validated asset catalog");
     let Some(asset) = catalog.iter().find(|asset| asset.id == id) else {
         return false;
     };
-    let directory = assets.join(id);
     std::fs::read_to_string(directory.join(".verified"))
         .is_ok_and(|receipt| receipt == asset.sha256)
         && asset
             .required
             .iter()
             .all(|file| directory.join(file).exists())
+}
+
+pub fn bundled_asset(id: &str) -> Option<std::path::PathBuf> {
+    let directory = std::env::current_exe()
+        .ok()?
+        .parent()?
+        .join("bundled-runtimes")
+        .join(id);
+    (directory.join(".verified").is_file() && receipt_matches(id, &directory)).then_some(directory)
+}
+
+pub fn asset_directory(id: &str, assets: &std::path::Path) -> std::path::PathBuf {
+    bundled_asset(id).unwrap_or_else(|| assets.join(id))
+}
+
+pub fn bundled_default(feature: Feature) -> Option<Runtime> {
+    let id = match feature {
+        Feature::Stt => "parakeet-vulkan",
+        Feature::Tts => "sherpa-cpu",
+        Feature::Ocr => "paddle-cpu",
+    };
+    registry().runtimes.into_iter().find(|runtime| {
+        runtime.id == id
+            && runtime
+                .asset
+                .as_deref()
+                .is_some_and(|id| bundled_asset(id).is_some())
+    })
 }
 
 pub fn runtime_installed(runtime: &Runtime, assets: &std::path::Path) -> bool {
@@ -378,6 +409,12 @@ pub fn resolve(
             .iter()
             .find(|r| r.id == *id && r.feature == feature)
     });
+    let default = if binding.runtime.is_none() {
+        bundled_default(feature)
+    } else {
+        None
+    };
+    let runtime = runtime.or(default.as_ref());
     let runtime_ready = runtime.is_some_and(|r| runtime_installed(r, assets));
     let model_ready = model.is_some_and(|m| asset_installed(&m.asset, assets));
     anyhow::ensure!(
@@ -520,8 +557,10 @@ impl crate::AppConfig {
             {
                 let (runtime, model) = resolve(&self.speech.selection, feature, language, &assets)?;
                 config.speech.key_slot = None;
-                config.speech.runtime_dir =
-                    assets.join(runtime.asset.context("Speech runtime has no asset")?);
+                config.speech.runtime_dir = asset_directory(
+                    &runtime.asset.context("Speech runtime has no asset")?,
+                    &assets,
+                );
                 config.speech.model_dir = assets.join(model.asset);
                 let binding = self.speech.selection.binding(language);
                 config.speech.selection.single = binding.clone();
@@ -570,7 +609,7 @@ impl crate::AppConfig {
                     };
                 config.ocr.model_dir = assets.join(&model.asset);
                 config.ocr.runtime_dir =
-                    assets.join(runtime.asset.context("OCR runtime has no asset")?);
+                    asset_directory(&runtime.asset.context("OCR runtime has no asset")?, &assets);
                 let binding = self.ocr.selection.binding(language);
                 config.ocr.selection.single = binding.clone();
                 config.ocr.device = if runtime.backend == "webgpu" && binding.device == Device::Auto

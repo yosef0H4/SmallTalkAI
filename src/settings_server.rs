@@ -83,7 +83,7 @@ fn setup_path() -> PathBuf {
 }
 
 fn model_setup() -> Result<ModelSetup> {
-    match fs::read(setup_path()) {
+    let mut draft = match fs::read(setup_path()) {
         Ok(data) => {
             let mut draft: ModelSetup = serde_json::from_slice(&data)?;
             // Step seven was the separate Read aloud runtime picker.
@@ -93,7 +93,7 @@ fn model_setup() -> Result<ModelSetup> {
             {
                 draft.step = if draft.runtimes[2].is_some() { 8 } else { 4 };
             }
-            Ok(draft)
+            draft
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             let config = AppConfig::load()?;
@@ -112,13 +112,27 @@ fn model_setup() -> Result<ModelSetup> {
                                 .values()
                                 .any(|binding| binding.model.is_some() || binding.remote.is_some())
                     });
-            Ok(ModelSetup {
+            ModelSetup {
                 done,
                 ..Default::default()
-            })
+            }
         }
-        Err(error) => Err(error.into()),
+        Err(error) => return Err(error.into()),
+    };
+    if !draft.done {
+        use reader_core::routing::{bundled_default, Feature};
+        for (value, feature) in
+            draft
+                .runtimes
+                .iter_mut()
+                .zip([Feature::Stt, Feature::Ocr, Feature::Tts])
+        {
+            if value.is_none() {
+                *value = bundled_default(feature).map(|runtime| runtime.id);
+            }
+        }
     }
+    Ok(draft)
 }
 
 fn save_model_setup(next: ModelSetup, state: &AppState) -> Result<ModelSetup> {
@@ -509,7 +523,7 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
             let catalog = crate::assets::catalog();
             let assets = catalog.iter().map(|asset|json!({"id":asset.id,"label":asset.label,"kind":asset.kind,
                 "bytes":asset.bytes + asset.dependencies.iter().filter_map(|id|catalog.iter().find(|a|a.id==*id)).filter(|a|!crate::assets::installed_at(&crate::assets::root(),a)).map(|a|a.bytes).sum::<u64>(),
-                "installed":crate::assets::installed_at(&crate::assets::root(),asset),
+                "installed":crate::assets::installed_at(&crate::assets::root(),asset) || reader_core::routing::bundled_asset(&asset.id).is_some(),
                 "available":crate::assets::available(asset),"directory":crate::assets::directory(&asset.id),"dependencies":asset.dependencies})).collect::<Vec<_>>();
             Ok(json_response(
                 StatusCode(200),
@@ -523,7 +537,18 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
             match action["action"].as_str().unwrap_or("") {
                 "install" => state.assets.start(id)?,
                 "cancel" => state.assets.cancel(id),
+                "choose" => {
+                    let _guard = state.config_lock.lock().expect("config lock");
+                    if crate::modules::choose_runtime(id)? {
+                        let _ = capture_request(state, ShellCommand::ReloadConfig);
+                    }
+                    state.assets.selection_changed();
+                }
                 "remove" => {
+                    let _guard = state.config_lock.lock().expect("config lock");
+                    if id == crate::assets::NVIDIA_RUNTIME {
+                        release_runtime_workers(state)?;
+                    }
                     if state.assets.remove(id)? {
                         let _ = capture_request(state, ShellCommand::ReloadConfig);
                     }
@@ -1037,6 +1062,29 @@ fn linux_hotkey_backend_state() -> Value {
     json!({})
 }
 
+fn release_runtime_workers(state: &AppState) -> Result<()> {
+    if state
+        .capture
+        .as_ref()
+        .is_some_and(|capture| capture.state_file.is_file())
+    {
+        let result = capture_request(state, ShellCommand::PrepareFactoryReset)?;
+        anyhow::ensure!(result.ok, "{}", result.message);
+    }
+    if crate::reader::status().is_some() {
+        crate::reader::action("shutdown", "")?;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while crate::reader::status().is_some() {
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "Wait for Read aloud to stop, then try again"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    Ok(())
+}
+
 fn factory_reset(state: &AppState) -> Result<()> {
     let data = AppConfig::local_data_dir();
     let reader_data = crate::reader::data_dir();
@@ -1064,25 +1112,7 @@ fn factory_reset(state: &AppState) -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
 
     state.assets.cancel_and_clear(Duration::from_secs(20))?;
-    if state
-        .capture
-        .as_ref()
-        .is_some_and(|capture| capture.state_file.is_file())
-    {
-        let result = capture_request(state, ShellCommand::PrepareFactoryReset)?;
-        anyhow::ensure!(result.ok, "{}", result.message);
-    }
-    if crate::reader::status().is_some() {
-        crate::reader::action("shutdown", "")?;
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while crate::reader::status().is_some() {
-            anyhow::ensure!(
-                Instant::now() < deadline,
-                "Wait for Read aloud to stop, then try again"
-            );
-            std::thread::sleep(Duration::from_millis(100));
-        }
-    }
+    release_runtime_workers(state)?;
     let _guard = state.config_lock.lock().expect("config lock");
     let shared = crate::config::lock_config()?;
     for path in managed {

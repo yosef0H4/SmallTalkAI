@@ -8,15 +8,97 @@ fn stt_runtime_path(runtime: &routing::Runtime) -> Option<PathBuf> {
     runtime.asset.as_deref().map(crate::assets::directory)
 }
 pub fn stt_runtime(config: &AppConfig, language: &str) -> Option<PathBuf> {
-    if config.speech.selection_mode == ModelSelectionMode::FollowKeyboard {
-        let id = config.speech.language_runtimes.get(language)?.as_ref()?;
+    let language_runtime = config
+        .speech
+        .language_runtimes
+        .get(language)
+        .and_then(Option::as_ref);
+    if let (ModelSelectionMode::FollowKeyboard, Some(id)) =
+        (config.speech.selection_mode, language_runtime)
+    {
         let runtime = routing::registry()
             .runtimes
             .into_iter()
             .find(|runtime| runtime.id == *id && runtime.feature == routing::Feature::Stt)?;
         return stt_runtime_path(&runtime);
     }
-    (!config.speech.runtime_dir.is_empty()).then(|| config.parakeet_runtime_dir_path())
+    if config.speech.runtime_dir.is_empty() {
+        return routing::bundled_default(routing::Feature::Stt)
+            .as_ref()
+            .and_then(stt_runtime_path);
+    }
+    Some(config.parakeet_runtime_dir_path())
+}
+
+pub fn choose_runtime(id: &str) -> anyhow::Result<bool> {
+    use anyhow::Context;
+    let registry = routing::registry();
+    let runtime = registry
+        .runtimes
+        .iter()
+        .find(|runtime| runtime.id == id)
+        .context("Unknown runtime")?;
+    let root = crate::assets::root();
+    anyhow::ensure!(
+        routing::runtime_installed(runtime, &root),
+        "Runtime is not installed"
+    );
+    if runtime.backend == "cuda" {
+        let assets = crate::assets::catalog();
+        anyhow::ensure!(
+            assets
+                .iter()
+                .any(|asset| asset.id == crate::assets::NVIDIA_RUNTIME
+                    && crate::assets::installed_at(&root, asset)),
+            "Install the shared NVIDIA runtime first"
+        );
+    }
+    if runtime.feature == routing::Feature::Stt {
+        let path = stt_runtime_path(runtime).context("Runtime has no directory")?;
+        let _lock = crate::config::lock_config()?;
+        let mut config = AppConfig::load()?;
+        config.speech.runtime_dir = path.to_string_lossy().into_owned();
+        for language in config.speech.language_models.keys() {
+            config
+                .speech
+                .language_runtimes
+                .insert(language.clone(), Some(id.into()));
+        }
+        config.save()?;
+        return Ok(true);
+    }
+    let mut config = crate::reader::load()?;
+    let selection = match runtime.feature {
+        routing::Feature::Tts => &mut config.speech.selection,
+        routing::Feature::Ocr => &mut config.ocr.selection,
+        routing::Feature::Stt => unreachable!(),
+    };
+    let bindings = std::iter::once(&mut selection.single).chain(selection.languages.values_mut());
+    for binding in bindings {
+        if let Some(model) = registry
+            .models
+            .iter()
+            .find(|model| Some(&model.id) == binding.model.as_ref())
+        {
+            anyhow::ensure!(
+                model.engine == runtime.engine,
+                "Model and runtime use different engines"
+            );
+        }
+        if binding.runtime.as_deref() == Some(id) {
+            continue;
+        }
+        binding.runtime = Some(id.into());
+        binding.device = if runtime.backend == "cpu" {
+            routing::Device::Cpu
+        } else {
+            routing::Device::Auto
+        };
+        binding.webgpu_adapter = None;
+    }
+    let revision = config.revision;
+    crate::reader::store().save(config, revision)?;
+    Ok(false)
 }
 pub fn runtime_ready(path: Option<&std::path::Path>) -> bool {
     path.is_some_and(|path| {
@@ -160,6 +242,7 @@ fn model_recommendation(id: &str, usable_nvidia_voice: bool) -> Option<&'static 
 
 pub fn inventory(config: &AppConfig) -> Value {
     let registry = routing::registry();
+    let reader = crate::reader::load().ok();
     let nvidia_cuda13 = nvidia_cuda13_available();
     let usable_nvidia_voice = nvidia_cuda13
         && registry.runtimes.iter().any(|runtime| {
@@ -169,8 +252,16 @@ pub fn inventory(config: &AppConfig) -> Value {
     let runtimes=registry.runtimes.iter().map(|runtime| {
         let directory=runtime.asset.as_ref().map(|id|crate::assets::directory(id));
         let installed=reader_core::routing::runtime_installed(runtime,&crate::assets::root());
+        let bundled=runtime.asset.as_deref().is_some_and(|id|routing::bundled_asset(id).is_some());
+        let default = bundled && matches!(runtime.id.as_str(), "parakeet-vulkan" | "sherpa-cpu" | "paddle-cpu");
+        let selected = match runtime.feature {
+            routing::Feature::Stt => directory.as_ref().is_some_and(|path| Some(path) == stt_runtime(config, "").as_ref()),
+            routing::Feature::Tts => reader.as_ref().and_then(|config| config.speech.selection.single.runtime.as_deref()) == Some(runtime.id.as_str()),
+            routing::Feature::Ocr => reader.as_ref().and_then(|config| config.ocr.selection.single.runtime.as_deref()) == Some(runtime.id.as_str()),
+        };
+        let action_asset = if runtime.backend == "cuda" { Some(crate::assets::NVIDIA_RUNTIME) } else { runtime.asset.as_deref() };
         let recommendation = runtime_recommendation(&runtime.id, nvidia_cuda13);
-        json!({"id":runtime.id,"feature":runtime.feature,"engine":runtime.engine,"backend":runtime.backend,"label":runtime.label,"installed":installed,"directory":directory,"asset":runtime.asset,"recommended":recommendation.is_some(),"recommendation":recommendation})
+        json!({"id":runtime.id,"feature":runtime.feature,"engine":runtime.engine,"backend":runtime.backend,"label":runtime.label,"installed":installed,"bundled":bundled,"default":default,"selected":selected,"directory":directory,"asset":runtime.asset,"action_asset":action_asset,"recommended":recommendation.is_some(),"recommendation":recommendation})
     }).collect::<Vec<_>>();
     let mut models=registry.models.iter().map(|model| {
         let recommendation = model_recommendation(&model.id, usable_nvidia_voice);

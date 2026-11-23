@@ -206,7 +206,15 @@ def verify_installed_payload(target):
     assert not list(target.rglob("*.onnx")), "installer added TTS/OCR models"
     libraries = {path.relative_to(target) for path in target.rglob("*.dll")
                  if path.name.startswith(("parakeet", "ggml", "onnxruntime", "sherpa-onnx"))}
-    assert libraries == {Path("runtime/sherpa-webgpu/sherpa-onnx-c-api.dll")}, libraries
+    bridge = Path("runtime/sherpa-webgpu/sherpa-onnx-c-api.dll")
+    bundled = target / "runtime/bundled-runtimes"
+    expected = {"parakeet-vulkan-windows", "sherpa-cpu-windows", "paddle-webgpu-windows"}
+    assert {path.name for path in bundled.iterdir()} == expected
+    assert all((path / ".verified").is_file() for path in bundled.iterdir())
+    assert bridge in libraries
+    assert all(path == bridge or path.parts[:2] == ("runtime", "bundled-runtimes") for path in libraries), libraries
+    assert not any(path.name.startswith(("cudart", "cublas", "cudnn", "curand"))
+                   for path in target.rglob("*.dll"))
     assert (target / "runtime/action-replay.ahk").is_file()
     assert (target / "runtime/smalltalkai-settings-window.exe").is_file()
     assert (target / "licenses/settings-sans-license.txt").is_file()

@@ -15,7 +15,10 @@ for line in setup.splitlines():
 if "IncludeModel" in builder:
     errors.append("distribution builder still supports embedding speech models")
 if "InferenceLibraries" not in builder or "ParakeetSource" in builder:
-    errors.append("Windows distribution must obtain inference runtimes after installation")
+    errors.append("Windows distribution must reject unintended inference runtimes")
+if 'assets stage-bundled' not in builder or not all(runtime in builder for runtime in (
+        'parakeet-vulkan-windows', 'sherpa-cpu-windows', 'paddle-webgpu-windows')):
+    errors.append("Windows distribution must ship verified Vulkan, CPU, and WebGPU runtimes")
 if "SmallTalkAIVersion" not in setup or "/DSmallTalkAIVersion=" not in builder:
     errors.append("installer version is not supplied from Cargo")
 if re.search(r"^AppVersion=\d", setup, re.M):

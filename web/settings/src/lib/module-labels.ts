@@ -1,11 +1,20 @@
 import { t } from './i18n';
 import type { Runtime } from './modules.svelte';
 
-/** Technical names remain searchable and appear as secondary option metadata. */
+const runtimeNames: Readonly<Record<string, string>> = {
+  vulkan: 'Vulkan',
+  cuda: 'CUDA',
+  webgpu: 'WebGPU',
+  cpu: 'CPU',
+};
+
 export function runtimeLabel(runtime: Pick<Runtime, 'backend' | 'label'>): string {
-  return runtime.backend === 'cuda' ? t('module.nvidia')
-    : runtime.backend === 'vulkan' ? t('ui.gpu_backend')
-    : runtime.backend === 'cpu' ? t('module.processor') : runtime.label;
+  return runtimeNames[runtime.backend] ?? runtime.label;
+}
+
+export function runtimeHardware(runtime: Pick<Runtime, 'backend' | 'asset'>): string {
+  if (runtime.asset === 'parakeet-cuda-windows') return t('module.runtime.blackwell');
+  return Object.hasOwn(runtimeNames, runtime.backend) ? t(`module.runtime.${runtime.backend}`) : '';
 }
 
 export function recommendationLabel(reason?: string | null): string {

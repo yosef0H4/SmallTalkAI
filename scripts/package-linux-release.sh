@@ -51,7 +51,7 @@ build_one() {
   local source_volume="smalltalkai-linux-$distro-work"
   printf 'Source archive: %s sha256=%s\n' \
     "$(basename "$source_archive")" "$(cat "$source_hash_file")" > "$out/BUILD-INFO-$distro.txt"
-  printf 'Runtimes: optional verified downloads; base package contains no native inference runtime\n' >> "$out/BUILD-INFO-$distro.txt"
+  printf 'Runtimes: bundled Parakeet Vulkan and Sherpa CPU; optional shared NVIDIA download\n' >> "$out/BUILD-INFO-$distro.txt"
   if [[ "${SMALLTALKAI_REUSE_BUILDER:-0}" == 1 ]] && podman image exists "$image"; then
     echo "Reusing local builder: $image"
   else

@@ -20,6 +20,18 @@ pub fn defaults() -> AppConfig {
     config.speech.model_dir = crate::assets::directory("kokoro");
     config.speech.runtime_dir = crate::assets::directory("sherpa-cpu");
     config.ocr.model_dir = crate::assets::root().join("paddle-ar-en");
+    for (feature, binding) in [
+        (
+            reader_core::routing::Feature::Tts,
+            &mut config.speech.selection.single,
+        ),
+        (
+            reader_core::routing::Feature::Ocr,
+            &mut config.ocr.selection.single,
+        ),
+    ] {
+        binding.runtime = reader_core::routing::bundled_default(feature).map(|runtime| runtime.id);
+    }
     config
 }
 pub fn load() -> Result<AppConfig> {

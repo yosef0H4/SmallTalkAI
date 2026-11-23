@@ -82,6 +82,16 @@ const f = require('./settings-fixture.cjs');
     await button('Next').click();
     await heading('Dictation').waitFor();
     await footerAtBottom('Runtime navigation before a choice');
+    const vulkan=page.locator('[data-model-id=parakeet-vulkan]');
+    assert.equal(await vulkan.locator('strong').textContent(), 'Vulkan');
+    await vulkan.getByText('CPU and compatible NVIDIA, AMD, and Intel GPUs.',{exact:true}).waitFor();
+    const cuda=page.locator('[data-model-id=parakeet-cuda]');
+    assert.equal(await cuda.locator('strong').textContent(), 'CUDA');
+    await cuda.getByText('Compatible NVIDIA GPUs only.',{exact:true}).waitFor();
+    await cuda.getByText('Can be faster. Uses more disk space and can use more memory.',{exact:true}).waitFor();
+    if (process.env.SETTINGS_VISUAL_REVIEW) {
+      await page.screenshot({ path: 'artifacts/windows-validation/first-run-runtime-labels.png' });
+    }
     await choose('parakeet-vulkan');
     await page.locator('[data-model-id=parakeet-vulkan] progress').waitFor();
     await button('Next').click();

@@ -64,3 +64,10 @@ WebGPU are the cross-vendor runtime choices.
 ## Verify the measurements
 
 Use the URLs and expected SHA-256 digests in `assets/catalog/downloads.json`. Open tar archives with Python `tarfile` and sum `member.size` for regular files. For ZIPs and wheels, sum `ZipInfo.file_size` for files. Apply `archive_files` when present. The Linux NVIDIA wheel sizes above use the pinned URLs' ZIP central directories. The remaining archives were checked against the catalog SHA-256. Inspect PE imports with `dumpbin /dependents` and ELF imports with `readelf -d`. These checks measure the assets and their link dependencies. Device performance and compatibility require installed-app tests with the intended GPU and driver.
+
+## Bundled defaults and shared NVIDIA package
+
+- First-run setup preselects Parakeet Vulkan for Dictation and Sherpa CPU for Read aloud and Image text. Windows also bundles WebGPU for Read aloud and Image text. Model downloads remain separate.
+- One NVIDIA asset job covers the engine-specific CUDA backends and reuses verified components. Removing it restores the bundled runtime for each affected route and preserves the selected models.
+- On Windows with an RTX 5080, an isolated package test completed the NVIDIA download from a verified partial cache, ran CUDA speech, and removed NVIDIA from all three runtime lists. Vulkan transcription, CPU and WebGPU speech, and CPU and WebGPU image text also passed with real inputs.
+- Linux packaging passed static and shell syntax checks. Native Linux package installation and WebGPU on AMD or Intel devices remain to be verified. The Windows NVIDIA package still contains both CUDA major versions described above.

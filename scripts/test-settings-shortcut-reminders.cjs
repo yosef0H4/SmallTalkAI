@@ -174,6 +174,7 @@ const f = require('./settings-fixture.cjs');
     await page.waitForFunction(() => document.documentElement.dir === 'rtl');
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
     await page.setViewportSize({width:1280,height:900});
+    await page.waitForFunction(width => document.querySelector('#settings-sidebar')?.getBoundingClientRect().width === width, startWidth + 48);
     const rtlGrip = page.locator('.sidebar-grip');
     await rtlGrip.press('ArrowLeft');
     assert.equal((await sidebar.boundingBox()).width, startWidth + 64);

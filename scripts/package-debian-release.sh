@@ -16,6 +16,7 @@ mkdir -p "$app" "$stage/usr/bin" "$stage/DEBIAN"
 for binary in smalltalkai-linux smalltalkai-capture smalltalkai-infer smalltalkai-ctl smalltalkai-settings smalltalkai-settings-window smalltalkai-reader smalltalkai-readerctl smalltalkai-tts smalltalkai-ocr smalltalkai-reader-hud; do
   install -m755 "${CARGO_TARGET_DIR:-target}/release/$binary" "$app/$binary"
 done
+"$app/smalltalkai-ctl" assets stage-bundled "$app/bundled-runtimes"
 install -m755 resources/bin/smalltalkai-paste "$app/"
 install -m755 packaging/linux/smalltalkai "$stage/usr/bin/"
 ln -s ../lib/smalltalkai/smalltalkai-ctl "$stage/usr/bin/smalltalkai-ctl"

@@ -32,15 +32,80 @@ pub struct Asset {
     pub components: std::collections::BTreeMap<String, String>,
 }
 
+pub const NVIDIA_RUNTIME: &str = "nvidia-runtime";
+
 pub fn catalog() -> Vec<Asset> {
-    serde_json::from_str(include_str!("../assets/catalog/downloads.json"))
-        .expect("validated asset catalog")
+    let mut assets: Vec<Asset> =
+        serde_json::from_str(include_str!("../assets/catalog/downloads.json"))
+            .expect("validated asset catalog");
+    let mut dependencies = Vec::new();
+    let registry = reader_core::routing::registry();
+    for asset in registry
+        .runtimes
+        .iter()
+        .filter(|runtime| runtime.backend == "cuda")
+        .filter_map(|runtime| runtime.asset.as_deref())
+    {
+        push_dependency(&assets, asset, &mut dependencies);
+    }
+    if !dependencies.is_empty() {
+        assets.push(Asset {
+            id: NVIDIA_RUNTIME.into(),
+            label: "NVIDIA".into(),
+            kind: "runtime".into(),
+            platform: format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
+            url: String::new(),
+            sha256: String::new(),
+            bytes: 0,
+            format: "bundle".into(),
+            strip: 0,
+            archive_files: Default::default(),
+            filename: String::new(),
+            required: Vec::new(),
+            dependencies,
+            components: Default::default(),
+        });
+    }
+    assets
+}
+
+fn push_dependency(assets: &[Asset], id: &str, result: &mut Vec<String>) {
+    if let Some(asset) = assets.iter().find(|asset| asset.id == id) {
+        for dependency in &asset.dependencies {
+            push_dependency(assets, dependency, result);
+        }
+        if !result.iter().any(|member| member == id) {
+            result.push(id.into());
+        }
+    }
 }
 pub fn root() -> PathBuf {
     crate::config::AppConfig::local_data_dir().join("assets")
 }
 pub fn directory(id: &str) -> PathBuf {
-    root().join(id)
+    reader_core::routing::asset_directory(id, &root())
+}
+
+pub fn stage_bundled(root: &Path) -> Result<()> {
+    let assets = catalog();
+    let ids: &[&str] = if cfg!(windows) {
+        &[
+            "parakeet-vulkan-windows",
+            "sherpa-cpu-windows",
+            "paddle-webgpu-windows",
+        ]
+    } else {
+        &["parakeet-vulkan", "sherpa-cpu"]
+    };
+    let job = Job::default();
+    for id in ids {
+        let asset = assets
+            .iter()
+            .find(|asset| asset.id == *id)
+            .context("Bundled runtime missing from catalog")?;
+        job.install_one_at(asset, root)?;
+    }
+    Ok(())
 }
 fn clear_assignments(
     id: &str,
@@ -62,26 +127,54 @@ fn clear_assignments(
     };
 
     if stt.parakeet_runtime_dir_path() == directory(id) {
-        stt.speech.runtime_dir.clear();
-        stt.speech.single_model_filename = None;
+        if let Some(asset) =
+            reader_core::routing::bundled_default(reader_core::routing::Feature::Stt)
+                .and_then(|runtime| runtime.asset)
+        {
+            stt.speech.runtime_dir = directory(&asset).to_string_lossy().into_owned();
+        } else {
+            stt.speech.runtime_dir.clear();
+            stt.speech.single_model_filename = None;
+        }
     }
     for (language, runtime) in &mut stt.speech.language_runtimes {
         if runtime.as_deref().is_some_and(is_runtime) {
-            *runtime = None;
-            if let Some(model) = stt.speech.language_models.get_mut(language) {
+            *runtime = reader_core::routing::bundled_default(reader_core::routing::Feature::Stt)
+                .map(|runtime| runtime.id);
+            if let Some(model) = stt
+                .speech
+                .language_models
+                .get_mut(language)
+                .filter(|_| runtime.is_none())
+            {
                 *model = None;
             }
         }
     }
-    for selection in [&mut reader.speech.selection, &mut reader.ocr.selection] {
+    for (feature, selection) in [
+        (
+            reader_core::routing::Feature::Tts,
+            &mut reader.speech.selection,
+        ),
+        (
+            reader_core::routing::Feature::Ocr,
+            &mut reader.ocr.selection,
+        ),
+    ] {
+        let default = reader_core::routing::bundled_default(feature).map(|runtime| runtime.id);
         for binding in
             std::iter::once(&mut selection.single).chain(selection.languages.values_mut())
         {
             let runtime_removed = binding.runtime.as_deref().is_some_and(is_runtime);
             if runtime_removed {
-                binding.runtime = None;
+                binding.runtime = default.clone();
+                if default.is_some() {
+                    binding.device = reader_core::routing::Device::Cpu;
+                }
             }
-            if runtime_removed || binding.model.as_deref().is_some_and(is_model) {
+            if (runtime_removed && default.is_none())
+                || binding.model.as_deref().is_some_and(is_model)
+            {
                 binding.model = None;
                 binding.voice = None;
                 binding.steps = None;
@@ -110,11 +203,49 @@ pub(crate) fn remove_download(
     }
     delete(&staged).with_context(|| format!("deleting staged download {}", staged.display()))
 }
+fn remove_downloads(
+    paths: impl IntoIterator<Item = PathBuf>,
+    delete: impl Fn(&Path) -> std::io::Result<()>,
+    save: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    let mut staged = Vec::new();
+    let result = (|| {
+        for path in paths {
+            let trash = crate::config::unique_atomic_temp_path(&path);
+            match fs::rename(&path, &trash) {
+                Ok(()) => staged.push((path, trash)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(error).with_context(|| format!("removing {}", path.display()))
+                }
+            }
+        }
+        save()
+    })();
+    if let Err(error) = result {
+        for (path, trash) in staged.into_iter().rev() {
+            fs::rename(&trash, &path)
+                .with_context(|| format!("{error:#}; restoring {}", path.display()))?;
+        }
+        return Err(error);
+    }
+    for (_, trash) in staged {
+        delete(&trash).with_context(|| format!("deleting staged download {}", trash.display()))?;
+    }
+    Ok(())
+}
+
 pub fn available(asset: &Asset) -> bool {
     let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
     asset.platform == platform || asset.platform == "all"
 }
 pub fn installed_at(root: &Path, asset: &Asset) -> bool {
+    if asset.id == NVIDIA_RUNTIME {
+        return asset
+            .dependencies
+            .iter()
+            .all(|id| reader_core::routing::asset_installed(id, root));
+    }
     let path = root.join(&asset.id);
     fs::read_to_string(path.join(".verified")).is_ok_and(|v| v == asset.sha256)
         && asset.required.iter().all(|file| path.join(file).exists())
@@ -174,6 +305,11 @@ impl Manager {
     }
     pub fn selection_revision(&self) -> u64 {
         self.shared.selection_revision.load(Ordering::Acquire)
+    }
+    pub fn selection_changed(&self) {
+        self.shared
+            .selection_revision
+            .fetch_add(1, Ordering::AcqRel);
     }
     pub fn jobs(&self) -> Vec<Progress> {
         self.shared
@@ -300,7 +436,11 @@ impl Manager {
                         .context("Unknown dependency")?;
                     job.install_one_at(dependency, &root)?;
                 }
-                job.install_one_at(&asset, &root)
+                if asset.id == NVIDIA_RUNTIME {
+                    Ok(())
+                } else {
+                    job.install_one_at(&asset, &root)
+                }
             });
         if result.is_ok() {
             let hook = self
@@ -358,15 +498,36 @@ impl Manager {
         }
     }
     pub fn remove(&self, id: &str) -> Result<bool> {
+        anyhow::ensure!(
+            reader_core::routing::bundled_asset(id).is_none(),
+            "Bundled runtimes are managed by the app installer"
+        );
         let assets = catalog();
         let asset = assets
             .iter()
             .find(|a| a.id == id)
             .context("Unknown asset")?;
-        let _locks = self.lock_assets(vec![id.into()], None)?;
+        let ids = if id == NVIDIA_RUNTIME {
+            asset.dependencies.clone()
+        } else {
+            vec![id.into()]
+        };
+        let _locks = self.lock_assets(
+            ids.iter()
+                .cloned()
+                .chain(std::iter::once(id.into()))
+                .collect(),
+            None,
+        )?;
         for other in &assets {
             anyhow::ensure!(
-                !other.dependencies.contains(&asset.id) || !installed_at(&root(), other),
+                other.id == NVIDIA_RUNTIME
+                    || ids.contains(&other.id)
+                    || !other
+                        .dependencies
+                        .iter()
+                        .any(|dependency| ids.contains(dependency))
+                    || !installed_at(&root(), other),
                 "Remove {} first",
                 other.label
             );
@@ -376,12 +537,14 @@ impl Manager {
         let reader = crate::reader::load()?;
         let mut next_stt = stt.clone();
         let mut next_reader = reader.clone();
-        clear_assignments(id, &mut next_stt, &mut next_reader);
+        for id in &ids {
+            clear_assignments(id, &mut next_stt, &mut next_reader);
+        }
         let stt_changed = next_stt.speech != stt.speech;
         let reader_changed = next_reader.speech.selection != reader.speech.selection
             || next_reader.ocr.selection != reader.ocr.selection;
-        remove_download(
-            &directory(id),
+        remove_downloads(
+            ids.iter().map(|id| root().join(id)),
             |path| fs::remove_dir_all(path),
             || {
                 if stt_changed {
@@ -399,9 +562,7 @@ impl Manager {
             },
         )?;
         if stt_changed || reader_changed {
-            self.shared
-                .selection_revision
-                .fetch_add(1, Ordering::AcqRel);
+            self.selection_changed();
         }
         Ok(stt_changed)
     }
@@ -719,6 +880,17 @@ mod tests {
         let mut ids = std::collections::HashSet::new();
         for asset in &assets {
             assert!(ids.insert(&asset.id));
+            if asset.id == NVIDIA_RUNTIME {
+                assert!(asset.url.is_empty() && asset.sha256.is_empty() && asset.bytes == 0);
+                let mut members = std::collections::HashSet::new();
+                for id in &asset.dependencies {
+                    let part = assets.iter().find(|part| part.id == *id).unwrap();
+                    assert!(part.dependencies.iter().all(|id| members.contains(id)));
+                    assert!(members.insert(id));
+                }
+                assert!(!members.is_empty());
+                continue;
+            }
             assert_eq!(asset.sha256.len(), 64);
             assert!(asset.sha256.bytes().all(|c| c.is_ascii_hexdigit()));
             assert!(asset.url.starts_with("https://"));

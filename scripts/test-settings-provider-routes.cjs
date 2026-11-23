@@ -61,7 +61,7 @@ const f=require('./settings-fixture.cjs');
   assert.equal(await localFallback.count(),0);
   await page.locator('[id="tts.ar-local-fallback"]').check();
   await localFallback.getByRole('heading',{name:'Local fallback models'}).waitFor();
-  await choose('tts.ar.runtime','CPU',/^Processor$/);
+  await choose('tts.ar.runtime','CPU',/^CPU$/);
   await choose('tts.ar.model','Supertonic',/^Supertonic 3$/);
   assert.equal(await arabic.getByText('Use a fallback server',{exact:true}).count(),0);
   await save();await page.reload();await tts();

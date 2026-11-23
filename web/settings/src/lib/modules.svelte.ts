@@ -3,7 +3,7 @@ import type {AssetState} from './reader';
 export type Feature='stt'|'tts'|'ocr';
 function rememberedPage():'runtime'|'model' {try {return localStorage.getItem('smalltalkai-model-page')==='runtime'?'runtime':'model';}catch {return 'model';}}
 export const catalogView=$state<{feature:Feature;kind:'runtime'|'model';panel:'models'|'cleanup'}>({feature:'stt',kind:rememberedPage(),panel:'models'});
-export interface Runtime {id:string;feature:Feature;engine:string;backend:string;label:string;asset:string|null;installed:boolean;directory:string|null;recommended?:boolean;recommendation?:string|null}
+export interface Runtime {id:string;feature:Feature;engine:string;backend:string;label:string;asset:string|null;installed:boolean;bundled?:boolean;default?:boolean;selected?:boolean;action_asset?:string|null;directory:string|null;recommended?:boolean;recommendation?:string|null}
 export interface ModuleModel {id:string;feature:Feature;engine:string;label:string;languages:string[];installed:boolean;asset:string|null;recommended?:boolean;recommendation?:string|null}
 export interface Connection {base_url:string;model:string;voice:string;format:string;prompt?:string;key_slot:string|null;timeout_ms:number}
 export interface RemoteRoute {enabled:boolean;primary:Connection;fallback_to_local:boolean}

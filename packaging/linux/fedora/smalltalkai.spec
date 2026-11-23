@@ -38,6 +38,7 @@ cp -a %{_sourcedir}/stage/. %{buildroot}/
 
 %files
 /usr/lib/smalltalkai/fixtures
+/usr/lib/smalltalkai/bundled-runtimes
 %defattr(-,root,root,-)
 %attr(0755,root,root) /usr/bin/smalltalkai
 /usr/bin/smalltalkai-ctl

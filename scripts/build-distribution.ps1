@@ -84,6 +84,16 @@ if ((Get-Item -LiteralPath $DesktopExe).VersionInfo.FileDescription -ne 'SmallTa
 foreach ($Name in @('smalltalkai-capture.exe','smalltalkai-infer.exe','smalltalkai-ctl.exe','smalltalkai-settings.exe','smalltalkai-settings-window.exe','smalltalkai-reader.exe','smalltalkai-readerctl.exe','smalltalkai-tts.exe','smalltalkai-ocr.exe','smalltalkai-reader-hud.exe')) {
     Copy-Item -LiteralPath (Join-Path $ResolvedTargetDir "release\$Name") -Destination $Runtime -Force
 }
+$BundledRuntimeIds = @('parakeet-vulkan-windows', 'sherpa-cpu-windows', 'paddle-webgpu-windows')
+$BundledCache = Join-Path $Root 'artifacts/bundled-runtimes-windows'
+& (Join-Path $Runtime 'smalltalkai-ctl.exe') assets stage-bundled $BundledCache
+if ($LASTEXITCODE -ne 0) { throw 'Could not stage verified bundled runtimes' }
+$BundledRuntimes = Join-Path $Runtime 'bundled-runtimes'
+New-Item -ItemType Directory -Path $BundledRuntimes -Force | Out-Null
+foreach ($Id in $BundledRuntimeIds) {
+    Copy-Item -LiteralPath (Join-Path $BundledCache $Id) -Destination $BundledRuntimes -Recurse -Force
+    Require-File (Join-Path $BundledRuntimes "$Id/.verified")
+}
 $SherpaDirectory = Join-Path $Runtime 'sherpa-webgpu'
 New-Item -ItemType Directory -Path $SherpaDirectory -Force | Out-Null
 Copy-Item -LiteralPath $SherpaWebGpu -Destination $SherpaDirectory -Force
@@ -108,7 +118,13 @@ $ModelFiles = @(Get-ChildItem -LiteralPath $Portable -File -Recurse | Where-Obje
 if ($ModelFiles.Count) { throw 'Distribution payload unexpectedly contains an inference model' }
 $PackagedSherpa = Join-Path $SherpaDirectory 'sherpa-onnx-c-api.dll'
 $InferenceLibraries = @(Get-ChildItem -LiteralPath $Portable -File -Recurse -Filter '*.dll' | Where-Object {
-    $_.Name -match '^(parakeet|ggml|onnxruntime|sherpa-onnx)' -and $_.FullName -ne $PackagedSherpa
+    $LibraryPath = $_.FullName
+    $InBundledRuntime = $BundledRuntimeIds | Where-Object {
+        $Prefix = (Join-Path $BundledRuntimes $_) + [IO.Path]::DirectorySeparatorChar
+        $LibraryPath.StartsWith($Prefix, [StringComparison]::OrdinalIgnoreCase)
+    }
+    $_.Name -match '^(parakeet|ggml|onnxruntime|sherpa-onnx|cudart|cublas|cudnn|curand)' -and
+        $_.FullName -ne $PackagedSherpa -and -not $InBundledRuntime
 })
 if ($InferenceLibraries.Count) { throw 'Distribution payload unexpectedly contains an inference runtime' }
 $Required = @(

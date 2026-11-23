@@ -142,7 +142,7 @@ need("packaging/linux/container-build.sh", 'fixtures/parakeet-smoke.wav', 'fixtu
 need("scripts/test-full.sh", 'python scripts/test-linux-package-source.py')
 if '--bins' in package_build or 'smalltalkai_mock_infer' in package_build:
     errors.append("Linux packages must explicitly select production binaries")
-need("scripts/test-linux-package.py", 'no bundled inference runtime', 'instances/installed/config.json', 'data/smalltalkai/models', '--headless')
+need("scripts/test-linux-package.py", 'bundled-runtimes', 'instances/installed/config.json', 'data/smalltalkai/models', '--headless')
 
 # Public source snapshots must exclude local agent permissions and coverage data.
 need("scripts/package-linux-release.sh", "--exclude='./.claude'", "--exclude='./lcov.info'", "--exclude='./.env'")

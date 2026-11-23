@@ -541,7 +541,13 @@ impl Default for AppConfig {
                     timeout_ms: 180_000,
                 },
                 inference_device: InferenceDevice::Auto,
-                runtime_dir: String::new(),
+                runtime_dir: reader_core::routing::bundled_default(
+                    reader_core::routing::Feature::Stt,
+                )
+                .and_then(|runtime| runtime.asset)
+                .and_then(|id| reader_core::routing::bundled_asset(&id))
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_default(),
                 language_devices: Default::default(),
                 language_runtimes: Default::default(),
                 model_dir: default_model_dir(),

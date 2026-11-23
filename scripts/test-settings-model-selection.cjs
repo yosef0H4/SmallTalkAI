@@ -39,7 +39,14 @@ const f = require('./settings-fixture.cjs');
     assert.equal(await page.locator('[data-catalog-selection=stt] .field').first().locator('[role=combobox]').getAttribute('id'),'stt-mode');
     assert(await page.locator('[data-route-card="stt.ar"]').getByRole('heading',{name:'Arabic'}).isVisible());
     assert(await page.locator('[data-route-card="stt.en"]').getByRole('heading',{name:'English'}).isVisible());
-    await choose('stt.en.runtime','Vulkan',/^GPU$/);
+    const runtimeInput=page.locator('[data-setting-path="stt.en.runtime"] .combo-input');
+    await runtimeInput.click();
+    const runtimeList=page.locator('[data-combo-list="stt.en.runtime"]');
+    await runtimeList.getByRole('option',{ name: 'Vulkan', exact: true })
+      .getByText('CPU and compatible NVIDIA, AMD, and Intel GPUs.',{exact:true}).waitFor();
+    await runtimeList.getByRole('option',{ name: 'CUDA', exact: true })
+      .getByText('Compatible NVIDIA GPUs only. Can be faster. Uses more disk space and can use more memory.',{exact:true}).waitFor();
+    await runtimeList.getByRole('option',{ name: 'Vulkan', exact: true }).click();
     await choose('stt.en.model','English Q8',/English Q8/);
     await choose('stt.en.device','GPU',/^GPU$/);
     config=await draft();

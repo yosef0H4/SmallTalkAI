@@ -384,6 +384,66 @@ main {
   padding: 12px 14px;
   min-width: 0;
 }
+.app-shell.showing-setup { grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
+.app-shell.showing-setup > main { grid-area: 1 / 1; padding: 0; overflow: hidden; scrollbar-gutter: auto; }
+.model-setup { display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100%; }
+.model-setup-scroll { overflow: auto; scrollbar-gutter: stable; padding: 12px 14px; }
+.model-setup-content { padding: 0 12px 12px; }
+.model-setup-bottom { min-width: 0; }
+.model-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 14px;
+  border-block-start: 1px solid var(--line);
+  background: var(--rail);
+}
+.model-setup-bottom .notice { background: var(--raised); }
+.dictation-preview { display: grid; gap: 6px; }
+.dictation-preview textarea { width: 100%; resize: vertical; }
+.help-text {
+  position: fixed;
+  z-index: 80;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  background: var(--raised);
+  color: var(--ink);
+  box-shadow: var(--raised-edge);
+}
+.setup-appearance {
+  max-inline-size: 530px;
+  margin: max(8px, calc((100vh - 340px) / 2)) auto 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  box-shadow: var(--raised-edge);
+}
+.setup-appearance .page-head { padding: 0; }
+.setup-appearance .model-setup-content { padding: 0; }
+.setup-appearance p { margin: 8px 0 14px; color: var(--muted); }
+.setup-themes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.setup-themes button { display: grid; gap: 7px; min-inline-size: 0; padding: 8px; }
+.setup-themes button[aria-pressed="true"] { background: var(--accent-soft); }
+.setup-theme-preview {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  align-content: center;
+  gap: 6px;
+  height: 52px;
+  padding: 8px;
+  border: 1px solid #666;
+  border-top: 8px solid var(--title-bar);
+  background: #e5e5e5;
+}
+.setup-theme-preview[data-theme-preview="dark"] { background: #333; }
+.setup-theme-preview[data-theme-preview="auto"] { background: linear-gradient(to right, #e5e5e5 50%, #333 50%); }
+.setup-theme-preview span { height: 10px; border: 1px solid #777; background: #f7f7f7; }
+.setup-theme-preview[data-theme-preview="dark"] span,
+.setup-theme-preview[data-theme-preview="auto"] span:last-child { background: #222; }
+.setup-theme-preview[data-theme-preview="auto"] { grid-template-columns: 1fr 1fr; }
+.setup-downloads { margin-block-end: 12px; }
+.setup-downloads progress { width: 100%; }
+
 .app-shell > main {
   overflow: auto;
   scrollbar-gutter: stable;

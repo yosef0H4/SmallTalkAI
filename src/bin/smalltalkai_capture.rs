@@ -49,6 +49,7 @@ struct Args {
 #[derive(Debug)]
 struct Recording {
     session_id: u64,
+    preview: bool,
     worker_config: WorkerConfig,
     screen_context: Arc<ScreenCaptureSlot>,
     samples: Vec<i16>,
@@ -562,6 +563,12 @@ fn main() -> Result<()> {
                 }
             },
             recv(timer) -> _ => {
+                if active.as_ref().is_some_and(|recording| {
+                    recording.preview && recording.started.elapsed() >= Duration::from_secs(45)
+                }) {
+                    active = None;
+                    recording_active.store(false, Ordering::Relaxed);
+                }
                 let finish_session = match advance_stop_grace(&mut active, &frame_rx, Instant::now()) {
                     GraceTick::Countdown(milliseconds) => {
                         overlay.notify_info(smalltalkai::localization::format(
@@ -827,7 +834,18 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
         ShellCommand::StartRecording {
             session_id,
             target_window,
+            preview_language,
         } => {
+            let preview = preview_language.is_some();
+            if preview
+                && (active.is_some()
+                    || !transcribing.is_empty()
+                    || !warming.is_empty()
+                    || !cleaning.is_empty()
+                    || !delivering.is_empty())
+            {
+                return ShellResponse::error(tr("capture.previewBusy"));
+            }
             // Every start supersedes prior work, including a queued cancellation.
             let generation = cancel_generation.fetch_add(1, Ordering::SeqCst) + 1;
             let mut obsolete_shutdown = None;
@@ -869,7 +887,9 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                     }));
                 }
             }
-            let language = if config.speech.selection_mode == ModelSelectionMode::FollowKeyboard
+            let language = if preview {
+                preview_language
+            } else if config.speech.selection_mode == ModelSelectionMode::FollowKeyboard
                 && (config.speech.has_remote_routes()
                     || config.speech.assigned_models().next().is_some())
             {
@@ -878,8 +898,9 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                 None
             };
             let route_language = language.as_deref().unwrap_or("single");
-            let remote_stt = config.speech.provider_for(route_language)
-                == smalltalkai::config::SpeechProvider::RemoteOpenAiCompatible;
+            let remote_stt = !preview
+                && config.speech.provider_for(route_language)
+                    == smalltalkai::config::SpeechProvider::RemoteOpenAiCompatible;
             let (language, model_path) = if remote_stt {
                 let language = language.unwrap_or_else(|| "single".to_owned());
                 (
@@ -897,6 +918,9 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                         model_ready,
                         language.as_deref(),
                     );
+                    if preview {
+                        return ShellResponse::error(message);
+                    }
                     overlay.notify_warning(message, std::time::Duration::from_secs(6));
                     return skipped_recording_response();
                 }
@@ -914,7 +938,9 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                 };
                 (language, model_path)
             };
-            let _ = smalltalkai::reader::pause_for_dictation();
+            if !preview {
+                let _ = smalltalkai::reader::pause_for_dictation();
+            }
             let frozen_worker = match worker_config(config, &language, model_path) {
                 Ok(worker) => worker,
                 Err(error) => return ShellResponse::error(error.to_string()),
@@ -936,13 +962,17 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                     return ShellResponse::error(error.to_string());
                 }
             };
+            if preview {
+                overlay.level_cell().store(0, Ordering::Relaxed);
+            }
             recording_active.store(true, Ordering::Relaxed);
             *active = Some(Recording {
                 session_id,
+                preview,
                 worker_config: frozen_worker.clone(),
                 screen_context: Arc::new(ScreenCaptureSlot {
                     value: Mutex::new(
-                        if config.cleanup.enabled && config.cleanup.screenshot.enabled {
+                        if !preview && config.cleanup.enabled && config.cleanup.screenshot.enabled {
                             ScreenCaptureState::Pending
                         } else {
                             ScreenCaptureState::Complete(None)
@@ -956,6 +986,9 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                 stop_ready: false,
                 countdown_shown: None,
             });
+            if preview {
+                return message_response(true, "capture.recordingStarted");
+            }
             overlay.clear_notice();
             overlay.start_recording(
                 target_window.unwrap_or_default() as isize,
@@ -1263,10 +1296,18 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
             });
             ShellResponse::ok("transcription accepted")
         }
-        ShellCommand::StopRecording { session_id } => {
+        command @ (ShellCommand::StopRecording { session_id }
+        | ShellCommand::StopRecordingPreview { session_id }) => {
+            let preview = matches!(command, ShellCommand::StopRecordingPreview { .. });
+            if active
+                .as_ref()
+                .is_some_and(|recording| recording.preview != preview)
+            {
+                return message_response(false, "capture.sessionMismatch");
+            }
             if let Some(recording) = active
                 .as_mut()
-                .filter(|recording| recording.session_id == session_id)
+                .filter(|recording| !recording.preview && recording.session_id == session_id)
             {
                 let was_scheduled = recording.stop_deadline.is_some();
                 let milliseconds = config.audio.stop_grace_ms;
@@ -1313,7 +1354,10 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                 return message_response(false, "capture.sessionMismatch");
             }
             recording_active.store(false, Ordering::Relaxed);
-            overlay.clear_notice();
+            let preview = recording.preview;
+            if !preview {
+                overlay.clear_notice();
+            }
             let duration_ms = recording.started.elapsed().as_millis();
             let frozen_worker = recording.worker_config;
             let samples = recording.samples;
@@ -1325,6 +1369,9 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                 "recording stop"
             );
             if samples.len() < MIN_RECORDING_SAMPLES {
+                if preview {
+                    return message_response(false, "notice.recordingShort");
+                }
                 overlay.notify_warning(tr("notice.recordingShort"), Duration::from_secs(2));
                 restore_overlay_work_state(overlay, false, !transcribing.is_empty());
                 events.push(terminal_notice_event_for_session(
@@ -1334,9 +1381,13 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                 ));
                 return message_response(true, "capture.recordingShort");
             }
-            let remote_stt = config.speech.provider_for(&frozen_worker.speech_language)
-                == smalltalkai::config::SpeechProvider::RemoteOpenAiCompatible;
+            let remote_stt = !preview
+                && config.speech.provider_for(&frozen_worker.speech_language)
+                    == smalltalkai::config::SpeechProvider::RemoteOpenAiCompatible;
             if !remote_stt && !frozen_worker.model_path.is_file() {
+                if preview {
+                    return message_response(false, "notice.dictationSkipped");
+                }
                 restore_overlay_work_state(overlay, false, !transcribing.is_empty());
                 events.push(terminal_notice_event_for_session(
                     NoticeLevel::Info,
@@ -1346,11 +1397,13 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                 return skipped_recording_response();
             }
             transcribing.insert(session_id);
-            overlay.set_primary(OverlayPrimary::Transcribing);
-            let mut event = ServiceEvent::simple("transcribing");
-            event.session_id = Some(session_id);
-            events.push(event);
-            if !remote_stt && nonzero_pid(worker_pid).is_none() {
+            if !preview {
+                overlay.set_primary(OverlayPrimary::Transcribing);
+                let mut event = ServiceEvent::simple("transcribing");
+                event.session_id = Some(session_id);
+                events.push(event);
+            }
+            if !preview && !remote_stt && nonzero_pid(worker_pid).is_none() {
                 overlay.notify_info(
                     speech_lifecycle_notice("loading", &frozen_worker.speech_language),
                     None,
@@ -1426,6 +1479,14 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                                 .map_err(|error| error.to_string())
                         })
                 };
+                if preview {
+                    let _ = tx.send(BackgroundResult::CliTranscription {
+                        generation,
+                        job_id: session_id,
+                        result,
+                    });
+                    return;
+                }
                 let screen_context = if result.is_ok() {
                     screen_context.wait(Duration::from_secs(15))
                 } else {
@@ -1439,6 +1500,35 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                 });
             });
             message_response(true, "capture.transcriptionQueued")
+        }
+        ShellCommand::RecordingPreviewWaveform { session_id } => {
+            if !active
+                .as_ref()
+                .is_some_and(|recording| recording.preview && recording.session_id == session_id)
+            {
+                return ShellResponse::error("Dictation preview is no longer recording");
+            }
+            use smalltalkai::capture::overlay::{
+                ascii_visualizer, empty_visualizer_levels, set_visualizer_level,
+            };
+            let level = f32::from_bits(overlay.level_cell().load(Ordering::Relaxed));
+            let mut levels = empty_visualizer_levels();
+            set_visualizer_level(&mut levels, level);
+            let mut response = ShellResponse::ok("Dictation preview waveform");
+            response
+                .values
+                .insert("waveform".into(), ascii_visualizer(&levels));
+            response
+        }
+        ShellCommand::CancelRecordingPreview { session_id } => {
+            if active
+                .as_ref()
+                .is_some_and(|recording| recording.preview && recording.session_id == session_id)
+            {
+                *active = None;
+                recording_active.store(false, Ordering::Relaxed);
+            }
+            ShellResponse::ok("")
         }
         ShellCommand::RememberDelivery { session_id, text } => {
             if !last_delivery.remember(session_id, text, delivering.contains(&session_id)) {
@@ -1617,6 +1707,30 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
             }
             Err(error) => ShellResponse::error(error.to_string()),
         },
+        ShellCommand::PrepareFactoryReset => {
+            for job in downloads.jobs.values() {
+                job.cancellation.cancel();
+            }
+            if !downloads.jobs.is_empty() {
+                return ShellResponse::error(
+                    "Wait for the dictation download to stop, then try again",
+                );
+            }
+            if active.is_some()
+                || !transcribing.is_empty()
+                || !warming.is_empty()
+                || *pending_model_tests != 0
+                || !cleaning.is_empty()
+                || !delivering.is_empty()
+            {
+                return ShellResponse::error("Stop dictation before resetting SmallTalkAI");
+            }
+            let grace = Duration::from_millis(config.speech.worker_shutdown_grace_ms);
+            match shutdown_shared(Arc::clone(worker), Arc::clone(worker_pid), grace) {
+                Ok(()) => ShellResponse::ok("Ready to reset"),
+                Err(error) => ShellResponse::error(error.to_string()),
+            }
+        }
         ShellCommand::UnloadModel => {
             let worker = Arc::clone(worker);
             let tracker = Arc::clone(worker_pid);
@@ -2515,6 +2629,7 @@ mod tests {
     fn test_recording(session_id: u64) -> Recording {
         Recording {
             session_id,
+            preview: false,
             worker_config: idle_worker_config(&AppConfig::default()).unwrap(),
             screen_context: Arc::new(ScreenCaptureSlot {
                 value: Mutex::new(ScreenCaptureState::Complete(None)),

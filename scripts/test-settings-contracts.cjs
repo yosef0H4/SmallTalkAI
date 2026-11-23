@@ -85,6 +85,13 @@ const { chromium } = require("playwright");
     await page
       .locator('#stt-mode')
       .waitFor();
+    await page.locator('[data-download-kind="runtime"]').click();
+    const runtimes = page.locator('[data-catalog="stt.runtime"]');
+    const vulkan = runtimes.locator('[data-model-id="parakeet-vulkan"] .recommendation');
+    await vulkan.waitFor();
+    assert.equal(await vulkan.getAttribute("title"), "Supports CPU and GPU.");
+    assert.equal(await runtimes.locator('[data-model-id="parakeet-cuda"]').count(), 1);
+    assert.equal(await runtimes.locator('[data-model-id="parakeet-cuda"] .recommendation').count(), 0);
     assert.deepEqual(errors, [], "compiled UI must run under real Rust CSP");
     fs.writeFileSync(path.join(temp, "config.json"), "{invalid");
     await page.reload();

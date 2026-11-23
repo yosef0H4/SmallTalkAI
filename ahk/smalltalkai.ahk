@@ -62,7 +62,7 @@ class SmallTalkAIShell {
             capsMode := this.config.Get("capslock_behavior", "preserve_tap")
             releaseStops := this.config.Get("recording_mode", "hold") != "toggle"
             this.hotkeys.Configure(this.config.Get("record_hotkey", "CapsLock+S"), this.config.Bool("hotkey_enabled", true), capsMode, releaseStops)
-            this.cancelHotkey.Configure(this.config.Get("cancel_hotkey", "CapsLock+A"), true, capsMode)
+            this.cancelHotkey.Configure(this.config.Get("cancel_hotkey", "CapsLock+X"), true, capsMode)
             this.deliveryToggleHotkey.Configure(this.config.Get("toggle_delivery_hotkey", "CapsLock+D"), true, capsMode)
             this.cleanupToggleHotkey.Configure(this.config.Get("toggle_cleanup_hotkey", "None"), true, capsMode)
             hint := this.config.Get("show_shortcuts_hotkey", "CapsLock")
@@ -525,7 +525,7 @@ class SmallTalkAIShell {
             try {
                 packagedLauncher := A_ScriptDir . "\..\SmallTalkAI.exe"
                 if FileExist(packagedLauncher)
-                    FileCreateShortcut(packagedLauncher, shortcut, A_ScriptDir . "\..",,, TrayController.IconDirectory . "\smalltalkai.ico")
+                    FileCreateShortcut(packagedLauncher, shortcut, A_ScriptDir . "\..", "--background",, TrayController.IconDirectory . "\smalltalkai.ico")
                 else
                     FileCreateShortcut(A_AhkPath, shortcut, A_ScriptDir, SmallTalkAIQuote(A_ScriptFullPath),, TrayController.IconDirectory . "\smalltalkai.ico")
             }
@@ -564,6 +564,12 @@ try {
     global SmallTalkAI := SmallTalkAIShell()
     OnExit(ObjBindMethod(SmallTalkAI, "OnExit"))
     OnError(ObjBindMethod(SmallTalkAI, "OnError"))
+    for arg in A_Args {
+        if arg = "--show-settings" {
+            SmallTalkAI.OpenSettings()
+            break
+        }
+    }
     Persistent
 } catch Error as err {
     MsgBox(err.Message, UiText("error.startup"), "Iconx")

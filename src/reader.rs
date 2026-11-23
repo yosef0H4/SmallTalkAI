@@ -68,6 +68,15 @@ pub fn read_in_background(text: &str) -> Result<String> {
     command_input(&["read-text", "--existing"], Some(text.as_bytes()))
 }
 
+pub fn preview_voice(
+    binding: reader_core::routing::Binding,
+    language: &str,
+    text: &str,
+) -> Result<()> {
+    local_request(json!({"op":"preview_voice","binding":binding,"language":language,"text":text}))?;
+    Ok(())
+}
+
 fn command_in_profile(
     args: &[&str],
     input: Option<&[u8]>,

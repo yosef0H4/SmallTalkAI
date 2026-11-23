@@ -1,5 +1,5 @@
 ; Generated from desktop catalogs and tray menu. Run node web/settings/tools/locales.mjs.
-; catalog-sha256: 75ffee600911d6220a7e8921a8180cd51d7a573c705d548bc9824751c82d74c2
+; catalog-sha256: c42571457ad4d2e67025114e2fdbd820bbac1ea03ce49e0d517ff27f00b4b443
 UiSetLanguage(language := "auto") {
     global SmallTalkAIUiLocale
     if language = "auto"
@@ -9,6 +9,7 @@ UiSetLanguage(language := "auto") {
 UiText(id, args := unset) {
     global SmallTalkAIUiLocale
     static english := Map(
+        "capture.previewBusy", "Finish the current dictation before recording a preview.",
         "overlay.screenContext", "Screen",
         "overlay.transcribing", "🎙 Transcribing...",
         "overlay.typing", "🎙 Typing...",
@@ -230,6 +231,7 @@ UiText(id, args := unset) {
         "reader.next.preparing", "Next page · preparing"
     )
     static arabic := Map(
+        "capture.previewBusy", "أنهِ الإملاء الحالي قبل تسجيل عينة.",
         "overlay.screenContext", "الشاشة",
         "overlay.transcribing", "🎙 جارٍ التفريغ…",
         "overlay.typing", "🎙 جارٍ الإدراج…",

@@ -1,4 +1,5 @@
 {
+  "capture.previewBusy": "Finish the current dictation before recording a preview.",
   "overlay.screenContext": "Screen",
   "overlay.transcribing": "🎙 Transcribing...",
   "overlay.typing": "🎙 Typing...",

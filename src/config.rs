@@ -179,8 +179,8 @@ impl ModelSelectionMode {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum UiTheme {
-    Light,
     #[default]
+    Light,
     Dark,
     Auto,
 }
@@ -509,7 +509,7 @@ impl Default for AppConfig {
                 cancel_hotkey: if cfg!(target_os = "linux") {
                     "Meta+X"
                 } else {
-                    "CapsLock+A"
+                    "CapsLock+X"
                 }
                 .to_owned(),
                 toggle_cleanup_hotkey: "None".to_owned(),
@@ -1628,7 +1628,7 @@ mod tests {
             if cfg!(target_os = "linux") {
                 "Meta+X"
             } else {
-                "CapsLock+A"
+                "CapsLock+X"
             }
         );
         assert!(!config.output.remove_punctuation);

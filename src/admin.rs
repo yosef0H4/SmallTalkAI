@@ -690,7 +690,10 @@ fn assets(command: AssetCommand) -> Result<()> {
             model,
             runtime,
             language,
-        } => select(feature, &model, &runtime, language.as_deref()),
+        } => {
+            select_assets(feature, &model, &runtime, language.as_deref(), true)?;
+            print(&json!({"selected": true}))
+        }
     }
 }
 
@@ -700,7 +703,13 @@ fn install_job(jobs: Vec<crate::assets::Progress>, id: &str) -> Result<crate::as
         .context("download job disappeared")
 }
 
-fn select(feature: Feature, model: &str, runtime: &str, language: Option<&str>) -> Result<()> {
+pub(crate) fn select_assets(
+    feature: Feature,
+    model: &str,
+    runtime: &str,
+    language: Option<&str>,
+    require_installed: bool,
+) -> Result<()> {
     use reader_core::routing::{self, SelectionMode};
     let registry = routing::registry();
     let feature_id = match feature {
@@ -713,7 +722,7 @@ fn select(feature: Feature, model: &str, runtime: &str, language: Option<&str>) 
         .iter()
         .find(|r| r.id == runtime && r.feature == feature_id)
         .context("unknown runtime ID for this feature; use assets list")?;
-    if let Some(asset) = &runtime.asset {
+    if let Some(asset) = runtime.asset.as_ref().filter(|_| require_installed) {
         ensure_installed(asset)?;
     }
     if matches!(feature, Feature::Stt) {
@@ -725,7 +734,7 @@ fn select(feature: Feature, model: &str, runtime: &str, language: Option<&str>) 
         let _lock = crate::config::lock_config()?;
         let mut config = load_app_config()?;
         anyhow::ensure!(
-            config.model_dir_path().join(&model_file).is_file(),
+            !require_installed || config.model_dir_path().join(&model_file).is_file(),
             "STT model file is not installed"
         );
         if let Some(language) = language {
@@ -762,7 +771,9 @@ fn select(feature: Feature, model: &str, runtime: &str, language: Option<&str>) 
             runtime.engine == model.engine,
             "model and runtime use different engines"
         );
-        ensure_installed(&model.asset)?;
+        if require_installed {
+            ensure_installed(&model.asset)?;
+        }
         let mut config = crate::reader::load()?;
         let selection = match feature {
             Feature::Tts => &mut config.speech.selection,
@@ -791,7 +802,7 @@ fn select(feature: Feature, model: &str, runtime: &str, language: Option<&str>) 
         let revision = config.revision;
         crate::reader::store().save(config, revision)?;
     }
-    print(&json!({"selected": true}))
+    Ok(())
 }
 
 fn ensure_installed(id: &str) -> Result<()> {

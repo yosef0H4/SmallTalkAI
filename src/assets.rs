@@ -22,6 +22,8 @@ pub struct Asset {
     pub bytes: u64,
     pub format: String,
     pub strip: usize,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub archive_files: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     pub filename: String,
     pub required: Vec<String>,
@@ -208,6 +210,25 @@ impl Manager {
         }
         self.shared.wake.notify_all();
         self.shared.unlocked.notify_all();
+    }
+    pub fn cancel_and_clear(&self, timeout: Duration) -> Result<()> {
+        self.cancel("");
+        let deadline = std::time::Instant::now() + timeout;
+        let mut scheduler = self.shared.scheduler.lock().expect("asset scheduler");
+        while scheduler.active != 0 || !scheduler.queue.is_empty() {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            anyhow::ensure!(
+                !remaining.is_zero(),
+                "Wait for downloads to stop, then try again"
+            );
+            (scheduler, _) = self
+                .shared
+                .wake
+                .wait_timeout(scheduler, remaining)
+                .expect("asset scheduler");
+        }
+        scheduler.jobs.clear();
+        Ok(())
     }
     pub fn start(&self, id: &str) -> Result<()> {
         self.start_with(id, catalog(), root())
@@ -569,7 +590,23 @@ fn unpack(asset: &Asset, archive: &Path, destination: &Path, cancelled: &AtomicB
         anyhow::ensure!(index < 100_000, "Archive has too many entries");
         anyhow::ensure!(!cancelled.load(Ordering::Acquire), "Download cancelled");
         let mut entry = entry?;
-        let name = relative(&entry.path()?, asset.strip)?;
+        let archive_path = entry.path()?;
+        let name =
+            if asset.archive_files.is_empty() {
+                relative(&archive_path, asset.strip)?
+            } else {
+                let canonical = relative(&archive_path, 0)?;
+                let Some(target) = asset.archive_files.iter().find_map(|(source, target)| {
+                    (Path::new(source) == canonical).then_some(target)
+                }) else {
+                    continue;
+                };
+                anyhow::ensure!(
+                    entry.header().entry_type().is_file(),
+                    "Expected a regular archive file"
+                );
+                relative(Path::new(target), 0)?
+            };
         if name.as_os_str().is_empty() {
             continue;
         }

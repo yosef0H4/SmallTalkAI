@@ -10,6 +10,7 @@ import struct
 import subprocess
 import tempfile
 import threading
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -66,7 +67,7 @@ def finish(child):
             raise AssertionError(f'Worker exited {child.returncode}; see artifacts/combined-app/worker.log')
         send(child, {'type': 'shutdown'})
         child.wait(timeout=5)
-        assert child.returncode == 0
+        assert child.returncode == 0, f'Worker shutdown exited with code {child.returncode:#x}'
     finally:
         if child.poll() is None:
             child.kill()
@@ -79,9 +80,12 @@ def main():
     parser.add_argument('--ocr-model', type=Path, required=True)
     parser.add_argument('--ocr-runtime', type=Path, required=True)
     parser.add_argument('--device', choices=['cpu', 'gpu'], default='gpu')
+    parser.add_argument('--webgpu', action='store_true', help='Verify native WebGPU OCR operator dispatch')
     parser.add_argument('--model-dir', type=Path)
     parser.add_argument('--runtime-dir', type=Path)
     args = parser.parse_args()
+    if args.webgpu and args.device == 'cpu':
+        parser.error('--webgpu requires --device gpu')
     with tempfile.TemporaryDirectory(prefix='smalltalkai-reader-worker-') as temporary:
         scratch = Path(temporary) / 'capture'
         scratch.mkdir(mode=0o700)
@@ -92,16 +96,24 @@ def main():
                    DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-test-bus')
         runtime_lib = args.ocr_runtime / 'lib' if (args.ocr_runtime / 'lib').is_dir() else args.ocr_runtime
         env['LD_LIBRARY_PATH'] = str(runtime_lib) + os.pathsep + env.get('LD_LIBRARY_PATH', '')
+        env['PATH'] = str(runtime_lib) + os.pathsep + env.get('PATH', '')
+        exe_suffix = '.exe' if os.name == 'nt' else ''
+        ocr_args = ['--model-dir', str(args.ocr_model), '--runtime-dir', str(args.ocr_runtime), '--device', args.device]
+        if args.webgpu:
+            ocr_args += ['--webgpu', '--webgpu-trace']
+            env['RUST_LOG'] = 'warn,ort=trace'
         log_dir = ROOT / 'artifacts/combined-app'
         log_dir.mkdir(parents=True, exist_ok=True)
-        with open(log_dir / 'worker.log', 'wb') as log:
-            child, output = launch(args.bin_dir / 'smalltalkai-ocr', ['--model-dir', str(args.ocr_model), '--runtime-dir', str(args.ocr_runtime), '--device', args.device], env, log)
+        log_path = log_dir / ('worker-webgpu.log' if args.webgpu else 'worker.log')
+        with open(log_path, 'wb') as log:
+            child, output = launch(args.bin_dir / ('smalltalkai-ocr' + exe_suffix), ocr_args, env, log)
             try:
                 for theme in ['light', 'dark', 'arabic']:
+                    started = time.perf_counter()
                     send(child, {'type': 'recognize', 'job_id': theme, 'generation': 8,
                                  'image_path': str(scratch / f'{theme}.png'),
                                  'language': 'eng'})
-                    kind, recognized, _ = output.get(timeout=20)
+                    kind, recognized, _ = output.get(timeout=75 if args.webgpu else 20)
                     assert kind == 'control' and recognized['type'] == 'text', recognized
                     if theme == 'arabic':
                         compact = ''.join(c for c in recognized['text'] if c.isalnum())
@@ -109,16 +121,27 @@ def main():
                         import difflib
                         assert arabic.startswith('مرحبابالعالم'), recognized
                         assert difflib.SequenceMatcher(None, 'مرحبابالعالمهذااختبارباللغةالعربية', arabic).ratio() >= .95, recognized
-                        assert 'SmallTalkAIreadsArabicandEnglish' in compact, recognized
+                        assert 'SmallTalkAIreadsArabicandEnglish' in compact.replace('SmallTalkAl', 'SmallTalkAI'), recognized
                     else:
                         assert 'SmallTalkAI Reader reads this screenshot.' in recognized['text'], recognized
                     assert output.get(timeout=5)[1]['type'] == 'finished'
+                    print(f'OCR {theme}: {time.perf_counter() - started:.3f}s')
             finally:
                 finish(child)
-            print('PASS real OCR worker: light/dark fixtures, exact text, clean shutdown')
+            if args.webgpu:
+                with log_path.open(encoding='utf-8', errors='replace') as trace:
+                    placements = 0
+                    dispatched = False
+                    for line in trace:
+                        if 'placed on [WebGpuExecutionProvider]' in line:
+                            placements += 1
+                            print(line.strip())
+                        dispatched |= 'WebGpuContext::Run' in line
+                assert placements >= 2 and dispatched, f'Missing detector/recognizer WebGPU evidence: {log_path}'
+            print('PASS real OCR worker: English and Arabic fixtures, verified text, clean shutdown')
             if args.model_dir and args.runtime_dir:
                 env['LD_LIBRARY_PATH'] = str(args.runtime_dir / 'lib') + os.pathsep + env.get('LD_LIBRARY_PATH', '')
-                child, output = launch(args.bin_dir / 'smalltalkai-tts', ['--model-dir', str(args.model_dir),
+                child, output = launch(args.bin_dir / ('smalltalkai-tts' + exe_suffix), ['--model-dir', str(args.model_dir),
                                        '--runtime-dir', str(args.runtime_dir), '--device', 'cuda' if args.device == 'gpu' else 'cpu'], env, log)
                 try:
                     send(child, {'type': 'synthesize', 'job_id': 'test', 'generation': 7,

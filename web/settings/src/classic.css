@@ -107,9 +107,7 @@ input.segmented-range::-moz-range-thumb {
   box-shadow: var(--raised-edge);
   border-radius: 0;
 }
-::-webkit-scrollbar-thumb:hover,
 ::-webkit-scrollbar-button:hover { background-color: var(--bevel-mid); }
-::-webkit-scrollbar-thumb:active,
 ::-webkit-scrollbar-button:active { box-shadow: var(--sunken-edge); }
 ::-webkit-scrollbar-button:vertical:single-button {
   height: 16px;

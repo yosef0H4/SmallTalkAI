@@ -123,7 +123,7 @@ async function main() {
     browsers.push(browser);
     const context = browser.contexts()[0];
     const page = await waitFor("Settings document", () => context.pages().find((tab) => tab.url().includes("127.0.0.1")));
-    await page.locator("#ui-language").waitFor();
+    await page.locator("#ui-language, #model-setup-heading").waitFor();
     const health = await page.evaluate(async () => {
       const token = new URLSearchParams(location.hash.slice(1)).get("token");
       const response = await fetch("/api/health", { headers: { "X-SmallTalkAI-Token": token } });
@@ -131,15 +131,49 @@ async function main() {
     });
     assert.equal(health.ok, true);
     nativeProcesses.push(health.pid);
+    await waitFor("native Settings window", () => nativeWindow(health.pid, "state") === "visible");
     return { page, context, pid: health.pid };
   }
   try {
+    fs.writeFileSync(config, JSON.stringify({ general: { ui_theme: "light" } }));
     const started = Date.now();
     const launcher = launch("smalltalkai-settings");
     const { page, context, pid: host } = await settingsPage();
     const startup = Date.now() - started;
     assert.equal(launcher.exitCode, 0, "Only the Tauri Settings process should remain");
     assert.equal(nativeWindow(host, "state"), "visible", "The Settings server must own the window");
+    await page.getByRole("heading", { name: "Appearance", exact: true }).waitFor();
+    await page.getByRole("button", { name: "System", exact: true }).click();
+    await page.locator("html[data-theme=auto]").waitFor({ state: "attached" });
+    assert.equal(JSON.parse(fs.readFileSync(config, "utf8")).general.ui_theme, "auto");
+    await page.getByRole("button", { name: "Light", exact: true }).click();
+    await page.locator("html[data-theme=light]").waitFor({ state: "attached" });
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+    await page.getByRole("button", { name: "Skip this feature" }).click();
+    await page.getByRole("button", { name: "Skip both features" }).click();
+    await page.getByRole("heading", { name: "Keyboard setup", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Finish", exact: true }).click();
+    await page.locator('[data-section="models"]').waitFor();
+    assert.equal(JSON.parse(fs.readFileSync(path.join(temp, "model-setup.json"), "utf8")).done, true);
+    await page.locator('nav button[data-page="general"]').click();
+    const stateUrl = "**/api/state";
+    let releaseState;
+    const statePending = new Promise((resolve) => { releaseState = resolve; });
+    await page.route(stateUrl, async (route) => {
+      await statePending;
+      await route.continue();
+    });
+    try {
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.locator(".app-shell").waitFor();
+      const firstTheme = await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme);
+      assert.equal(firstTheme, "light", "Settings rendered the default theme before its configuration arrived");
+    } finally {
+      releaseState();
+      await page.unrouteAll({ behavior: "wait" });
+    }
+    await page.locator("#ui-language").waitFor();
+    console.log("PASS: Settings paints the saved light theme before the state response");
     assert.equal(nativeWindow(host, "minimize"), "minimized");
     const duplicate = launch("smalltalkai-settings");
     await waitFor("second launch to exit", () => duplicate.exitCode !== null);
@@ -170,7 +204,7 @@ async function main() {
     const capture = runCapture();
     await waitFor("capture actions reenabled after restart", () => unload.isEnabled());
     await page.locator("[data-page=general]").click();
-    assert.equal(await language.inputValue(), "en", "Reconnect discarded the unsaved draft");
+    assert.equal(await language.getAttribute("data-value"), "en", "Reconnect discarded the unsaved draft");
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await waitFor("saved Settings JSON", () => JSON.parse(fs.readFileSync(config, "utf8")).general.ui_language === "en");
     await page.locator("#notice").waitFor();
@@ -182,10 +216,9 @@ async function main() {
 
     await frame.waitFor();
     assert.equal(nativeWindow(host, "frame"), "classic");
-    const maximize = frame.getByRole("button", { name: "Maximize or restore Settings" });
-    await maximize.click();
+    await frame.getByRole("button", { name: "Maximize Settings" }).click();
     await waitFor("Classic titlebar maximizes", () => nativeWindow(host, "zoom") === "maximized");
-    await maximize.click();
+    await frame.getByRole("button", { name: "Restore Settings" }).click();
     await waitFor("Classic titlebar restores", () => nativeWindow(host, "zoom") === "normal");
     await frame.getByRole("button", { name: "Minimize Settings" }).click();
     await waitFor("Classic titlebar minimizes", () => nativeWindow(host, "state") === "minimized");
@@ -207,7 +240,7 @@ async function main() {
     const cancelClose = closeSettings.click();
     await (await dialog).dismiss();
     await cancelClose;
-    assert.equal(await language.inputValue(), "auto");
+    assert.equal(await language.getAttribute("data-value"), "auto");
     dialog = page.waitForEvent("dialog");
     const acceptClose = closeSettings.click().catch((error) => {
       if (!page.isClosed()) throw error;
@@ -222,6 +255,7 @@ async function main() {
     launch("smalltalkai-settings");
     const { page: fresh, pid: reopened } = await settingsPage();
     assert.equal(await fresh.locator("#ui-language").getAttribute("data-value"), "en");
+    assert.equal(await fresh.locator("html").getAttribute("data-theme"), "light");
     assert.equal(await fresh.getByRole("button", { name: "Close Settings" }).count(), 1);
     assert.equal(nativeWindow(reopened, "close"), "visible");
     await waitFor("clean titlebar Close to exit Settings", () => !processAlive(reopened));

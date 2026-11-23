@@ -3,14 +3,21 @@
 use anyhow::Result;
 use clap::Parser;
 use smalltalkai::{
-    config::AppConfig,
+    config::{AppConfig, UiTheme},
     settings_server::{self, Args, DesktopSettings},
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use tauri::{webview::NewWindowResponse, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{
+    webview::NewWindowResponse, window::Color, Manager, Theme, WebviewUrl, WebviewWindowBuilder,
+    WindowEvent,
+};
+
+// Match the Settings --paper colors while the WebView composites its first frame.
+const LIGHT_BACKGROUND: Color = Color(216, 216, 216, 255);
+const DARK_BACKGROUND: Color = Color(48, 48, 48, 255);
 
 fn main() {
     if let Err(error) = settings_server::run(Args::parse(), Some(open_window)) {
@@ -25,6 +32,14 @@ fn open_window(settings: DesktopSettings) -> Result<()> {
     // desktop entry without making GTK register a single-instance bus name.
     glib::set_prgname(Some(smalltalkai::config::LINUX_DESKTOP_ID));
     let data_dir = AppConfig::local_data_dir().join("settings-webview");
+    let theme = AppConfig::load()
+        .map(|config| config.general.ui_theme)
+        .unwrap_or_default();
+    let background = if theme == UiTheme::Light {
+        LIGHT_BACKGROUND
+    } else {
+        DARK_BACKGROUND
+    };
     let url = settings.url.clone();
     #[cfg(debug_assertions)]
     let url = settings_dev_url(url)?;
@@ -33,12 +48,18 @@ fn open_window(settings: DesktopSettings) -> Result<()> {
         .setup(move |app| {
             let loaded = Arc::new(AtomicBool::new(false));
             let page_loaded = loaded.clone();
+            let shown = Arc::new(AtomicBool::new(false));
+            let page_shown = shown.clone();
+            let ready_shown = shown.clone();
+            let page_origin = origin.clone();
             let close = app.handle().clone();
             let window = WebviewWindowBuilder::new(app, "settings", WebviewUrl::External(url))
                 .title("SmallTalk")
                 .inner_size(1024.0, 760.0)
                 .min_inner_size(320.0, 360.0)
                 .decorations(false)
+                .visible(false)
+                .background_color(background)
                 .data_directory(data_dir)
                 .initialization_script(
                     "window.__SMALLTALKAI_DESKTOP__ = true;
@@ -59,6 +80,24 @@ fn open_window(settings: DesktopSettings) -> Result<()> {
                                 let _ = window.destroy();
                             }
                         });
+                        return false;
+                    }
+                    if url.path() == "/__settings_frame/ready" {
+                        let handle = close.clone();
+                        if !ready_shown.swap(true, Ordering::Relaxed) {
+                            let _ = close.run_on_main_thread(move || {
+                                if let Some(window) = handle.get_webview_window("settings") {
+                                    if theme == UiTheme::Auto
+                                        && window.theme().ok() == Some(Theme::Light)
+                                    {
+                                        let _ = window.set_background_color(Some(LIGHT_BACKGROUND));
+                                    }
+                                    if let Err(error) = window.show() {
+                                        eprintln!("smalltalkai-settings-window: show: {error}");
+                                    }
+                                }
+                            });
+                        }
                         return false;
                     }
                     let action = match url.path() {
@@ -86,10 +125,26 @@ fn open_window(settings: DesktopSettings) -> Result<()> {
                 })
                 .on_page_load(move |window, payload| {
                     use tauri::webview::PageLoadEvent;
+                    if payload.url().origin() != page_origin {
+                        return;
+                    }
                     let finished = payload.event() == PageLoadEvent::Finished;
                     page_loaded.store(finished, Ordering::Relaxed);
                     if finished {
                         publish_maximized(&window);
+                        if !page_shown.load(Ordering::Relaxed) {
+                            // A hidden WebView can defer animation frames.
+                            let _ = window.eval(
+                                "(() => {
+                                    const ready = () => window.location.replace('/__settings_frame/ready');
+                                    const fallback = setTimeout(ready, 250);
+                                    requestAnimationFrame(() => requestAnimationFrame(() => {
+                                        clearTimeout(fallback);
+                                        ready();
+                                    }));
+                                })()",
+                            );
+                        }
                     }
                 })
                 .build()?;
@@ -113,6 +168,9 @@ fn open_window(settings: DesktopSettings) -> Result<()> {
             let focus_window = window.clone();
             settings.serve(
                 move || {
+                    if !shown.load(Ordering::Relaxed) {
+                        return;
+                    }
                     let target = focus_window.clone();
                     let _ = focus_window.run_on_main_thread(move || {
                         let _ = target.unminimize();

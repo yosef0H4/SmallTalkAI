@@ -1,11 +1,13 @@
 <script lang="ts">
  import Combo from './Combo.svelte';
- import {supertonicVoices,matchesSupertonicVoice} from '../lib/voices';
+ import {localVoiceOptions,matchesSupertonicVoice} from '../lib/voices';
+ import ModelTest from './ModelTest.svelte';
  import {moduleSearchText} from '../lib/search';
  import {runtimeLabel} from '../lib/module-labels';
  import IconButton from './IconButton.svelte';
  import Help from './Help.svelte';
  import RangeInput from './RangeInput.svelte';
+ import NumberInput from './NumberInput.svelte';
  import {modules,refreshModules,type Feature,type Binding} from '../lib/modules.svelte';
  import {t} from '../lib/i18n';
  import {notice} from '../lib/state.svelte';
@@ -15,7 +17,7 @@
  const models=$derived([{value:'',label:'None'},...modules.models.filter(m=>m.feature===feature&&m.installed&&modules.runtimes.some(r=>r.feature===feature&&r.installed&&r.engine===m.engine)&&(!binding.runtime||(runtime?.installed&&m.engine===runtime.engine))&&(!language||!m.languages.length||m.languages.includes(language))).sort((a,b)=>Number(b.recommended)-Number(a.recommended)||a.label.localeCompare(b.label)).map(m=>({value:m.id,label:m.label,search:moduleSearchText(m,modules.models,modules.runtimes,modules.assets?.assets,false)}))]);
  async function refresh(){try{await refreshModules();}catch(error){notice(t('ui.operation_failed.c4e6ed'),'error',String(error));}}
  function changeRuntime(value:string){const r=modules.runtimes.find(r=>r.id===value);const model=modules.models.find(m=>m.id===binding.model);const clear=!!(r&&model&&r.engine!==model.engine);onchange({...binding,runtime:value||null,model:clear?null:binding.model,voice:clear?null:binding.voice,steps:clear?null:binding.steps,lowercase:clear?false:binding.lowercase,currency_words:binding.currency_words,clean_text:binding.clean_text,device:r?.backend==='cpu'?'cpu':binding.device});}
- const voices=$derived(binding.model==='supertonic3'?supertonicVoices():['af_heart','af_bella','af_nicole','af_sarah','am_adam','am_michael','bf_emma'].map(value=>({value,label:value})));
+ const voices=$derived(localVoiceOptions(binding.model));
 </script>
 <div class="engine-assignment" data-module={feature} data-language={language||'single'}>
  <Combo label="module.runtime" path={`${path}.runtime`} value={binding.runtime||''} items={runtimes} unavailable onselect={changeRuntime}>
@@ -34,6 +36,20 @@
  <div class="field"><div class="field-copy"><label for={`${path}.steps`}>{t('module.steps')} · {binding.steps??5}</label><Help text="module.steps_help"/></div><div class="control"><RangeInput id={`${path}.steps`} min={5} max={12} value={binding.steps??5} oninput={(steps) => onchange({...binding,steps})}/></div></div>
  {/if}
  {/if}
- <Combo label="ui.device.a5a74a" path={`${path}.device`} value={runtime?.backend==='cpu'?'cpu':binding.device} items={runtime?.backend==='cpu'?[{value:'cpu',label:'module.processor'}]:[{value:'auto',label:'ui.automatic.ac9041'},{value:'cpu',label:'module.processor'},{value:'gpu',label:runtime?.backend==='cuda'?'module.nvidia':'ui.gpu_backend'}]} onselect={value=>onchange({...binding,device:value as Binding['device']})}/>
+ <Combo label="ui.device.a5a74a" path={`${path}.device`} value={runtime?.backend==='cpu'?'cpu':binding.device} items={runtime?.backend==='cpu'?[{value:'cpu',label:'module.processor'}]:[{value:'auto',label:'ui.automatic.ac9041'},{value:'cpu',label:'module.processor'},{value:'gpu',label:runtime?.backend==='cuda'?'module.nvidia':runtime?.backend==='webgpu'?'module.webgpu_choose_gpu':'ui.gpu_backend'}]} onselect={value=>onchange({...binding,device:value as Binding['device']})}/>
+ {#if runtime?.backend === 'webgpu' && binding.device === 'gpu'}
+   <div class="field" data-setting-path={`${path}.webgpu_adapter`}>
+     <div class="field-copy">
+       <label for={`${path}.webgpu_adapter`}>{t('module.webgpu_adapter')}</label>
+       <Help text="module.webgpu_adapter_help" />
+     </div>
+     <div class="control">
+       <NumberInput id={`${path}.webgpu_adapter`} label={t('module.webgpu_adapter')}
+         value={binding.webgpu_adapter ?? 0} min={0}
+         oninput={(index) => { if (Number.isInteger(index) && index >= 0 && index <= 0xffffffff) onchange({...binding,webgpu_adapter:index}); }} />
+     </div>
+   </div>
+ {/if}
+ <ModelTest {feature} {binding} {language} />
 
 </div>

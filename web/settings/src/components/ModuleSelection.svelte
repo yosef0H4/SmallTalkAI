@@ -26,6 +26,13 @@
   const languages = $derived(detected ? configured : (ui.state?.keyboard_languages?.languages || []).map(language => language.id));
   const supported = $derived([...new Set(modules.models.filter(model => model.feature === "tts").flatMap(model => model.languages))].sort());
   const addable = $derived(supported.filter(code => !configured.includes(code)).map(code => ({ value: code, label: languageName(code) })));
+  const singleSttRuntime = $derived.by(() => {
+    const directory = normalizeDirectory(ui.config?.speech.runtime_dir ?? "");
+    if (!directory) return null;
+    const runtime = modules.runtimes.find(runtime => runtime.feature === "stt"
+      && runtime.directory !== null && normalizeDirectory(runtime.directory) === directory);
+    return runtime?.id ?? directory.split("/").pop() ?? null;
+  });
   const singleBinding = $derived(binding(""));
   const singleSpeech = $derived(single && feature === "tts");
 
@@ -33,12 +40,17 @@
     return reading.config?.[readerSection].selection;
   }
 
+  function normalizeDirectory(directory: string): string {
+    const path = directory.replaceAll("\\", "/").replace(/\/+$/, "");
+    return /^(?:[a-z]:\/|\/\/)/i.test(path) ? path.toLowerCase() : path;
+  }
+
   function binding(language: string): Binding {
     if (feature === "stt") {
       const speech = ui.config?.speech;
       return {
         remote: language ? speech?.remote_languages?.[language] : undefined,
-        runtime: language ? speech?.language_runtimes?.[language] ?? null : speech?.runtime_dir.split(/[\\/]/).pop() || null,
+        runtime: language ? speech?.language_runtimes?.[language] ?? null : singleSttRuntime,
         model: language ? speech?.language_models[language] || null : speech?.single_model_filename || null,
         device: language ? speech?.language_devices?.[language] || "auto" : speech?.inference_device || "auto",
       };
@@ -60,7 +72,9 @@
     if (!speech) return;
     if (!language) {
       set("speech.single_model_filename", value.model);
-      set("speech.runtime_dir", modules.runtimes.find(runtime => runtime.id === value.runtime)?.directory || "");
+      if (value.runtime !== singleSttRuntime) {
+        set("speech.runtime_dir", modules.runtimes.find(runtime => runtime.feature === "stt" && runtime.id === value.runtime)?.directory ?? "");
+      }
       set("speech.inference_device", value.device);
       return;
     }

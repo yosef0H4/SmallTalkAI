@@ -29,6 +29,8 @@ struct Args {
     language: String,
     #[arg(long)]
     library: Option<PathBuf>,
+    #[arg(long)]
+    webgpu: bool,
     #[arg(long, default_value = "local_kokoro")]
     provider: String,
     #[arg(long)]
@@ -209,7 +211,15 @@ impl Drop for NativeTts {
 
 impl NativeTts {
     fn load(args: &Args, provider: &str) -> Result<Self> {
-        let library_path = args.library.clone().unwrap_or_else(|| {
+        let library_path = if let Some(path) = &args.library {
+            path.clone()
+        } else if args.webgpu {
+            anyhow::ensure!(
+                cfg!(windows),
+                "The packaged WebGPU speech runtime requires Windows"
+            );
+            std::env::current_exe()?.with_file_name("sherpa-webgpu/sherpa-onnx-c-api.dll")
+        } else {
             if cfg!(windows) {
                 [
                     args.runtime_dir.join("bin/sherpa-onnx-c-api.dll"),
@@ -221,15 +231,22 @@ impl NativeTts {
             } else {
                 args.runtime_dir.join("lib/libsherpa-onnx-c-api.so")
             }
-        });
+        };
         #[cfg(windows)]
         let onnx = unsafe {
-            Library::new(
+            let directory = if args.webgpu {
+                args.runtime_dir.join("lib")
+            } else {
                 library_path
                     .parent()
                     .context("Sherpa library has no parent")?
-                    .join("onnxruntime.dll"),
+                    .to_owned()
+            };
+            libloading::os::windows::Library::load_with_flags(
+                directory.join("onnxruntime.dll"),
+                0x00000100 | 0x00001000,
             )
+            .map(Library::from)
         }
         .context("loading the selected Windows ONNX runtime")?;
         #[cfg(windows)]
@@ -356,6 +373,9 @@ impl NativeTts {
         config.max_num_sentences = 1;
         let handle = unsafe { create(&config) };
         if handle.is_null() {
+            if args.webgpu && std::env::var_os(reader_core::routing::WEBGPU_ADAPTER_ENV).is_some() {
+                bail!("Sherpa-ONNX could not initialize the chosen WebGPU adapter. Check the GPU adapter index in Settings.");
+            }
             bail!("Sherpa-ONNX could not load the Kokoro model with provider {provider:?}");
         }
         let sample_rate = unsafe { sample_rate_fn(handle) };
@@ -1193,6 +1213,18 @@ fn prepare(args: &Args, state: &mut EngineState, device: &str) -> Result<()> {
 }
 
 fn load_engine(args: &Args, state: &mut EngineState, device: &str) -> Result<()> {
+    if args.webgpu {
+        let provider = if device == "cpu" { "cpu" } else { "webgpu" };
+        state.engine = Some(NativeTts::load(args, provider)?);
+        state.provider = provider.into();
+        state.device = if provider == "webgpu" {
+            "WebGPU"
+        } else {
+            "CPU model loaded"
+        }
+        .into();
+        return Ok(());
+    }
     let prefer_cuda = matches!(device, "cuda" | "auto");
     match NativeTts::load(args, if prefer_cuda { "cuda" } else { "cpu" }) {
         Ok(loaded) => {
@@ -1222,7 +1254,7 @@ fn synthesize_local(
     request: LocalSynthesisRequest<'_>,
     cancelled: &AtomicBool,
 ) -> Result<Option<Vec<i16>>> {
-    let prefer_cuda = matches!(request.device, "cuda" | "auto");
+    let prefer_cuda = !args.webgpu && matches!(request.device, "cuda" | "auto");
     if state.engine.is_none() {
         load_engine(args, state, request.device)?;
     }
@@ -1504,6 +1536,7 @@ mod tests {
             threads: 2,
             language: "en-us".into(),
             library: None,
+            webgpu: false,
             provider: "openai_compatible".into(),
             base_url: Some(base_url),
             model: Some("fixture-model".into()),
@@ -1628,6 +1661,7 @@ mod tests {
             threads: 2,
             language: "en-us".into(),
             library: None,
+            webgpu: false,
             provider: "openai_compatible".into(),
             base_url: Some(format!("http://{address}/v1")),
             model: Some("mock".into()),

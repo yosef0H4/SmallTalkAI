@@ -19,6 +19,7 @@ export async function api<T>(
   path: string,
   body?: unknown,
   signal?: AbortSignal,
+  keepalive = false,
 ): Promise<T> {
   const response = await fetch(path, {
     method: body === undefined ? "GET" : "POST",
@@ -28,6 +29,7 @@ export async function api<T>(
     },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
+    keepalive,
   });
   const data = await response.json();
   if (!response.ok) throw new ApiError(data.error || response.statusText, data);

@@ -1700,5 +1700,22 @@
       "pp-ocrv6_medium_det.onnx": "paddle-det-pp-ocrv6-medium-det/pp-ocrv6_medium_det.onnx",
       "ppocrv6_dict.txt": "paddle-dict-ppocrv6-dict/ppocrv6_dict.txt"
     }
+  },
+  {
+    "id": "paddle-webgpu-windows",
+    "label": "ONNX Runtime · WebGPU · Windows x64",
+    "kind": "ocr",
+    "platform": "windows-x86_64",
+    "url": "https://registry.npmjs.org/onnxruntime-node/-/onnxruntime-node-1.31.1.tgz",
+    "sha256": "d7a3de2b1bba92614abc74af909cc0ba4f4dd5347735418794edeb58cfef2d22",
+    "bytes": 115391311,
+    "format": "tar_gz",
+    "strip": 0,
+    "archive_files": {
+      "package/bin/napi-v6/win32/x64/onnxruntime.dll": "lib/onnxruntime.dll",
+      "package/bin/napi-v6/win32/x64/dxcompiler.dll": "lib/dxcompiler.dll"
+    },
+    "required": ["lib/onnxruntime.dll", "lib/dxcompiler.dll"],
+    "dependencies": []
   }
 ]

@@ -28,7 +28,7 @@ const makeConfig = () => ({
     recording_mode: "hold",
     record_hotkey: "CapsLock+S",
     toggle_delivery_hotkey: "CapsLock+D",
-    cancel_hotkey: "CapsLock+A",
+    cancel_hotkey: "CapsLock+X",
     show_shortcuts_hotkey: "CapsLock+H",
     show_shortcuts_mode: "hold",
     shortcut_reminders: true,
@@ -402,6 +402,7 @@ const server = http.createServer(async (req, res) => {
         assert(model, `download requested for unknown model ${body.filename}`);
         const job = {cancelled:false, stop:()=>{}};
         modelDownloads.set(body.filename,job);
+        if (options.modelQueueNotice) sendJson(res, 200, { message: "model download queued" });
         const progress = {
           seq: ++eventSeq,
           kind: "model_download_progress",
@@ -429,6 +430,7 @@ const server = http.createServer(async (req, res) => {
           queuedEvents.splice(queuedEvents.indexOf(event), 1);
           waiter.res.end(`data: ${JSON.stringify({ events: [event] })}\n\n`);
         }
+        if (options.modelQueueNotice) return;
       }
       if(body.action==='cancel_model_download') {const job=modelDownloads.get(body.filename);if(job){job.cancelled=true;job.stop();}}
       return sendJson(res, 200, { message: `${body.action} completed` });

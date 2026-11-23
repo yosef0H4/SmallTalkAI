@@ -46,9 +46,13 @@ fn launch() -> std::io::Result<()> {
             ));
         }
     }
-    Command::new(interpreter)
-        .arg(script)
-        .args(std::env::args_os().skip(1))
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let mut shell = Command::new(interpreter);
+    shell.arg(script).args(&args);
+    if !args.iter().any(|arg| arg == "--background") {
+        shell.arg("--show-settings");
+    }
+    shell
         .current_dir(&runtime)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()?;

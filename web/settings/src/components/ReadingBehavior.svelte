@@ -4,6 +4,7 @@ import type {Binding} from "../lib/modules.svelte";
 import Group from "./Group.svelte";
 import Combo from "./Combo.svelte";
 import Range from "./Range.svelte";
+import Help from "./Help.svelte";
 import {t} from "../lib/i18n";
 const bindings=$derived(reading.config ? [reading.config.speech.selection.single,...Object.values(reading.config.speech.selection.languages)] : []);
 function value(key:"clean_text"|"currency_words") {
@@ -21,6 +22,6 @@ const choices=[{value:"on",label:"settings.on"},{value:"off",label:"settings.off
  {#each [["clean_text","module.clean_text"],["currency_words","module.currency_words"]] as [key,label]}
  <Combo {label} disabled={key==="currency_words"&&value("clean_text")==="off"} path={`reading.${key}`} value={value(key as "clean_text"|"currency_words")} items={value(key as "clean_text"|"currency_words")==="mixed"?[{value:"mixed",label:"settings.mixed"},...choices]:choices} help={key==="clean_text"?"module.clean_text_help":"module.currency_words_help"} onselect={selected=>{if(selected!=="mixed")update(key as "clean_text"|"currency_words",selected);}}/>
  {/each}
- <div class="field"><div class="field-copy"><label for="tts-excluded-words">{t('reading.excluded_words')}</label><p class="inline-status">{t('reading.excluded_words_help')}</p></div><div class="control"><textarea id="tts-excluded-words" rows="4" value={(reading.config.speech.excluded_words??[]).join('\n')} oninput={event=>{if(reading.config)reading.config.speech.excluded_words=event.currentTarget.value.split('\n');}}></textarea></div></div>
+ <div class="field"><div class="field-copy"><label for="tts-excluded-words">{t('reading.excluded_words')}</label><Help text="reading.excluded_words_help"/></div><div class="control"><textarea id="tts-excluded-words" rows="4" value={(reading.config.speech.excluded_words??[]).join('\n')} oninput={event=>{if(reading.config)reading.config.speech.excluded_words=event.currentTarget.value.split('\n');}}></textarea></div></div>
 </Group>
 {/if}

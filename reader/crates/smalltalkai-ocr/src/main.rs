@@ -15,6 +15,7 @@ use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 
 mod arabic_pipeline;
+mod webgpu;
 
 enum LocalPipeline {
     Standard(Box<OAROCR>),
@@ -51,6 +52,8 @@ struct Args {
     library: Option<PathBuf>,
     #[arg(long, default_value = "auto", value_parser = ["auto", "cpu", "gpu"])]
     device: String,
+    #[command(flatten)]
+    webgpu: webgpu::Options,
     #[arg(long)]
     base_url: Option<String>,
     #[arg(long)]
@@ -135,15 +138,19 @@ fn load_ocr(args: &Args, force_cpu: bool) -> Result<OcrEngine> {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let library = lib_dir.join("libonnxruntime.so");
     let library = args.library.as_ref().unwrap_or(&library);
-    ort::init_from(library)
-        .with_context(|| format!("loading ONNX Runtime from {}", library.display()))?
-        .commit();
+    let environment = ort::init_from(library)
+        .with_context(|| format!("loading ONNX Runtime from {}", library.display()))?;
+    let (environment, use_webgpu) = args.webgpu.configure(environment, &args.device)?;
+    environment.commit();
     let cuda = ort::ep::CUDA::default().is_available().unwrap_or(false);
-    if args.device == "gpu" && !cuda {
+    if args.device == "gpu" && !cuda && !use_webgpu {
         bail!("CUDA execution provider is unavailable in the selected ONNX Runtime")
     }
-    let use_cuda = !force_cpu && args.device != "cpu" && cuda;
-    let providers = if use_cuda {
+    let use_cuda = !use_webgpu && !force_cpu && args.device != "cpu" && cuda;
+    let providers = if use_webgpu {
+        // Both OAR adapters inherit the WebGPU device from the worker environment.
+        Vec::new()
+    } else if use_cuda {
         vec![
             OrtExecutionProvider::CUDA {
                 device_id: Some(0),
@@ -182,7 +189,7 @@ fn load_ocr(args: &Args, force_cpu: bool) -> Result<OcrEngine> {
     // Dense screen regions have many lines to recognize before speech can start.
     // Keep CPU OCR bounded so it can run alongside the voice worker without
     // taking over all available cores.
-    let intra_threads = if use_cuda {
+    let intra_threads = if use_cuda || use_webgpu {
         2
     } else {
         std::thread::available_parallelism().map_or(2, |threads| threads.get().min(4))
@@ -194,6 +201,13 @@ fn load_ocr(args: &Args, force_cpu: bool) -> Result<OcrEngine> {
         .add_config_entry("session.inter_op.allow_spinning", "0")
         .with_arena_shrinkage(true)
         .with_execution_providers(providers);
+    let ort_config = if args.webgpu.webgpu_trace {
+        ort_config
+            .with_log_severity_level(0)
+            .with_log_verbosity_level(1)
+    } else {
+        ort_config
+    };
     let pipeline = if profile.recognizer == "arabic_pp-ocrv5_mobile_rec.onnx"
         && profile.detection_preset == DetectionPreset::Default
         && profile.reverse_arabic
@@ -493,6 +507,7 @@ mod remote_fallback_tests {
 
     fn remote_args(base_url: String, fallback_to_local: bool) -> Args {
         Args {
+            webgpu: webgpu::Options::default(),
             provider: "openai_compatible".into(),
             model_dir: None,
             runtime_dir: None,

@@ -10,11 +10,27 @@
   import General from "./pages/General.svelte";
   import Audio from "./pages/Audio.svelte";
   import Models from "./pages/Models.svelte";
+  import ModelSetup, { type SetupDraft } from "./components/ModelSetup.svelte";
   import Cleanup from "./pages/Cleanup.svelte";
   import Advanced from "./pages/Advanced.svelte";
   import type { Page } from "./lib/types";
   import { direction, locale, t, tEnglish } from "./lib/i18n";
   const desktop = "__SMALLTALKAI_DESKTOP__" in window;
+  let setupDraft = $state<SetupDraft>();
+  let checkingSetup = $state(desktop);
+  const showingSetup = $derived(checkingSetup || !!setupDraft && !setupDraft.done);
+
+  function updateSetup(next: SetupDraft) {
+    setupDraft = next;
+    if (next.theme && ui.config) ui.config.general.ui_theme = next.theme;
+    if (next.done) {
+      catalogView.feature = "stt";
+      catalogView.kind = "model";
+      catalogView.panel = "models";
+      ui.page = "models";
+      void run(load);
+    }
+  }
   let maximized = $state(document.documentElement.dataset.maximized === "true");
   function updateFrameState() {
     maximized = document.documentElement.dataset.maximized === "true";
@@ -91,6 +107,15 @@
     const controller = new AbortController();
     void run(async () => {
       await load();
+      if (desktop) {
+        try {
+          await run(async () => {
+            setupDraft = await api<SetupDraft>("/api/model-setup");
+          });
+        } finally {
+          checkingSetup = false;
+        }
+      }
       if (!controller.signal.aborted)
         void eventLoop(controller.signal);
     });
@@ -107,8 +132,8 @@
     };
   });
   $effect(() => {
-    document.documentElement.dataset.theme =
-      ui.config?.general.ui_theme || "dark";
+    if (ui.config)
+      document.documentElement.dataset.theme = ui.config.general.ui_theme;
     document.documentElement.lang = locale();
     document.documentElement.dir = direction();
   });
@@ -183,7 +208,20 @@
     </button>
   </header>
 {/if}
-<div class="app-shell" style:--sidebar-width={visibleSidebarWidth + "px"}>
+{#snippet settingsNotice()}
+  {#if ui.notice}<div
+    id="notice"
+    class="notice"
+    data-kind={ui.noticeKind}
+    role="status"
+    aria-live="polite"
+  >
+    <span>{ui.notice}</span>{#if ui.noticeDetails}<details class="notice-detail" open><summary>{t("ui.details.dc3dec")}</summary><div dir="auto">{ui.noticeDetails}</div></details>{/if}
+  </div>{/if}
+{/snippet}
+
+<div class="app-shell" class:showing-setup={showingSetup} style:--sidebar-width={visibleSidebarWidth + "px"}>
+  {#if !showingSetup}
   <aside id="settings-sidebar" class="rail">
     <div class="brand">
       <img src="/smalltalkai.png" alt="" width="24" height="24" /><strong
@@ -254,7 +292,11 @@
       aria-valuemin={minSidebarWidth} aria-valuemax={maxSidebarWidth} aria-valuenow={visibleSidebarWidth}
       onpointerdown={startSidebarDrag} onpointermove={dragSidebar} onkeydown={resizeSidebarWithKeys}></div>
   </aside>
+  {/if}
   <main bind:this={settingsMain}>
+    {#if setupDraft && !setupDraft.done}
+      <ModelSetup draft={setupDraft} updated={updateSetup} feedback={settingsNotice} />
+    {:else}
     <header class="page-head">
       <h1>{t(current.name)}</h1>
     </header>
@@ -267,7 +309,7 @@
         void save();
       }}
     >
-      {#if ui.ready}<section data-section={ui.page} class="page-content">
+      {#if ui.ready && !checkingSetup}<section data-section={ui.page} class="page-content">
           {#if ui.page === "general"}<General
             />{:else if ui.page === "audio"}<Audio
             />{:else if ui.page === "models"}<Models
@@ -279,17 +321,10 @@
           <span></span><span></span><span></span>
         </div>{/if}
     </form>
+    {/if}
   </main>
-{#if ui.notice || ui.dirty}<div class="settings-feedback">
-{#if ui.notice}<div
-    id="notice"
-    class="notice"
-    data-kind={ui.noticeKind}
-    role="status"
-    aria-live="polite"
-  >
-    <span>{ui.notice}</span>{#if ui.noticeDetails}<details class="notice-detail" open><summary>{t("ui.details.dc3dec")}</summary><div dir="auto">{ui.noticeDetails}</div></details>{/if}
-  </div>{/if}
+{#if !showingSetup && (ui.notice || ui.dirty)}<div class="settings-feedback">
+{@render settingsNotice()}
 {#if ui.dirty}<footer id="savebar" class="savebar">
     <span id="dirty"><i></i>{t("ui.unsaved_changes.292672")}</span><button
       type="submit"

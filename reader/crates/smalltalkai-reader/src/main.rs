@@ -112,6 +112,11 @@ enum LocalRequest {
     ReadImage {
         path: String,
     },
+    PreviewVoice {
+        binding: Box<reader_core::routing::Binding>,
+        language: String,
+        text: String,
+    },
     RenderFile {
         input: String,
         output: String,
@@ -2358,6 +2363,9 @@ fn spawn_tts(
     let executable = sibling("smalltalkai-tts")?;
     let mut command = Command::new(executable);
     configure_worker_requests(&mut command, config, config.speech.fallback_to_local);
+    if config.speech.selection.single.runtime.as_deref() == Some("sherpa-webgpu") {
+        configure_webgpu_worker(&mut command, &config.speech.selection.single);
+    }
     command.args([
         "--fallback-provider",
         if config.speech.selection.single.model.as_deref() == Some("supertonic3")
@@ -2590,6 +2598,16 @@ fn sibling(name: &str) -> Result<PathBuf> {
     };
     Ok(parent.join(format!("{name}{}", if cfg!(windows) { ".exe" } else { "" })))
 }
+fn configure_webgpu_worker(command: &mut Command, binding: &reader_core::routing::Binding) {
+    command.arg("--webgpu");
+    let key = reader_core::routing::WEBGPU_ADAPTER_ENV;
+    if let Some(index) = binding.webgpu_adapter_index() {
+        command.env(key, index.to_string());
+    } else {
+        command.env_remove(key);
+    }
+}
+
 fn device_name(device: DevicePreference) -> &'static str {
     match device {
         DevicePreference::Auto => "auto",
@@ -2611,7 +2629,7 @@ fn fingerprint(config: &AppConfig) -> String {
         String::new()
     };
     format!(
-        "{}|{}|{}|{}|{:?}|{}",
+        "{}|{}|{}|{}|{:?}|{}|{:?}",
         config.speech.model_dir.display(),
         config.speech.runtime_dir.display(),
         device_name(config.speech.device),
@@ -2621,7 +2639,8 @@ fn fingerprint(config: &AppConfig) -> String {
             &config.speech.language
         },
         config.speech.provider,
-        credentials
+        credentials,
+        config.speech.selection.single.webgpu_adapter_index()
     )
 }
 
@@ -6003,6 +6022,10 @@ impl App {
 
     fn play_file(&self, input: &str) -> Result<LocalReply> {
         let (text, config) = self.file_speech_route(input)?;
+        self.play_text(&text, config)
+    }
+
+    fn play_text(&self, text: &str, config: AppConfig) -> Result<LocalReply> {
         let playback = config.playback.clone();
         let generation = self.inner.generation.current();
         let audio = &self.inner.audio;
@@ -6011,7 +6034,7 @@ impl App {
         synthesize_media_units(
             &self.inner.tts,
             config.clone(),
-            &text,
+            text,
             MediaOptions {
                 voice: None,
                 speed: config.speech.speed,
@@ -6052,6 +6075,34 @@ impl App {
     fn handle(&self, request: LocalRequest) -> Result<LocalReply> {
         privacy::set_content_logging(self.inner.store.load()?.privacy.log_content);
         match request {
+            LocalRequest::PreviewVoice {
+                mut binding,
+                language,
+                text,
+            } => {
+                use reader_core::routing::{Feature, Selection, SelectionMode};
+                anyhow::ensure!(
+                    !text.trim().is_empty() && text.len() <= 400,
+                    "Invalid preview text"
+                );
+                anyhow::ensure!(
+                    binding.runtime.is_some() && binding.model.is_some(),
+                    "Choose a local voice model and runtime"
+                );
+                binding.remote = None;
+                let mut config = self.inner.store.load()?;
+                config.speech.route_defaults = None;
+                config.speech.provider = reader_core::SpeechProvider::LocalKokoro;
+                config.speech.fallback_to_local = false;
+                config.speech.selection = Selection {
+                    mode: SelectionMode::SingleModel,
+                    single: *binding,
+                    ..Default::default()
+                };
+                let config = config.routed(Feature::Tts, Some(&language))?;
+                self.begin_read_intent()?;
+                self.play_text(&text, config)
+            }
             LocalRequest::ReadStart { id, source } => {
                 let generation = self.begin_read_intent_with_pending(true)?;
                 let lifecycle = self
@@ -6431,13 +6482,14 @@ fn with_ocr_worker<T>(
         DevicePreference::Auto => "auto",
     };
     let fingerprint = format!(
-        "{}|{}|{}|{}|{}|{:?}|{max_image_pixels}",
+        "{}|{}|{}|{}|{}|{:?}|{max_image_pixels}|{:?}",
         serde_json::to_string(&config.ocr.provider)?,
         config.ocr.language,
         config.ocr.model_dir.display(),
         config.ocr.runtime_dir.display(),
         device,
-        config.ocr.worker_library
+        config.ocr.worker_library,
+        config.ocr.selection.single.webgpu_adapter_index()
     );
     let epoch = app.inner.ocr_epoch.fetch_add(1, Ordering::AcqRel) + 1;
     app.inner.ocr_timer.cancel();
@@ -6472,6 +6524,11 @@ fn with_ocr_worker<T>(
             .arg(&config.ocr.runtime_dir)
             .args(["--device", device, "--max-image-pixels"])
             .arg(max_image_pixels.to_string());
+        if device != "cpu"
+            && config.ocr.selection.single.runtime.as_deref() == Some("paddle-webgpu")
+        {
+            configure_webgpu_worker(&mut command, &config.ocr.selection.single);
+        }
         if let reader_core::OcrProvider::OpenAiCompatible {
             base_url,
             model,

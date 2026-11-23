@@ -34,3 +34,7 @@ export function matchesSupertonicVoice(query: string, item: ComboItem & { search
   const remaining = terms.filter(term => !['male', 'female', 'رجالي', 'نسائي'].includes(term));
   return matchesSearch(remaining.join(' '), item.label, item.meta, item.value, item.search);
 }
+export function localVoiceOptions(model: string | null): ComboItem[] {
+  return model === "supertonic3" ? supertonicVoices()
+    : ["af_heart","af_bella","af_nicole","af_sarah","am_adam","am_michael","bf_emma"].map(value => ({value,label:value}));
+}

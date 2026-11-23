@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { matchesCatalogSearch, moduleSearchText } from '../lib/search';
-  import { modules, refreshModules, catalogView, emptyBinding, type Feature } from '../lib/modules.svelte';
+  import { modules, refreshModules, catalogView, type Feature } from '../lib/modules.svelte';
   import { ui, download, action, notice, markDirty, refreshState } from '../lib/state.svelte';
   import { reading } from '../lib/reading-state.svelte';
   import type { ReaderConfig } from '../lib/reader';
@@ -19,6 +19,10 @@
   import IconButton from '../components/IconButton.svelte';
 
   type Kind = 'runtime' | 'model';
+  let { setup }: { setup?: {
+    feature: Feature; kind: Kind; engine?: string; selected?: string | null; busy: boolean;
+    choose: (id: string) => void;
+  } } = $props();
   type CatalogFilter = { query: string; engine: string; installed: boolean; limit: number };
   const features = [
     { id: 'stt', label: 'settings.dictation', acronym: 'STT', icon: 'audio' },
@@ -35,12 +39,11 @@
     'tts.runtime': newFilter(), 'tts.model': newFilter(),
     'ocr.runtime': newFilter(), 'ocr.model': newFilter(),
   });
-  let feature = $state<Feature>(catalogView.feature);
-  const cleanupSelected = $derived(catalogView.kind === "model" && catalogView.panel === "cleanup");
-  $effect(()=>{try {localStorage.setItem("smalltalkai-model-page",catalogView.kind);}catch { /* Storage can be disabled. */ }});
-  $effect(()=>{ feature=catalogView.feature; });
-  $effect(() => { catalogView.feature = feature; });
-  $effect(() => { markDirty(); });
+  const feature = $derived(setup?.feature ?? catalogView.feature);
+  const visibleKind = $derived(setup?.kind ?? catalogView.kind);
+  const cleanupSelected = $derived(!setup && visibleKind === "model" && catalogView.panel === "cleanup");
+  $effect(()=>{if(!setup)try {localStorage.setItem("smalltalkai-model-page",catalogView.kind);}catch { /* Storage can be disabled. */ }});
+  $effect(() => { if (!setup) markDirty(); });
   const engines = $derived([...new Map(modules.runtimes
     .filter(runtime => runtime.feature === feature && runtime.installed)
     .map(runtime => [runtime.engine, {
@@ -48,13 +51,20 @@
       label: runtime.label.replace(/\s*[·–—-]\s*(CPU|CUDA|GPU|Vulkan).*$/i, '').replace(/\s+\(?(CPU|CUDA|GPU|Vulkan).*$/i, ''),
     }])).values()]);
   const jobs = $derived(modules.assets?.jobs ?? (modules.assets?.progress ? [modules.assets.progress] : []));
+  const activePhases = ['queued', 'downloading', 'verifying', 'extracting'];
+  const activeDownloads = $derived([
+    ...jobs.filter(job => activePhases.includes(job.phase)).map(job => ({
+      ...job, label: modules.assets?.assets.find(asset => asset.id === job.id)?.label ?? job.id,
+    })),
+    ...Object.entries(ui.downloads).map(([id, job]) => ({id, label: id, ...job})),
+  ]);
   const installedRuntimes = $derived(modules.runtimes.filter(runtime => runtime.feature === feature && runtime.installed));
   function catalogRows(kind: Kind, filter: CatalogFilter, selectedEngine: string) {
     const rows = kind === 'runtime'
       ? modules.runtimes.map(runtime => ({ ...runtime, kind: 'runtime' as const, languages: [] as string[] }))
       : modules.models.map(model => ({ ...model, kind: 'model' as const }));
     return rows.filter(row => row.feature === feature
-      && (selectedEngine === 'all' || row.engine === selectedEngine)
+      && (setup?.engine ? row.engine === setup.engine : selectedEngine === 'all' || row.engine === selectedEngine)
       && (!filter.installed || row.installed)
       && (!filter.query.trim() || matchesCatalogSearch(filter.query, row,
         moduleSearchText(row, modules.models, modules.runtimes, modules.assets?.assets))))
@@ -105,30 +115,41 @@
   }
   onMount(() => {
     void refreshModules().catch(error => notice(t('assets.failed'), 'error', String(error)));
-    void loadReading().catch(error => notice(t('reading.failed'), 'error', String(error)));
+    if (!setup) void loadReading().catch(error => notice(t('reading.failed'), 'error', String(error)));
   });
 </script>
 
+{#if !setup}
+{#if activeDownloads.length}
+  <section class="setup-downloads" aria-label={t('settings.downloads')}>
+    <h2>{t('settings.downloads')}</h2>
+    {#each activeDownloads as job (job.id)}
+      <div class="download-detail"><span>{job.label}</span><span>{job.phase === 'queued' ? t('module.queued') : job.total > 0 ? percent(job.downloaded, job.total) + '%' : ''}</span></div>
+      <progress max={job.total} use:downloadValue={job.total ? job.downloaded : null} aria-label={job.label}></progress>
+    {/each}
+  </section>
+{/if}
 <div class="feature-catalogs" role="group" aria-label={t('settings.downloads')}>
   {#each ['model','runtime'] as kind}<button type="button" data-download-kind={kind} class:chosen={catalogView.kind===kind} aria-pressed={catalogView.kind===kind} onclick={()=>catalogView.kind=kind as Kind}><Icon name={kind==='model'?'models':'advanced'}/><span>{t(kind==='model'?'ui.models.f3798f':'module.runtimes')}</span></button>{/each}
 </div>
 <div class="feature-catalogs" role="group" aria-label={t('module.feature_filter')}>
   {#each features as option}
     <button type="button" data-catalog-feature={option.id} class:chosen={!cleanupSelected && feature === option.id}
-      aria-pressed={!cleanupSelected && feature === option.id} onclick={() => {feature = option.id;catalogView.panel="models";}}>
+      aria-pressed={!cleanupSelected && feature === option.id} onclick={() => {catalogView.feature = option.id;catalogView.panel="models";}}>
       <Icon name={option.icon} /><span>{t(option.label)}</span>
     </button>
   {/each}
   {#if catalogView.kind === "model"}<button type="button" data-catalog-feature="cleanup" class:chosen={cleanupSelected} aria-pressed={cleanupSelected} onclick={()=>catalogView.panel="cleanup"}><Icon name="cleanup"/><span>{t("ui.text_cleanup.52f093")}</span></button>{/if}
 </div>
+{/if}
 {#if cleanupSelected}
 <Cleanup section="provider"/>
 {:else}
-{#if catalogView.kind === "model"}<div class="selection-section" data-catalog-selection={feature}>
+{#if !setup && visibleKind === "model"}<div class="selection-section" data-catalog-selection={feature}>
   {#if feature === 'stt'}<SttModelSetup/>
   {:else}<ReaderModelSetup {feature}/>{/if}
 </div>{/if}
-{#each kinds.filter(item=>item.id===catalogView.kind) as section (section.id)}
+{#each kinds.filter(item=>item.id===visibleKind) as section (section.id)}
 {@const kind = section.id}
 {@const filter = filters[`${feature}.${kind}`]}
 {@const selectedEngine = engines.some(option => option.id === filter.engine) ? filter.engine : 'all'}
@@ -155,7 +176,7 @@
       {@const asset = modules.assets?.assets.find(entry => entry.id === row.asset)}
       {@const job = row.asset ? jobs.find(job => (job.job_id || job.id) === row.asset) : ui.downloads[row.id]}
       {@const phase = job?.phase || (job ? 'downloading' : '')}
-      {@const busy = ['queued', 'downloading', 'verifying', 'extracting'].includes(phase)}
+      {@const busy = activePhases.includes(phase)}
       {@const title = row.kind === 'runtime' ? runtimeLabel(row) : row.label}
       {@const bytes = size(row.id, row.asset)}
       <article class="model-result" data-model-id={row.id}>
@@ -167,9 +188,16 @@
             <span>{languageSummary(row.languages)}{#if row.languages.length > 3}{' '}<span class="language-overflow"><bdi dir="ltr">+{row.languages.length - 3}</bdi><Help text={row.languages.map(languageName).join(', ')} /></span>{/if}{#if row.languages.length && bytes}{' · '}{/if}{#if bytes}<bdi dir="ltr">{Math.ceil(bytes / 1024 / 1024)} MB</bdi>{/if}</span>
           {/if}
           <small dir="ltr">{row.kind === 'runtime' ? row.label : row.id}</small>
+          {#if setup && row.kind === 'runtime'}
+            <span>{t(`setup.backend.${row.backend}`)}</span>
+          {/if}
         </div>
         <div class="model-actions">
-          {#if busy}<button type="button" aria-label={`${t('assets.cancel')} ${title}`} onclick={() => cancelDownload(row.id, row.asset)}>{t('assets.cancel')}</button>
+          {#if setup}
+            <button type="button" aria-pressed={setup.selected === row.id}
+              disabled={setup.busy || (!row.installed && (row.asset ? !asset?.available : !ui.state?.service_online))}
+              onclick={() => setup?.choose(row.id)}>{t(row.installed || busy ? 'setup.use' : 'assets.download')}</button>
+          {:else if busy}<button type="button" aria-label={`${t('assets.cancel')} ${title}`} onclick={() => cancelDownload(row.id, row.asset)}>{t('assets.cancel')}</button>
           {:else if row.installed}<span title={t('ui.installed.7bb440')}>✓</span>
             {#if row.asset}<IconButton icon="trash" label="assets.remove" onclick={() => assetAction('remove', row.asset!)} />
             {:else if row.kind === 'model'}<IconButton icon="trash" label="assets.remove" disabled={!ui.state?.service_online} onclick={() => assetAction('remove', row.id, false)} />{/if}
@@ -195,7 +223,7 @@
 </section>
 {/each}
 
-{#if catalogView.kind === "model"}<ModelFiles {feature}/>{/if}
+{#if !setup && visibleKind === "model"}<ModelFiles {feature}/>{/if}
 {/if}
 
 <style>

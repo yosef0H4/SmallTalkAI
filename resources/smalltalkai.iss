@@ -33,7 +33,20 @@ Source: "smalltalkai-portable\*"; DestDir: "{app}"; Flags: ignoreversion recurse
 [Icons]
 Name: "{group}\SmallTalkAI"; Filename: "{app}\SmallTalkAI.exe"; WorkingDir: "{app}"; IconFilename: "{app}\runtime\icons\smalltalkai.ico"
 Name: "{autodesktop}\SmallTalkAI"; Filename: "{app}\SmallTalkAI.exe"; WorkingDir: "{app}"; IconFilename: "{app}\runtime\icons\smalltalkai.ico"; Tasks: desktopicon
-Name: "{userstartup}\SmallTalkAI"; Filename: "{app}\SmallTalkAI.exe"; WorkingDir: "{app}"; IconFilename: "{app}\runtime\icons\smalltalkai.ico"; Tasks: startup
+Name: "{userstartup}\SmallTalkAI"; Filename: "{app}\SmallTalkAI.exe"; Parameters: "--background"; WorkingDir: "{app}"; IconFilename: "{app}\runtime\icons\smalltalkai.ico"; Tasks: startup; BeforeInstall: SaveStartupPreference
 
 [Run]
 Filename: "{app}\SmallTalkAI.exe"; WorkingDir: "{app}"; Description: "Launch SmallTalkAI"; Flags: postinstall nowait skipifsilent
+
+[Code]
+procedure SaveStartupPreference;
+var
+  ResultCode: Integer;
+begin
+  if not Exec(ExpandConstant('{app}\runtime\smalltalkai-ctl.exe'),
+      'config set general.start_at_login true', ExpandConstant('{app}\runtime'),
+      SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    RaiseException('Could not start the SmallTalkAI configuration tool: ' + SysErrorMessage(ResultCode));
+  if ResultCode <> 0 then
+    RaiseException('Could not save Start at login (exit code ' + IntToStr(ResultCode) + ').');
+end;

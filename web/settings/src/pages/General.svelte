@@ -12,6 +12,7 @@
   import Shortcut from "../components/Shortcut.svelte";
   import IconButton from "../components/IconButton.svelte";
   import Icon from "../components/Icon.svelte";
+  let { setupShortcuts = false }: { setupShortcuts?: boolean } = $props();
   const tools = $derived(ui.state?.linux_automation || {});
   const selected = $derived(ui.config?.general.linux_hotkey_backend || "auto");
   const backend = $derived(
@@ -113,6 +114,9 @@
     <Field spec={fields.shortcutReminders} />
     <button type="button" class="quiet" onclick={() => run(() => platformAction("show_shortcuts"))}>{t("ui.show_shortcuts")}</button>
   </div>
+  {#if setupShortcuts && ui.state?.platform === "windows"}
+    <Field spec={{ ...fields.caps, help: "setup.caps_help" }} />
+  {/if}
   {#if ui.state?.platform === "linux"}
     <Field spec={fields.shortcutSystem} />
     <details class="guide">
@@ -136,13 +140,13 @@
       ><code>{tools.stop_command || "smalltalkai-linux shutdown"}</code>
     </details>
   {/if}
-  <div class="shortcut-cards">
+  <div class="shortcut-cards" class:setup-cards={setupShortcuts}>
     <section class="shortcut-card" aria-labelledby="shortcuts-app-heading">
       {@render cardHeading("shortcuts-app-heading", "settings.app_wide_shortcuts", "keyboard")}
       {@render appShortcut(5)}
       {#if ui.state?.platform === "windows"}
-        <Field spec={{ ...fields.showShortcutsMode, disabled: capsOnlyHint }} />
-        {#if capsOnlyHint}<p class="inline-status">{t("ui.caps_lock_hint_hold_only")}</p>{/if}
+        <Field spec={{ ...fields.showShortcutsMode, disabled: capsOnlyHint,
+          help: capsOnlyHint ? "ui.caps_lock_hint_hold_only" : fields.showShortcutsMode.help }} />
       {/if}
       {#each [1, 4] as index}{@render appShortcut(index)}{/each}
     </section>
@@ -167,6 +171,7 @@
     {/if}
   </div>
 </Group>
+{#if !setupShortcuts}
 <Group
   title="ui.system.bc0792"
   icon="system"
@@ -189,6 +194,7 @@
     spec={fields.startup}
   /><Field spec={fields.theme} />
 </Group>
+{/if}
 
 <style>
   .shortcut-cards {
@@ -225,6 +231,15 @@
   .shortcut-card :global(.field) {
     padding-block: 8px;
   }
+
+  .setup-cards {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 296px), 1fr));
+    align-items: start;
+    gap: 8px;
+    margin-block-start: 8px;
+  }
+
+  .setup-cards .shortcut-card :global(.field) { padding-block: 4px; }
 
   .shortcut-quick-actions > button {
     display: block;
@@ -270,9 +285,6 @@
       padding-inline: 6px;
     }
 
-    .shortcut-card .inline-status {
-      margin-block: 3px;
-    }
   }
 
 

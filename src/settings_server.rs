@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
@@ -56,6 +56,7 @@ struct AppState {
     closing: AtomicBool,
     focus_pending: Option<AtomicBool>,
     config_lock: Mutex<()>,
+    profile_lock: RwLock<()>,
     cleanup_auth_status: Arc<Mutex<Value>>,
 }
 
@@ -63,6 +64,104 @@ struct AppState {
 struct SaveRequest {
     config: Value,
     expected_hash: String,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct ModelSetup {
+    done: bool,
+    step: u8,
+    #[serde(default)]
+    skip_reader: bool,
+    runtimes: [Option<String>; 3],
+    models: [Option<String>; 3],
+    theme: Option<crate::config::UiTheme>,
+    voice: Option<String>,
+}
+
+fn setup_path() -> PathBuf {
+    AppConfig::config_path().with_file_name("model-setup.json")
+}
+
+fn model_setup() -> Result<ModelSetup> {
+    match fs::read(setup_path()) {
+        Ok(data) => {
+            let mut draft: ModelSetup = serde_json::from_slice(&data)?;
+            // Step seven was the separate Read aloud runtime picker.
+            if draft.step == 7
+                && !draft.done
+                && draft.runtimes[1].as_deref() != Some("paddle-webgpu")
+            {
+                draft.step = if draft.runtimes[2].is_some() { 8 } else { 4 };
+            }
+            Ok(draft)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let config = AppConfig::load()?;
+            let speech = &config.speech;
+            let reader = crate::reader::load()?;
+            let done = speech.single_model_filename.is_some()
+                || speech.language_models.values().any(Option::is_some)
+                || speech.provider != crate::config::SpeechProvider::Local
+                || [reader.speech.selection, reader.ocr.selection]
+                    .iter()
+                    .any(|selection| {
+                        selection.single.model.is_some()
+                            || selection.single.remote.is_some()
+                            || selection
+                                .languages
+                                .values()
+                                .any(|binding| binding.model.is_some() || binding.remote.is_some())
+                    });
+            Ok(ModelSetup {
+                done,
+                ..Default::default()
+            })
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn save_model_setup(next: ModelSetup, state: &AppState) -> Result<ModelSetup> {
+    use crate::admin::Feature;
+    let _lock = state.config_lock.lock().expect("config lock");
+    let previous = model_setup()?;
+    if previous.done {
+        return Ok(previous);
+    }
+    anyhow::ensure!(next.step <= 10, "Invalid model setup step");
+    for (index, feature) in [Feature::Stt, Feature::Ocr, Feature::Tts]
+        .into_iter()
+        .enumerate()
+    {
+        if next.models[index] != previous.models[index]
+            || next.runtimes[index] != previous.runtimes[index]
+        {
+            if let (Some(model), Some(runtime)) = (&next.models[index], &next.runtimes[index]) {
+                crate::admin::select_assets(feature, model, runtime, None, false)?;
+                if matches!(feature, Feature::Stt) {
+                    let _ = capture_request(state, ShellCommand::ReloadConfig);
+                }
+            }
+        }
+    }
+    if next.models[2].is_some() && next.voice != previous.voice {
+        let store = crate::reader::store();
+        let mut reader = crate::reader::load()?;
+        let revision = reader.revision;
+        reader.speech.selection.single.voice = next.voice.clone();
+        store.save(reader, revision)?;
+    }
+    if let Some(theme) = next.theme.filter(|_| next.theme != previous.theme) {
+        let _guard = crate::config::lock_config()?;
+        let mut config = AppConfig::load()?;
+        config.general.ui_theme = theme;
+        config.save()?;
+    }
+    let path = setup_path();
+    let temp = crate::config::unique_atomic_temp_path(&path);
+    fs::write(&temp, serde_json::to_vec(&next)?)?;
+    crate::config::replace_file_atomic(&temp, &path)?;
+    Ok(next)
 }
 
 #[derive(Deserialize)]
@@ -181,6 +280,7 @@ pub fn run(args: Args, window: Option<fn(DesktopSettings) -> Result<()>>) -> Res
         closing: AtomicBool::new(false),
         focus_pending: desktop.then(|| AtomicBool::new(false)),
         config_lock: Mutex::new(()),
+        profile_lock: RwLock::new(()),
         cleanup_auth_status: Arc::new(Mutex::new(json!({"state":"idle"}))),
     });
     let weak_state = Arc::downgrade(&state);
@@ -282,7 +382,17 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
     let path = request.url().split('?').next().unwrap_or(request.url());
     if request.method() == &Method::Get {
         match path {
-            "/" | "/index.html" => return Ok(asset(INDEX, "text/html; charset=utf-8", state)),
+            "/" | "/index.html" => {
+                let theme = AppConfig::load()
+                    .map(|config| config.general.ui_theme)
+                    .unwrap_or_default();
+                let index = INDEX.replacen(
+                    "data-theme=\"light\"",
+                    &format!("data-theme=\"{}\"", theme.as_str()),
+                    1,
+                );
+                return Ok(asset(&index, "text/html; charset=utf-8", state));
+            }
             "/styles.css" => return Ok(asset(CSS, "text/css; charset=utf-8", state)),
             "/settings-sans-license.txt" => {
                 return Ok(asset(
@@ -334,6 +444,21 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
     }
     authenticate(request, state)?;
     validate_origin(request, state)?;
+    if request.method() == &Method::Post && path == "/api/factory-reset" {
+        let _profile = state.profile_lock.write().expect("profile lock");
+        let confirmation: Value = serde_json::from_slice(&read_body(request)?)?;
+        anyhow::ensure!(
+            confirmation.get("confirm") == Some(&Value::Bool(true)),
+            "Confirm the factory reset first"
+        );
+        factory_reset(state)?;
+        return Ok(json_response(
+            StatusCode(200),
+            &json!({"reset":true}),
+            state,
+        ));
+    }
+    let _profile = state.profile_lock.read().expect("profile lock");
     match (request.method(), path) {
         (&Method::Get, "/api/state") => state_response(state),
         (&Method::Get, "/api/agent-skills") => {
@@ -366,6 +491,20 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
             &crate::modules::inventory(&AppConfig::load()?),
             state,
         )),
+        (&Method::Get, "/api/model-setup") => Ok(json_response(
+            StatusCode(200),
+            &serde_json::to_value(model_setup()?)?,
+            state,
+        )),
+        (&Method::Post, "/api/model-setup") => {
+            let next = serde_json::from_slice(&read_body(request)?)?;
+            let next = save_model_setup(next, state)?;
+            Ok(json_response(
+                StatusCode(200),
+                &serde_json::to_value(next)?,
+                state,
+            ))
+        }
         (&Method::Get, "/api/assets") => {
             let catalog = crate::assets::catalog();
             let assets = catalog.iter().map(|asset|json!({"id":asset.id,"label":asset.label,"kind":asset.kind,
@@ -392,6 +531,11 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
                 _ => anyhow::bail!("Unknown asset action"),
             }
             Ok(json_response(StatusCode(200), &json!({"ok":true}), state))
+        }
+        (&Method::Post, "/api/dictation-preview") => {
+            let payload: DictationPreview = serde_json::from_slice(&read_body(request)?)?;
+            let result = dictation_preview(state, payload)?;
+            Ok(json_response(StatusCode(200), &result, state))
         }
         (&Method::Get, "/api/reader") => Ok(json_response(
             StatusCode(200),
@@ -441,6 +585,16 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
                 &json!({"message":message}),
                 state,
             ))
+        }
+        (&Method::Post, "/api/preview-voice") => {
+            let payload: Value = serde_json::from_slice(&read_body(request)?)?;
+            let binding = serde_json::from_value(payload["binding"].clone())?;
+            crate::reader::preview_voice(
+                binding,
+                payload["language"].as_str().unwrap_or("en"),
+                payload["text"].as_str().unwrap_or(""),
+            )?;
+            Ok(json_response(StatusCode(200), &json!({"ok":true}), state))
         }
         (&Method::Post, "/api/reader-server-key") => {
             let key = reader_core::secrets::server_key()?
@@ -883,6 +1037,79 @@ fn linux_hotkey_backend_state() -> Value {
     json!({})
 }
 
+fn factory_reset(state: &AppState) -> Result<()> {
+    let data = AppConfig::local_data_dir();
+    let reader_data = crate::reader::data_dir();
+    let mut paths = vec![crate::assets::root(), AppConfig::default().model_dir_path()];
+    if reader_data == data.join("reader") {
+        paths.push(reader_data);
+    }
+    let managed = paths
+        .iter()
+        .filter_map(|path| match fs::symlink_metadata(path) {
+            Ok(_) => Some((|| {
+                let resolved = fs::canonicalize(path)?;
+                let parent = fs::canonicalize(path.parent().context("Data path has no parent")?)?;
+                anyhow::ensure!(
+                    resolved.parent() == Some(parent.as_path())
+                        && resolved.file_name() == path.file_name(),
+                    "Data directory redirects elsewhere: {}",
+                    path.display()
+                );
+                Ok(resolved)
+            })()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => Some(Err(error.into())),
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    state.assets.cancel_and_clear(Duration::from_secs(20))?;
+    if state
+        .capture
+        .as_ref()
+        .is_some_and(|capture| capture.state_file.is_file())
+    {
+        let result = capture_request(state, ShellCommand::PrepareFactoryReset)?;
+        anyhow::ensure!(result.ok, "{}", result.message);
+    }
+    if crate::reader::status().is_some() {
+        crate::reader::action("shutdown", "")?;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while crate::reader::status().is_some() {
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "Wait for Read aloud to stop, then try again"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    let _guard = state.config_lock.lock().expect("config lock");
+    let shared = crate::config::lock_config()?;
+    for path in managed {
+        fs::remove_dir_all(&path).with_context(|| format!("deleting {}", path.display()))?;
+    }
+    for path in [crate::reader::store().path().to_owned(), setup_path()] {
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("deleting {}", path.display()))
+            }
+        }
+    }
+    AppConfig::default().save()?;
+    drop(shared);
+    if state
+        .capture
+        .as_ref()
+        .is_some_and(|capture| capture.state_file.is_file())
+    {
+        let result = capture_request(state, ShellCommand::ReloadConfig)?;
+        anyhow::ensure!(result.ok, "{}", result.message);
+    }
+    Ok(())
+}
+
 fn save_response(
     request: &mut Request,
     state: &AppState,
@@ -1097,6 +1324,81 @@ fn focused_app_identity() -> Result<String> {
 #[cfg(not(any(windows, target_os = "linux")))]
 fn focused_app_identity() -> Result<String> {
     anyhow::bail!("Focused-app detection is unavailable on this platform")
+}
+
+#[derive(Deserialize)]
+struct DictationPreview {
+    action: String,
+    session_id: u64,
+    language: Option<String>,
+}
+
+fn dictation_preview(state: &AppState, request: DictationPreview) -> Result<Value> {
+    let session_id = request.session_id;
+    let command = match request.action.as_str() {
+        "start" => {
+            let language = request.language.unwrap_or_else(|| "single".to_owned());
+            anyhow::ensure!(
+                !language.is_empty()
+                    && language.len() <= 16
+                    && language
+                        .bytes()
+                        .all(|c| c.is_ascii_lowercase() || c == b'-'),
+                "Invalid dictation language"
+            );
+            ShellCommand::StartRecording {
+                session_id,
+                target_window: None,
+                preview_language: Some(language),
+            }
+        }
+        "stop" => ShellCommand::StopRecordingPreview { session_id },
+        "waveform" => ShellCommand::RecordingPreviewWaveform { session_id },
+        "cancel" => ShellCommand::CancelRecordingPreview { session_id },
+        _ => anyhow::bail!("Invalid dictation preview action"),
+    };
+    let capture = state
+        .capture
+        .as_ref()
+        .context("capture service is offline")?;
+    let service = ServiceState::load(&capture.state_file)?;
+    let response = capture_command(capture, &service, command)?;
+    anyhow::ensure!(response.ok, "{}", response.message);
+    if request.action == "waveform" {
+        return Ok(
+            json!({"waveform": response.values.get("waveform").context("Missing preview waveform")?}),
+        );
+    }
+    if request.action != "stop" {
+        return Ok(json!({ "ok": true }));
+    }
+    let job = session_id.to_string();
+    let mut after_seq = 0;
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let response = capture_command(capture, &service, ShellCommand::PollEvents { after_seq })?;
+        for event in response.events {
+            after_seq = event.seq;
+            if event.kind != "cli_transcription" || event.values.get("job_id") != Some(&job) {
+                continue;
+            }
+            if let Some(error) = event.values.get("error") {
+                anyhow::bail!("{error}");
+            }
+            let text = event
+                .values
+                .get("text")
+                .context("Missing preview transcript")?;
+            anyhow::ensure!(
+                !text.trim().is_empty(),
+                "{}",
+                crate::localization::tr("notice.noSpeech")
+            );
+            return Ok(json!({ "text": text }));
+        }
+        anyhow::ensure!(Instant::now() < deadline, "Dictation preview timed out");
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 fn capture_request(state: &AppState, command: ShellCommand) -> Result<ShellResponse> {

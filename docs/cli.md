@@ -54,6 +54,11 @@ your saved output device and waits for playback to finish. With `--output`, it
 publishes a complete WAV file and preserves any existing file at the
 destination.
 
+Windows PowerShell 5.1 uses ASCII by default when piping text to an executable.
+Use a UTF-8 file with `--file`, or set
+`$OutputEncoding = [System.Text.UTF8Encoding]::new($false)` in the shell before
+piping text to `--stdin`.
+
 `--background` hands the text to SmallTalkAI's desktop Reader as a new read and
 returns after it is accepted. The Reader plays chunks as they are ready through
 your saved output device. Use Read aloud in SmallTalkAI to start the Reader if

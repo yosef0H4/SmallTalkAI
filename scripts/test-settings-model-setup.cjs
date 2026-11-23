@@ -1,118 +1,247 @@
-const { setChoice } = require("./settings-fixture.cjs");
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright');
 const f = require('./settings-fixture.cjs');
+
 (async () => {
   let browser;
   try {
+    f.options.modelDownloadDelay = 15000;
+    f.options.modelQueueNotice = true;
+    f.getConfig().general.ui_theme = 'light';
+    f.getConfig().general.ui_language = 'en';
     await new Promise(resolve => f.server.listen(0, '127.0.0.1', resolve));
-    browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage({ viewport: {width: 1280, height: 900} });
-    let handled = false, failDownload = false, failDismiss = false, pending = false, installed = false;
-    const requested = [], choices = [];
-    await page.route('**/api/state', async route => {
+    browser = await chromium.launch({
+      headless: true, args: ['--disable-gpu'], ignoreDefaultArgs: ['--hide-scrollbars'],
+    });
+    const context = await browser.newContext({ viewport: { width: 360, height: 690 } });
+    await context.addInitScript(() => { window.__SMALLTALKAI_DESKTOP__ = true; });
+    let draft = { done: false, step: 0, runtimes: [null, null, null], models: [null, null, null], theme: null, voice: null };
+    await context.route('**/api/model-setup', async route => {
+      if (route.request().method() === 'POST') draft = route.request().postDataJSON();
+      await route.fulfill({ json: draft });
+    });
+    let voice;
+    let previewId;
+    let waveformReads = 0;
+    await context.route('**/api/dictation-preview', async route => {
+      const request = route.request().postDataJSON();
+      if (request.action === 'start') {
+        assert.equal(request.language, 'single');
+        previewId = request.session_id;
+      } else {
+        assert.equal(request.session_id, previewId);
+      }
+      let result = { ok: true };
+      if (request.action === 'stop') result = { text: 'My preview transcript.' };
+      if (request.action === 'waveform') {
+        result = { waveform: ++waveformReads === 1 ? '▁'.repeat(10) : '▁▂▄▅▆▆▅▄▂▁' };
+      }
+      await route.fulfill({ json: result });
+    });
+    await context.route('**/api/preview-voice', async route => {
+      voice = route.request().postDataJSON();
+      await route.fulfill({ json: { ok: true } });
+    });
+    const url = 'http://127.0.0.1:' + f.server.address().port + '/#token=' + f.token;
+    let page = await context.newPage();
+    const button = (name) => page.getByRole('button', { name, exact: true });
+    const heading = (name) => page.locator('#model-setup-heading').getByText(name, { exact: true }).or(page.getByRole('heading', { name, exact: true }));
+    const choose = (id, name = 'Download') => page.locator('[data-model-id="' + id + '"]').getByRole('button', { name, exact: true }).click();
+    await page.goto(url);
+    await heading('Appearance').waitFor();
+    assert.equal(await button('Light').getAttribute('aria-pressed'), 'true');
+    await button('Dark').click();
+    await page.locator('html[data-theme=dark]').waitFor({ state: 'attached' });
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await button('System').click();
+    await page.locator('html[data-theme=auto]').waitFor({ state: 'attached' });
+    assert.equal(draft.theme, 'auto');
+    assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme), 'dark');
+    await page.emulateMedia({ colorScheme: 'light' });
+    assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme), 'light');
+    await button('Light').click();
+    await page.locator('html[data-theme=light]').waitFor({ state: 'attached' });
+    const themePanel = page.locator('.setup-appearance');
+    const fit = async () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth
+      && document.querySelector('.model-setup-actions').getBoundingClientRect().bottom <= innerHeight);
+    const footerAtBottom = async label => {
+      assert(await fit(), label + ' fits in the window');
+      const footer = await page.locator('.model-setup-actions').boundingBox();
+      assert(Math.abs(footer.y + footer.height - page.viewportSize().height) <= 1, label + ' reaches the bottom edge');
+    };
+    assert(await fit(), 'The theme choices and Next fit in a compact window');
+    await page.setViewportSize({ width: 1024, height: 720 });
+    assert((await themePanel.boundingBox()).width < 600, 'Appearance stays compact in a wide window');
+    if (process.env.SETTINGS_VISUAL_REVIEW) {
+      fs.mkdirSync('artifacts/windows-validation', { recursive: true });
+      await page.screenshot({ path: 'artifacts/windows-validation/first-run-appearance.png' });
+    }
+    await page.setViewportSize({ width: 360, height: 690 });
+    await button('Next').click();
+    await heading('Dictation').waitFor();
+    await footerAtBottom('Runtime navigation before a choice');
+    await choose('parakeet-vulkan');
+    await page.locator('[data-model-id=parakeet-vulkan] progress').waitFor();
+    await button('Next').click();
+    await page.setViewportSize({ width: 360, height: 360 });
+    const scroller = page.locator('.model-setup-scroll');
+    await page.getByRole('heading', { name: 'Models', exact: true }).waitFor();
+    await footerAtBottom('Model navigation at the top of the list');
+    const scrollBox = await scroller.boundingBox();
+    if (process.env.SETTINGS_VISUAL_REVIEW) {
+      await page.screenshot({ path: 'artifacts/windows-validation/first-run-compact-navigation.png' });
+    }
+    const thumb = {
+      x: Math.floor(scrollBox.x + scrollBox.width - 12),
+      y: Math.floor(scrollBox.y + 27),
+      width: 8, height: 8,
+    };
+    await page.mouse.move(20, 10);
+    const idleThumb = await page.screenshot({ clip: thumb });
+    await page.mouse.move(thumb.x + 4, thumb.y + 4);
+    assert.deepEqual(await page.screenshot({ clip: thumb }), idleThumb, 'Hover keeps the scrollbar thumb style');
+    await page.mouse.down();
+    assert.deepEqual(await page.screenshot({ clip: thumb }), idleThumb, 'Pressing keeps the scrollbar thumb style');
+    await page.mouse.move(thumb.x + 4, thumb.y + 28);
+    await page.mouse.up();
+    await page.waitForFunction(() => document.querySelector('.model-setup-scroll').scrollTop > 0, null, { timeout: 2500 });
+    await scroller.evaluate(element => element.scrollTop = element.scrollHeight);
+    assert(await scroller.evaluate(element => element.scrollTop > 0), 'The model list scrolls independently');
+    await footerAtBottom('Model navigation at the bottom of the list');
+    await button('Back').click();
+    await page.getByRole('heading', { name: 'Runtimes', exact: true }).waitFor();
+    assert.equal(await scroller.evaluate(element => element.scrollTop), 0);
+    await button('Next').click();
+    await page.setViewportSize({ width: 1024, height: 620 });
+    const beforeDownload = await scroller.boundingBox();
+    await choose('english-q8.gguf');
+    await page.locator('.model-setup-bottom #notice').getByText('model download queued', { exact: true }).waitFor();
+    await page.locator('[data-model-id="english-q8.gguf"] progress').waitFor();
+    const duringDownload = await scroller.boundingBox();
+    assert.equal(duringDownload.width, beforeDownload.width, 'The queued download notice does not squeeze the model list');
+    await footerAtBottom('Model navigation with a download notice');
+    if (process.env.SETTINGS_VISUAL_REVIEW) {
+      await page.screenshot({ path: 'artifacts/windows-validation/first-run-download-navigation.png' });
+    }
+    await page.setViewportSize({ width: 360, height: 690 });
+    await button('Next').click();
+    f.installFixture('parakeet-vulkan');
+    f.installFixture('english-q8.gguf');
+    await f.setChoice(page.locator('#stt-mode'), 'single_model');
+    await f.setChoice(page.locator('[data-setting-path="stt.single.runtime"] [role=combobox]'), 'parakeet-vulkan');
+    await f.setChoice(page.locator('[data-setting-path="stt.single.model"] [role=combobox]'), 'english-q8.gguf');
+    await button('Save and record').click();
+    await page.locator('.preview-waveform').filter({ hasText: '▁▂▄▅▆▆▅▄▂▁' }).waitFor();
+    await button('Stop').click();
+    const transcript = page.getByRole('textbox', { name: 'Preview transcript' });
+    await page.waitForFunction(id => document.getElementById(id)?.value === 'My preview transcript.', await transcript.getAttribute('id'));
+    assert.equal(await page.locator('.preview-waveform').count(), 0);
+    assert.equal(f.actions.some(item => item.action === 'test_model'), false);
+    await f.setChoice(page.locator('#stt-mode'), 'follow_keyboard');
+    await button('Next').click();
+    await heading('Read aloud and Image text').waitFor();
+    assert.equal(draft.step, 4);
+    assert.equal(f.getConfig().speech.selection_mode, 'follow_keyboard');
+    await page.close();
+    page = await context.newPage();
+    await page.goto(url);
+    await heading('Read aloud and Image text').waitFor();
+    await choose('paddle-cpu');
+    assert.deepEqual(draft.runtimes.slice(1), ['paddle-cpu', 'sherpa-cpu']);
+    await button('Next').click();
+    await choose('paddle-ar-en');
+    f.installFixture('sherpa-cpu');
+    f.installFixture('paddle-ar-en');
+    await button('Next').click();
+    await page.locator('#ocr-mode').waitFor();
+    await f.setChoice(page.locator('[data-setting-path="ocr.single.runtime"] [role=combobox]'), 'paddle-cpu');
+    await f.setChoice(page.locator('[data-setting-path="ocr.single.model"] [role=combobox]'), 'paddle-ar-en');
+    await button('Save and copy screen text').click();
+    await button('Next').click();
+    await heading('Read aloud').waitFor();
+    assert.equal(draft.step, 8);
+    await choose('kokoro');
+    f.installFixture('kokoro');
+    assert.equal(await button('Test voice').count(), 0, 'Model download step has no voice preview');
+    await button('Next').click();
+    await f.setChoice(page.locator('#tts-mode'), 'single_model');
+    await f.setChoice(page.locator('[data-setting-path="tts.single.runtime"] [role=combobox]'), 'sherpa-cpu');
+    await f.setChoice(page.locator('[data-setting-path="tts.single.model"] [role=combobox]'), 'kokoro');
+    await button('Test voice').waitFor();
+    await f.setChoice(page.locator('[data-setting-path="tts.single.voice"] [role=combobox]'), 'af_bella');
+    await button('Test voice').click();
+    await page.waitForFunction(() => document.querySelector('.model-setup [aria-busy=false]'));
+    assert.equal(voice.binding.voice, 'af_bella');
+    const help = page.getByRole('button', { name: /Kokoro may pronounce all-caps/ });
+    await help.click();
+    assert.equal(await help.getAttribute('aria-expanded'), 'true');
+    await page.locator('.help-text').getByText(/“US” may be spoken as “us.”/).waitFor();
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('.help-text').count(), 0);
+    if (process.env.SETTINGS_VISUAL_REVIEW) {
+      const output = path.resolve('artifacts/windows-validation/first-run-setup.png');
+      fs.mkdirSync(path.dirname(output), { recursive: true });
+      await page.screenshot({ path: output, fullPage: true });
+    }
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await button('Next').click();
+    await heading('Keyboard setup').waitFor();
+    await footerAtBottom('Finish on the keyboard step');
+    const caps = page.locator('[data-setting-path="general.capslock_behavior"] [role="combobox"]');
+    assert.equal(await caps.getAttribute('data-value'), 'preserve_tap');
+    assert.equal(await page.locator('[id="general.cancel_hotkey"]').inputValue(), 'CapsLock+X');
+    await page.getByRole('button', {name: /Choose Always off if/}).click();
+    await page.locator('.help-text').getByText(/Choose Always off if/).waitFor();
+    await page.keyboard.press('Escape');
+    await f.setChoice(caps, 'always_off');
+    f.options.hotkey = 'CapsLock+E';
+    await button('Record Record shortcut').click();
+    await page.waitForFunction(() => document.getElementById('general.record_hotkey').value === 'CapsLock+E');
+    await button('Apply shortcuts').click();
+    await button('Apply shortcuts').waitFor({ state: 'detached' });
+    assert.equal(f.getConfig().general.capslock_behavior, 'always_off');
+    assert.equal(f.getConfig().general.record_hotkey, 'CapsLock+E');
+    await button('Finish').click();
+    await page.locator('[data-section=models]').waitFor();
+    await page.locator('.setup-downloads progress').first().waitFor();
+    assert.equal(draft.done, true);
+    page = await context.newPage();
+    await page.goto(url);
+    await page.locator('#ui-language').waitFor();
+    assert.equal(await page.locator('#model-setup-heading').count(), 0);
+    await page.close();
+    draft = { ...draft, done: false, step: 10 };
+    f.options.platform = 'linux';
+    await context.route('**/api/state', async route => {
       const response = await route.fetch();
       const state = await response.json();
-      state.model_setup = { pending, show: !handled, english_file: 'english-q4.gguf', arabic_file: 'arabic-q8.gguf' };
-      state.models.forEach(model => model.installed = installed);
-      await route.fulfill({response, json: state});
+      state.shortcut_state = { record: 'Meta+Z' };
+      await route.fulfill({ response, json: state });
     });
-    await page.route('**/api/model-setup', async route => {
-      if (failDismiss) return route.fulfill({status:400, json:{error:'Isolated setup persistence failure'}});
-      const choice = route.request().postDataJSON();
-      choices.push(choice);
-      pending = choice.english || choice.arabic;
-      handled = true;
-      await route.fulfill({json:{ok:true}});
-    });
-    await page.route('**/api/action', async route => {
-      const body = route.request().postDataJSON();
-      if (body.action === 'download_model') {
-        requested.push(body.filename);
-        return route.fulfill({status: failDownload ? 400 : 200, json: failDownload ? {error:'Isolated download failure'} : {message:'Queued'}});
-      }
-      await route.continue();
-    });
-    const url = `http://127.0.0.1:${f.server.address().port}/#token=${f.token}`;
-    const prompt = page.locator('#recommended-setup');
+    page = await context.newPage();
     await page.goto(url);
-    await prompt.waitFor();
-    const boxes = prompt.getByRole('checkbox');
-    assert.equal(await boxes.count(), 2);
-    assert(await boxes.nth(0).isChecked());
-    assert(await boxes.nth(1).isChecked());
-    assert.deepEqual(requested, [], 'first opening must not download automatically');
-    const dir = path.resolve('artifacts/model-setup'); fs.mkdirSync(dir, {recursive:true});
-    for (const language of ['en','ar']) {
-      await setChoice(page.locator('[data-setting-path="general.ui_language"] [role=combobox]'), language);
-      for (const theme of ['light','dark']) {
-        await setChoice(page.locator('[data-setting-path="general.ui_theme"] [role=combobox]'), theme);
-        for (const width of [360,768,1280]) {
-          await page.setViewportSize({width,height:900});
-          const box = await prompt.boundingBox();
-          assert(box && box.x >= 0 && box.x + box.width <= width, 'prompt must fit the viewport');
-          await page.screenshot({path:path.join(dir, `${language}-${theme}-${width}.png`), fullPage:true});
-        }
-      }
-    }
-    await setChoice(page.locator('[data-setting-path="general.ui_language"] [role=combobox]'), 'en');
-    await boxes.nth(0).uncheck();
-    failDownload = true;
-    await prompt.getByRole('button', {name:'Download', exact:true}).click();
-    await page.locator('#notice[data-kind="error"]').waitFor();
-    assert(await prompt.isVisible());
-    assert.equal(handled, false, 'download failure must not dismiss onboarding');
-    failDownload = false;
-    failDismiss = true;
-    await prompt.getByRole('button', {name:'Skip',exact:true}).click();
-    await page.getByText('Isolated setup persistence failure', {exact:true}).waitFor();
-    assert(await prompt.isVisible());
-    failDismiss = false;
-    await prompt.getByRole('button', {name:'Download',exact:true}).click();
-    await prompt.waitFor({state:'detached'});
-    assert.deepEqual(requested, ['arabic-q8.gguf','arabic-q8.gguf'], 'only the checked Arabic model should be requested');
-    await page.reload();
-    await page.locator('[data-setting-path="general.enabled"] input').waitFor();
-    assert.equal(await prompt.count(), 0, 'handled prompt should not reappear on reopening');
-    handled = false;
-    await page.reload();
-    await prompt.waitFor();
-    const before = requested.length;
-    await prompt.getByRole('button', {name:'Skip',exact:true}).click();
-    await prompt.waitFor({state:'detached'});
-    assert.equal(requested.length, before, 'Skip must not download');
-    await page.reload();
-    await page.locator('[data-setting-path="general.enabled"] input').waitFor();
-    assert.equal(await prompt.count(), 0);
-    handled = false;
-    await page.reload();
-    await prompt.waitFor();
-    await prompt.getByRole('button', {name:'Download',exact:true}).click();
-    await prompt.waitFor({state:'detached'});
-    assert.deepEqual(requested.slice(-2), ['english-q4.gguf','arabic-q8.gguf'], 'both defaults should download only on explicit Download');
-    assert.deepEqual(choices, [{english:false,arabic:true},{english:false,arabic:false},{english:true,arabic:true}], 'post the selected routing choices, including Skip');
-    // A completed download refresh applies routing without discarding another settings draft.
-    await page.locator('nav button[data-page="general"]').click();
-    await setChoice(page.locator('[data-setting-path="general.ui_language"] [role=combobox]'), 'ar');
-    installed = true; pending = false;
-    const completed = f.getConfig();
-    completed.speech.selection_mode = 'follow_keyboard';
-    completed.speech.language_models = {en:'english-q4.gguf',ar:'arabic-q8.gguf'};
-    f.setConfig(completed);
-    f.publishEvent('model_download_complete', {filename:'arabic-q8.gguf'});
-    await page.locator('nav button[data-page="audio"]').click();
-    await page.waitForFunction(() => document.querySelector('[data-setting-path="speech.selection_mode"] [role=combobox]')?.value === 'follow_keyboard');
-    await page.locator('nav button[data-page="general"]').click();
-    assert.equal(await page.locator('[data-setting-path="general.ui_language"] [role=combobox]').getAttribute("data-value"), 'ar', 'model setup must preserve another unsaved draft');
-
-    handled = false;
-    f.options.online = false;
-    await page.reload();
-    await prompt.waitFor();
-    assert(await prompt.getByRole('button', {name:'Download',exact:true}).isDisabled());
-    assert(await prompt.getByRole('button', {name:'Skip',exact:true}).isEnabled());
-    console.log('PASS first-run EN/AR checked, no automatic download, selected-only requests, failure retention, Skip/reopen persistence and localized layouts');
-  } finally { await browser?.close(); await new Promise(resolve => f.server.close(resolve)); }
+    await heading('Keyboard setup').waitFor();
+    assert.equal(await page.locator('[data-setting-path="linux.shortcut.record"] output').textContent(), 'Meta+Z');
+    await button('Refresh or register system shortcuts').click();
+    await button('Set up shortcuts').click();
+    assert(f.actions.some(item => item.action === 'sync_shortcuts'));
+    assert(f.actions.some(item => item.action === 'configure_shortcuts'));
+    await page.close();
+    f.options.platform = 'windows';
+    draft = { ...draft, step: 6, runtimes: [null, 'paddle-webgpu', null] };
+    page = await context.newPage();
+    await page.goto(url);
+    await heading('Image text').waitFor();
+    await button('Next').click();
+    await heading('Read aloud').waitFor();
+    await page.getByRole('heading', { name: 'Runtimes', exact: true }).waitFor();
+    assert.equal(draft.step, 7, 'OCR-only WebGPU gets a separate Read aloud runtime choice');
+    console.log('PASS first-run guide: theme, overlapping downloads, resume, model routes, previews, Windows shortcut capture, Linux portal actions, and Finish');
+  } finally {
+    await browser?.close();
+    f.closeEvents();
+    await new Promise(resolve => f.server.close(resolve));
+  }
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -18,6 +18,25 @@
   let preview = $state<HTMLTextAreaElement>();
   let saving = $state(false);
   const skillExport = "/api/agent-skills/export";
+  let resetDialog: HTMLDialogElement;
+  let resetError = $state("");
+  let resetting = $state(false);
+  function confirmReset() {
+    resetError = "";
+    resetDialog.showModal();
+  }
+  async function factoryReset() {
+    if (resetting) return;
+    resetError = "";
+    resetting = true;
+    try {
+      await api("/api/factory-reset", { confirm: true });
+      window.location.reload();
+    } catch (error) {
+      resetError = error instanceof Error ? error.message : String(error);
+      resetting = false;
+    }
+  }
   onMount(() => { void api<Agent[]>("/api/agent-skills").then((items) => agents = items).catch(() => {}); });
   async function install(agent: Agent) {
     installing = agent.id;
@@ -108,3 +127,43 @@
 >
 
 <details class="guide" data-settings-json><summary>{t("settings.configuration")}</summary><Config/></details>
+<div class="reset-setting">
+  <button type="button" onclick={confirmReset}>{t("system.factory_reset")}</button>
+</div>
+<dialog bind:this={resetDialog} class="reset-confirmation" aria-labelledby="reset-title" aria-describedby="reset-description"
+  oncancel={event => { if (resetting) event.preventDefault(); }}>
+  <h2 id="reset-title">{t("system.factory_reset")}</h2>
+  <div class="reset-content">
+    <p id="reset-description">{t("system.factory_reset_confirm")}</p>
+    {#if resetError}<p class="reset-error" role="alert">{resetError}</p>{/if}
+    <div class="reset-actions" aria-busy={resetting}>
+      <button type="button" disabled={resetting} onclick={() => resetDialog.close()}>{t("assets.cancel")}</button>
+      <button type="button" class="reset-destructive" disabled={resetting} onclick={factoryReset}>
+        {t(resetting ? "system.factory_reset_busy" : "system.factory_reset_apply")}
+      </button>
+    </div>
+  </div>
+</dialog>
+
+<style>
+  .reset-setting { margin-block-start: 12px; display: flex; }
+  .reset-confirmation {
+    inline-size: min(412px, calc(100% - 24px));
+    max-block-size: calc(100% - 24px);
+    background: var(--paper);
+    padding: 3px;
+    box-shadow: var(--raised-edge), 0 6px 18px #0003;
+    text-align: start;
+  }
+  .reset-confirmation h2 {
+    margin: 0;
+    padding: 5px 8px;
+    background: var(--title-bar);
+    color: var(--title-ink);
+    font-size: 14px;
+  }
+  .reset-content { padding: 12px; }
+  .reset-content p { margin-block: 0 12px; line-height: 1.45; overflow-wrap: anywhere; }
+  .reset-error, .reset-destructive { color: var(--danger); }
+  .reset-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+</style>

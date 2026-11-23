@@ -2,6 +2,12 @@
 
 SmallTalkAI source does not vendor Parakeet runtime binaries, GGUF model files, AutoHotkey, or other external source trees. Third-party components used by developers or included in a separate packaged build remain under their upstream licenses.
 
+The shared Windows WebGPU runtime for Image text and Read aloud downloads the
+Microsoft ONNX Runtime package from the npm registry and extracts the two Windows
+x64 libraries it needs. The installer also contains a Sherpa-ONNX C API build
+with WebGPU enabled, its build script, and the Sherpa-ONNX and eSpeak NG licenses.
+[ONNX Runtime license and third-party notices](https://github.com/microsoft/onnxruntime/tree/v1.31.1)
+
 ## Optional packaged runtime components
 
 - AutoHotkey v2 runtime, used for the compiled desktop shell executable, when included in a packaged build.

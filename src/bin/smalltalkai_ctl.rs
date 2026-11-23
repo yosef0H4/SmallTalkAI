@@ -389,6 +389,7 @@ fn translate(command: CommandKind) -> ShellCommand {
         } => ShellCommand::StartRecording {
             session_id,
             target_window,
+            preview_language: None,
         },
         CommandKind::StopRecording { session_id } => ShellCommand::StopRecording { session_id },
         CommandKind::DeliveryComplete { session_id } => {

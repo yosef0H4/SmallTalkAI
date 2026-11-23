@@ -21,6 +21,7 @@ Requires:       xclip
 Requires:       wl-clipboard
 Requires:       slurp
 Requires:       webkit2gtk4.1
+Requires:       vulkan-loader
 
 %description
 SmallTalkAI provides local microphone dictation, reading aloud, and screen text

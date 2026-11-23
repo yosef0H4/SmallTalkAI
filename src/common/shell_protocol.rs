@@ -51,6 +51,8 @@ pub enum ShellCommand {
         session_id: u64,
         #[serde(default)]
         target_window: Option<i64>,
+        #[serde(default)]
+        preview_language: Option<String>,
     },
     TranscribeFile {
         path: String,
@@ -59,6 +61,15 @@ pub enum ShellCommand {
         job_id: u64,
     },
     StopRecording {
+        session_id: u64,
+    },
+    StopRecordingPreview {
+        session_id: u64,
+    },
+    RecordingPreviewWaveform {
+        session_id: u64,
+    },
+    CancelRecordingPreview {
         session_id: u64,
     },
     BeginDelivery {
@@ -84,6 +95,7 @@ pub enum ShellCommand {
     },
     ReloadConfig,
     UnloadModel,
+    PrepareFactoryReset,
     TestModel {
         #[serde(default)]
         filename: Option<String>,

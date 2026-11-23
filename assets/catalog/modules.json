@@ -65,6 +65,26 @@
       "platform_assets": {
         "windows": "sherpa-cuda-windows"
       }
+    },
+    {
+      "id": "paddle-webgpu",
+      "feature": "ocr",
+      "engine": "paddleocr",
+      "backend": "webgpu",
+      "label": "WebGPU · ONNX Runtime",
+      "platform_assets": {
+        "windows": "paddle-webgpu-windows"
+      }
+    },
+    {
+      "id": "sherpa-webgpu",
+      "feature": "tts",
+      "engine": "sherpa",
+      "backend": "webgpu",
+      "label": "WebGPU · ONNX Runtime",
+      "platform_assets": {
+        "windows": "paddle-webgpu-windows"
+      }
     }
   ],
   "models": [

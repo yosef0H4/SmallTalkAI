@@ -64,6 +64,7 @@ if ($SkipTests) {
 } else {
     & $BuildRelease -CargoTargetDir $ResolvedTargetDir
 }
+$SherpaWebGpu = & (Join-Path $PSScriptRoot 'build-sherpa-webgpu.ps1')
 
 if (Test-Path -LiteralPath $Portable) { Remove-Item -LiteralPath $Portable -Recurse -Force }
 New-Item -ItemType Directory -Path $Runtime -Force | Out-Null
@@ -83,6 +84,13 @@ if ((Get-Item -LiteralPath $DesktopExe).VersionInfo.FileDescription -ne 'SmallTa
 foreach ($Name in @('smalltalkai-capture.exe','smalltalkai-infer.exe','smalltalkai-ctl.exe','smalltalkai-settings.exe','smalltalkai-settings-window.exe','smalltalkai-reader.exe','smalltalkai-readerctl.exe','smalltalkai-tts.exe','smalltalkai-ocr.exe','smalltalkai-reader-hud.exe')) {
     Copy-Item -LiteralPath (Join-Path $ResolvedTargetDir "release\$Name") -Destination $Runtime -Force
 }
+$SherpaDirectory = Join-Path $Runtime 'sherpa-webgpu'
+New-Item -ItemType Directory -Path $SherpaDirectory -Force | Out-Null
+Copy-Item -LiteralPath $SherpaWebGpu -Destination $SherpaDirectory -Force
+$SherpaSource = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $SherpaWebGpu))
+Copy-Item -LiteralPath (Join-Path $SherpaSource 'LICENSE') -Destination (Join-Path $SherpaDirectory 'Sherpa-ONNX-LICENSE.txt')
+Copy-Item -LiteralPath (Join-Path $SherpaSource 'build/_deps/espeak_ng-src/COPYING') -Destination (Join-Path $SherpaDirectory 'eSpeak-NG-COPYING.txt')
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'build-sherpa-webgpu.ps1') -Destination $SherpaDirectory
 Copy-Item -LiteralPath (Join-Path $Root 'assets\language\lid.176.ftz') -Destination $Runtime -Force
 Copy-Item -LiteralPath (Join-Path $Root 'LICENSE') -Destination $Portable -Force
 New-Item -ItemType Directory -Path (Join-Path $Portable 'licenses') -Force | Out-Null
@@ -98,7 +106,10 @@ Copy-Item -LiteralPath (Join-Path $Root 'fixtures\parakeet-smoke.wav') -Destinat
 Copy-Item -LiteralPath (Join-Path $Root 'fixtures\asr') -Destination (Join-Path $Runtime 'fixtures\asr') -Recurse -Force
 $ModelFiles = @(Get-ChildItem -LiteralPath $Portable -File -Recurse | Where-Object { $_.Extension -in @('.gguf', '.onnx', '.safetensors', '.tflite', '.pt', '.pth') })
 if ($ModelFiles.Count) { throw 'Distribution payload unexpectedly contains an inference model' }
-$InferenceLibraries = @(Get-ChildItem -LiteralPath $Portable -File -Recurse -Filter '*.dll' | Where-Object { $_.Name -match '^(parakeet|ggml|onnxruntime|sherpa-onnx)' })
+$PackagedSherpa = Join-Path $SherpaDirectory 'sherpa-onnx-c-api.dll'
+$InferenceLibraries = @(Get-ChildItem -LiteralPath $Portable -File -Recurse -Filter '*.dll' | Where-Object {
+    $_.Name -match '^(parakeet|ggml|onnxruntime|sherpa-onnx)' -and $_.FullName -ne $PackagedSherpa
+})
 if ($InferenceLibraries.Count) { throw 'Distribution payload unexpectedly contains an inference runtime' }
 $Required = @(
     'runtime\smalltalkai.ahk',
@@ -113,6 +124,7 @@ $Required = @(
     'runtime\smalltalkai-infer.exe',
     'runtime\smalltalkai-ctl.exe',
     'runtime\smalltalkai-settings.exe',
+    'runtime\sherpa-webgpu\sherpa-onnx-c-api.dll',
     'runtime\smalltalkai-settings-window.exe',
     'runtime\smalltalkai-reader.exe',
     'runtime\smalltalkai-readerctl.exe',

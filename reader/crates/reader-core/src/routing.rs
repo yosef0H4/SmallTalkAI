@@ -34,6 +34,7 @@ pub enum Device {
     Cpu,
     Gpu,
 }
+pub const WEBGPU_ADAPTER_ENV: &str = "SMALLTALKAI_WEBGPU_ADAPTER_INDEX";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Connection {
@@ -111,6 +112,8 @@ pub struct Binding {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remote: Option<RemoteRoute>,
     pub device: Device,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webgpu_adapter: Option<u32>,
     pub runtime: Option<String>,
     pub model: Option<String>,
     pub voice: Option<String>,
@@ -125,6 +128,7 @@ impl Default for Binding {
         Self {
             remote: None,
             device: Device::Auto,
+            webgpu_adapter: None,
             runtime: None,
             model: None,
             voice: None,
@@ -134,6 +138,16 @@ impl Default for Binding {
             currency_words: true,
             clean_text: true,
         }
+    }
+}
+impl Binding {
+    pub fn webgpu_adapter_index(&self) -> Option<u32> {
+        (self.device == Device::Gpu
+            && matches!(
+                self.runtime.as_deref(),
+                Some("sherpa-webgpu" | "paddle-webgpu")
+            ))
+        .then_some(self.webgpu_adapter.unwrap_or_default())
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -308,6 +322,9 @@ pub fn registry() -> Registry {
             runtime.label = "Parakeet · CUDA 12.8 (Blackwell)".into();
         }
     }
+    registry
+        .runtimes
+        .retain(|runtime| runtime.asset.is_some() || runtime.platform_assets.is_empty());
     registry
 }
 
@@ -511,6 +528,8 @@ impl crate::AppConfig {
                 config.speech.speed = f32::from(binding.speed_percent.unwrap_or(100)) / 100.0;
                 config.speech.device = if binding.device == Device::Cpu {
                     crate::DevicePreference::Cpu
+                } else if runtime.backend == "webgpu" {
+                    crate::DevicePreference::Auto
                 } else if runtime.backend == "cuda" {
                     if binding.device == Device::Gpu {
                         crate::DevicePreference::Cuda
@@ -552,7 +571,14 @@ impl crate::AppConfig {
                 config.ocr.model_dir = assets.join(&model.asset);
                 config.ocr.runtime_dir =
                     assets.join(runtime.asset.context("OCR runtime has no asset")?);
-                config.ocr.device = ocr_device(self.ocr.selection.binding(language).device);
+                let binding = self.ocr.selection.binding(language);
+                config.ocr.selection.single = binding.clone();
+                config.ocr.device = if runtime.backend == "webgpu" && binding.device == Device::Auto
+                {
+                    crate::DevicePreference::Auto
+                } else {
+                    ocr_device(binding.device)
+                };
             }
             _ => {}
         }

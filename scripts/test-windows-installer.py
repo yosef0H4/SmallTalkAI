@@ -129,24 +129,26 @@ def verify_launcher(target):
     script = runtime / "smalltalkai.ahk"
     script.write_text(
         '#Requires AutoHotkey v2.0\n#SingleInstance Force\n'
-        'FileAppend(A_WorkingDir . "`n" . A_ScriptFullPath . "`n" . A_Args[2], A_Args[1], "UTF-8-RAW")\n',
+        'FileAppend(A_WorkingDir . "`n" . A_ScriptFullPath . "`n" . A_Args[2] . "`n" . A_Args[3], A_Args[1], "UTF-8-RAW")\n',
         encoding="ascii",
     )
     argument = 'café with "quotes"'
     marker = probe / "launch result.txt"
-    subprocess.run([str(launcher), str(marker), argument], cwd=OUT, check=True, timeout=10)
-    expected = [str(runtime), str(script), argument]
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        try:
-            if marker.read_text(encoding="utf-8").splitlines() == expected:
-                break
-        except OSError:
-            pass
-        time.sleep(0.05)
-    else:
-        raise AssertionError(f"{launcher} did not launch the bundled script with the expected working directory and arguments")
-    print("PASS the single native launcher starts the bundled AHK script from a directory with spaces", flush=True)
+    for args, expected_flag in [([], "--show-settings"), (["--background"], "--background")]:
+        marker.unlink(missing_ok=True)
+        subprocess.run([str(launcher), str(marker), argument, *args], cwd=OUT, check=True, timeout=10)
+        expected = [str(runtime), str(script), argument, expected_flag]
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                if marker.read_text(encoding="utf-8").splitlines() == expected:
+                    break
+            except OSError:
+                pass
+            time.sleep(0.05)
+        else:
+            raise AssertionError(f"{launcher} did not forward the arguments for {expected_flag}")
+    print("PASS the native launcher forwards foreground/background arguments from a directory with spaces", flush=True)
 
 
 def install_payload(iscc, version):
@@ -163,6 +165,9 @@ def install_payload(iscc, version):
         source, count = re.subn(rf"(?m)^{key}=.*$", lambda _: f"{key}={value}", source)
         assert count == 1, key
     source = source.replace("[Setup]\n", f"[Setup]\nSourceDir={ROOT / 'artifacts'}\nUninstallable=no\nCreateUninstallRegKey=no\n")
+    startup_name = f"SmallTalkAI installer parity {os.getpid()}"
+    source = source.replace(r'Name: "{userstartup}\SmallTalkAI";', rf'Name: "{{userstartup}}\{startup_name}";')
+    source = source.replace(r'Name: "{group}\SmallTalkAI";', r'Name: "{app}\Test Start Menu Shortcut";')
     test_script = OUT / "setup-isolated.iss"
     test_script.write_text(source, encoding="utf-8")
     with (OUT / "compile.log").open("w") as log:
@@ -171,13 +176,37 @@ def install_payload(iscc, version):
         target = Path(directory) / "installed SmallTalkAI"
         subprocess.run([str(OUT / "setup-isolated.exe"), "/VERYSILENT", "/SP-", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOICONS", "/TASKS=", f"/DIR={target}", f"/LOG={OUT / 'install.log'}"], check=True, timeout=120)
         verify_installed_payload(target)
+    with tempfile.TemporaryDirectory(prefix="startup-install-", dir=OUT) as directory:
+        profile = Path(directory)
+        target = profile / "installed SmallTalkAI"
+        config = profile / "config.json"
+        startup_dir = subprocess.check_output(
+            ["powershell.exe", "-NoProfile", "-Command", "[Environment]::GetFolderPath('Startup')"],
+            encoding="utf-8", timeout=10,
+        ).strip()
+        shortcut = Path(startup_dir) / f"{startup_name}.lnk"
+        assert startup_dir and not shortcut.exists(), shortcut
+        env = dict(os.environ, SMALLTALKAI_CONFIG=str(config))
+        try:
+            subprocess.run(
+                [str(OUT / "setup-isolated.exe"), "/VERYSILENT", "/SP-", "/SUPPRESSMSGBOXES",
+                 "/NORESTART", "/TASKS=startup", f"/DIR={target}", f"/LOG={OUT / 'startup-install.log'}"],
+                env=env, check=True, timeout=120,
+            )
+            assert shortcut.is_file(), "Setup did not create the current user's Startup shortcut"
+            assert config.is_file(), "Setup created the shortcut without saving Start at login"
+            assert json.loads(config.read_text(encoding="utf-8"))["general"]["start_at_login"] is True
+        finally:
+            shortcut.unlink(missing_ok=True)
+    print("PASS Setup's Startup task creates the sign-in shortcut and saves Start at login", flush=True)
 
 
 def verify_installed_payload(target):
     assert not list(target.rglob("*.gguf")), "installer added speech models"
     assert not list(target.rglob("*.onnx")), "installer added TTS/OCR models"
-    libraries = (ROOT / "artifacts/smalltalkai-portable").rglob("*.dll")
-    assert not any(path.name.startswith(("parakeet", "ggml", "onnxruntime", "sherpa-onnx")) for path in libraries), "installer bundled an inference runtime"
+    libraries = {path.relative_to(target) for path in target.rglob("*.dll")
+                 if path.name.startswith(("parakeet", "ggml", "onnxruntime", "sherpa-onnx"))}
+    assert libraries == {Path("runtime/sherpa-webgpu/sherpa-onnx-c-api.dll")}, libraries
     assert (target / "runtime/action-replay.ahk").is_file()
     assert (target / "runtime/smalltalkai-settings-window.exe").is_file()
     assert (target / "licenses/settings-sans-license.txt").is_file()
@@ -190,7 +219,8 @@ def verify_installed_payload(target):
         result = result.get("config", result)
         if scope == "app":
             assert not result["speech"]["single_model_filename"]
-            assert result["general"]["ui_theme"] == "dark"
+            assert result["general"]["ui_theme"] == "light"
+            assert result["general"]["start_at_login"] is False
             for key in ["toggle_delivery_hotkey", "toggle_cleanup_hotkey", "retry_delivery_hotkey"]:
                 assert result["general"][key] == "None", key
             assert result["general"]["show_shortcuts_hotkey"] == "CapsLock"

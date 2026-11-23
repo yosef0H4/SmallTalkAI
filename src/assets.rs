@@ -641,7 +641,18 @@ impl Job {
                 );
                 let target = destination.join(relative(Path::new(target), 0)?);
                 anyhow::ensure!(!target.exists(), "Duplicate component target");
-                fs::hard_link(root.join(source), target).context("Assembling model components")?;
+                let source = root.join(source);
+                match fs::hard_link(&source, &target) {
+                    Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
+                        copy_cancellable(
+                            &mut File::open(&source)?,
+                            &mut File::create_new(&target)?,
+                            &self.cancelled,
+                        )
+                        .context("Copying model component across filesystems")?;
+                    }
+                    result => result.context("Assembling model components")?,
+                }
             }
             for file in &asset.required {
                 anyhow::ensure!(destination.join(file).exists(), "Asset is missing {file}");
@@ -961,6 +972,38 @@ mod delivery_tests {
         });
         (asset, thread)
     }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn installs_model_with_component_on_another_filesystem() {
+        use std::os::unix::fs::{symlink, MetadataExt};
+
+        let root = tempfile::tempdir().unwrap();
+        let Ok(dependency) = tempfile::tempdir_in("/dev/shm") else {
+            return;
+        };
+        if root.path().metadata().unwrap().dev() == dependency.path().metadata().unwrap().dev() {
+            return;
+        }
+        fs::write(dependency.path().join("component"), b"model component").unwrap();
+        symlink(dependency.path(), root.path().join("dependency")).unwrap();
+
+        let (mut asset, server) = fixture(b"model".to_vec());
+        asset.dependencies = vec!["dependency".into()];
+        asset
+            .components
+            .insert("component".into(), "dependency/component".into());
+        asset.required.push("component".into());
+        Job::default().install_one_at(&asset, root.path()).unwrap();
+        server.join().unwrap();
+
+        assert!(installed_at(root.path(), &asset));
+        assert_eq!(
+            fs::read(root.path().join(&asset.id).join("component")).unwrap(),
+            b"model component"
+        );
+    }
+
     fn stalled_fixture(
         id: &str,
     ) -> (

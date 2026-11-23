@@ -6549,6 +6549,12 @@ fn with_ocr_worker<T>(
                 },
             ]);
             command.env(reader_core::provider_prompts::OCR_ENV, prompt);
+            command.env(
+                "SMALLTALKAI_OCR_API_KEY",
+                reader_core::secrets::ocr_key()?.unwrap_or_default(),
+            );
+        } else {
+            command.env_remove("SMALLTALKAI_OCR_API_KEY");
         }
         if let Some(library) = &config.ocr.worker_library {
             command.arg("--library").arg(library);
@@ -6559,10 +6565,6 @@ fn with_ocr_worker<T>(
         )?;
         command
             .env("SMALLTALKAI_READER_CAPTURE_DIR", &allowed)
-            .env(
-                "SMALLTALKAI_OCR_API_KEY",
-                reader_core::secrets::ocr_key()?.unwrap_or_default(),
-            )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());

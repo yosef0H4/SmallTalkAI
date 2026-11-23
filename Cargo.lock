@@ -5776,6 +5776,7 @@ version = "0.3.1"
 dependencies = [
  "anyhow",
  "ashpd",
+ "async-io",
  "base64 0.22.1",
  "cc",
  "clap",

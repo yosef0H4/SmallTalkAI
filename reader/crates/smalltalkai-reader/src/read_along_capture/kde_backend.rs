@@ -6,25 +6,48 @@
 
 use super::*;
 use anyhow::{anyhow, bail, ensure, Context};
-use futures_lite::future::block_on;
+use async_io::{Async, Timer};
+use futures_lite::{
+    future::{block_on, race, try_zip},
+    io::AsyncReadExt,
+};
 use nix::unistd::pipe;
 use serde::Deserialize;
 use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
-    io::{BufWriter, Read},
+    io::BufWriter,
     os::{fd::AsFd, unix::fs::OpenOptionsExt},
     path::Path,
     process::{Command, Stdio},
     sync::{mpsc, Arc, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use zbus::{
     proxy,
     zvariant::{Fd, OwnedValue, Value},
     Connection,
 };
+
+const SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(8);
+
+async fn capture_before_deadline<T>(
+    capture: impl std::future::Future<Output = Result<T>>,
+    current: &dyn Fn() -> bool,
+    timeout: Duration,
+) -> Result<T> {
+    let deadline = Instant::now() + timeout;
+    race(capture, async {
+        loop {
+            ensure!(current(), "read-along capture canceled");
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            ensure!(!remaining.is_zero(), "KWin window capture timed out");
+            Timer::after(remaining.min(Duration::from_millis(50))).await;
+        }
+    })
+    .await
+}
 
 #[proxy(
     interface = "org.kde.KWin.ScreenShot2",
@@ -341,24 +364,32 @@ callDBus({bus}, {path}, "org.smalltalkai.ReadAlong", "report", state);
     ) -> Result<PathBuf> {
         ensure!(current(), "read-along capture canceled");
         let (read_fd, write_fd) = pipe().context("creating the private screenshot pipe")?;
-        let reader = thread::spawn(move || -> std::io::Result<Vec<u8>> {
+        let read_pixels = async {
             let mut bytes = Vec::new();
-            File::from(read_fd).read_to_end(&mut bytes)?;
+            Async::new(File::from(read_fd))?
+                .read_to_end(&mut bytes)
+                .await
+                .context("reading KWin screenshot pixels")?;
             Ok(bytes)
-        });
-        let mut options = HashMap::from([
+        };
+        let options = HashMap::from([
             ("native-resolution", Value::from(true)),
             ("include-decoration", Value::from(true)),
             ("include-shadow", Value::from(false)),
         ]);
-        let metadata = block_on(async {
+        let capture_metadata = async move {
             let proxy = ScreenShot2Proxy::new(&self.connection).await?;
-            proxy.capture_window(uuid, std::mem::take(&mut options), Fd::from(write_fd.as_fd())).await
-        }).context("KWin ScreenShot2 CaptureWindow failed; check the packaged desktop entry grants org.kde.KWin.ScreenShot2")?;
-        drop(write_fd);
-        let raw = reader
-            .join()
-            .map_err(|_| anyhow!("KWin screenshot reader thread panicked"))??;
+            let reply = proxy
+                .capture_window(uuid, options, Fd::from(write_fd.as_fd()))
+                .await;
+            drop(write_fd);
+            reply.map_err(|error| anyhow!("KWin ScreenShot2 CaptureWindow failed: {error}"))
+        };
+        let (metadata, raw) = block_on(capture_before_deadline(
+            try_zip(capture_metadata, read_pixels),
+            current,
+            SCREENSHOT_TIMEOUT,
+        ))?;
         ensure!(current(), "read-along capture canceled");
         let width = metadata_u32(&metadata, "width")?;
         let height = metadata_u32(&metadata, "height")?;
@@ -616,6 +647,28 @@ fn window_at_region_center(windows: Vec<KWinWindow>, region: Rect) -> Result<KWi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unresponsive_screenshot_returns_timeout() {
+        let error = block_on(capture_before_deadline::<()>(
+            std::future::pending(),
+            &|| true,
+            Duration::from_millis(5),
+        ))
+        .unwrap_err();
+        assert_eq!(error.to_string(), "KWin window capture timed out");
+    }
+
+    #[test]
+    fn screenshot_wait_can_be_cancelled() {
+        let error = block_on(capture_before_deadline::<()>(
+            std::future::pending(),
+            &|| false,
+            SCREENSHOT_TIMEOUT,
+        ))
+        .unwrap_err();
+        assert_eq!(error.to_string(), "read-along capture canceled");
+    }
 
     fn window(uuid: &str, x: i32, width: u32, minimized: bool) -> KWinWindow {
         KWinWindow {

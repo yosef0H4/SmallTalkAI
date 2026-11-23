@@ -100,9 +100,11 @@ def main():
             with urlopen(request, timeout=20) as response:
                 state = json.load(response)
             assert state['config_path'] == str(home / 'config/smalltalkai/instances/installed/config.json')
-            assert state['config']['speech']['runtime_dir'] == ''
+            vulkan = str(bundled / 'parakeet-vulkan')
+            assert state['config']['speech']['runtime_dir'] == vulkan
+            assert state['resolved_runtime_dir'] == vulkan
             assert state['resolved_model_dir'] == str(home / 'data/smalltalkai/models')
-            assert not state['runtime_ready']
+            assert state['runtime_ready']
             assert not state['service_online']
             assert state['linux_automation']['recommended'] == 'portal', 'installed input must use the portal'
             assert (root / 'smalltalkai-paste').is_file(), 'read-only desktop helper missing'

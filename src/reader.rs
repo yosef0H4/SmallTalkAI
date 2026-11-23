@@ -298,7 +298,11 @@ pub fn hud_text(
     now_ms: u64,
 ) -> (String, bool) {
     let mut lines = Vec::new();
-    let activity = feature_activity_text(status, "activity", locale, false);
+    let state = status["state"].as_str();
+    let playing_or_paused = matches!(
+        status["activity"]["phase"].as_str(),
+        Some("reading" | "playing" | "paused")
+    );
     let current_text = status["chunk_text"]
         .as_str()
         .filter(|text| !text.trim().is_empty())
@@ -306,14 +310,10 @@ pub fn hud_text(
             status["sentence_text"]
                 .as_str()
                 .filter(|text| !text.trim().is_empty())
-        });
-    if let Some(current_text) = current_text.filter(|_| {
-        matches!(
-            status["state"].as_str(),
-            Some("reading" | "preparing" | "paused")
-        )
-    }) {
-        let icon = if status["state"] == "paused" {
+        })
+        .filter(|_| matches!(state, Some("reading" | "preparing" | "paused")));
+    if let Some(current_text) = current_text {
+        let icon = if state == Some("paused") {
             "⏸️"
         } else {
             "🔊"
@@ -327,15 +327,19 @@ pub fn hud_text(
         );
         append_chunk_counter(&mut line, status);
         lines.push(line);
-    } else if let Some(activity) = activity {
-        lines.push(activity);
-    } else if status["read_pending"] == true
-        || matches!(status["state"].as_str(), Some("preparing" | "reading"))
-    {
-        lines.push(format!(
-            "🔊 {}",
-            crate::localization::translate(locale, "reader.preparing", &[])
-        ));
+    }
+    if current_text.is_none() || !playing_or_paused {
+        if let Some(activity) = feature_activity_text(status, "activity", locale, false) {
+            lines.push(activity);
+        } else if status["read_pending"] == true
+            || state == Some("preparing")
+            || (current_text.is_none() && state == Some("reading"))
+        {
+            lines.push(format!(
+                "🔊 {}",
+                crate::localization::translate(locale, "reader.preparing", &[])
+            ));
+        }
     }
     let copy_selecting = status["ocr_activity"]["phase"] == "selecting_region";
     if let Some(ocr) =
@@ -637,6 +641,65 @@ mod hud_formatter_tests {
         assert!(text.contains("waiting") && text.contains("1.2s"), "{text}");
         assert!(!text.contains("capturing"));
     }
+    #[test]
+    fn reading_hud_keeps_model_progress_below_the_passage() {
+        let mut status = json!({
+            "state": "preparing",
+            "chunk_text": "The selected passage.",
+            "activity": {
+                "phase": "loading_voice", "message_id": "reader.phase.loading_voice",
+                "model": "kokoro", "language": "en"
+            },
+            "model_events": [
+                {"sequence": 1, "happened_unix_ms": 100, "feature": "tts", "model": "kokoro", "language": "en", "event": "loading"}
+            ]
+        });
+        let (text, active) = super::hud_text(&status, Locale::En, 100);
+        assert!(active);
+        let lines = text.lines().collect::<Vec<_>>();
+        assert!(lines[0].contains("The selected passage."), "{text}");
+        assert_eq!(lines.get(1).copied(), Some("🔊 Loading voice… · English"));
+        assert_eq!(lines.len(), 2, "{text}");
+
+        // The worker publishes its device as soon as the model is ready, before audio arrives.
+        status["state"] = json!("reading");
+        status["activity"]["phase"] = json!("synthesizing");
+        status["activity"]["message_id"] = json!("reader.phase.synthesizing");
+        status["model_events"][0]["event"] = json!("loaded");
+        let text = super::hud_text(&status, Locale::En, 101).0;
+        assert_eq!(text.lines().nth(1), Some("🔊 Generating speech… · English"));
+        assert_eq!(text.lines().nth(2), Some("English voice ready"));
+
+        status["state"] = json!("preparing");
+        status["activity"] = json!({"phase": "idle"});
+        let text = super::hud_text(&status, Locale::En, 3100).0;
+        assert_eq!(text.lines().nth(1), Some("🔊 Preparing…"));
+    }
+
+    #[test]
+    fn reading_hud_keeps_background_ocr_and_read_along_progress() {
+        let status = json!({
+            "state": "reading",
+            "chunk_text": "Text from the current page.",
+            "activity": {"phase": "playing", "message_id": "reader.phase.playing"},
+            "ocr_activity": {"phase": "recognizing", "message_id": "reader.phase.recognizing"},
+            "read_along_active": true,
+            "next_page_activity": {"phase": "tts"},
+            "model_events": [
+                {"sequence": 1, "happened_unix_ms": 100, "feature": "ocr", "model": "paddle-ar-en", "language": "en", "event": "loaded"}
+            ]
+        });
+        let text = super::hud_text(&status, Locale::En, 100).0;
+        assert!(text
+            .lines()
+            .next()
+            .unwrap()
+            .contains("Text from the current page."));
+        assert_eq!(text.lines().nth(1), Some("🔍 Recognizing text…"));
+        assert!(text.lines().nth(2).unwrap().starts_with("📄 Next page"));
+        assert_eq!(text.lines().nth(3), Some("English text recognition ready"));
+    }
+
     #[test]
     fn reading_falls_back_to_current_sentence_when_activity_metadata_is_stale() {
         let status = json!({"state":"reading","activity":{"phase":"idle","message_id":"idle"},"chunk_text":"Audio is playing now.","read_along_active":true,"next_page_activity":{"phase":"ocr"}});

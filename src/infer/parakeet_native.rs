@@ -4,12 +4,6 @@ use std::ffi::{c_char, c_float, c_int, c_void, CStr, CString};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 
-#[cfg(windows)]
-use windows_sys::Win32::System::LibraryLoader::{
-    AddDllDirectory, SetDefaultDllDirectories, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS,
-    LOAD_LIBRARY_SEARCH_USER_DIRS,
-};
-
 type Ctx = *mut c_void;
 
 pub struct ParakeetNative {
@@ -109,7 +103,8 @@ struct Api {
 impl Api {
     fn load(runtime_dir: &Path) -> Result<Self> {
         let library_path = parakeet_library_path(runtime_dir)?;
-        configure_native_search(runtime_dir, &library_path)?;
+        #[cfg(windows)]
+        reader_core::native_paths::configure_windows_dll_search(runtime_dir, &library_path)?;
         let lib = unsafe { Library::new(&library_path) }
             .with_context(|| format!("loading {}", library_path.display()))?;
         unsafe {
@@ -379,43 +374,4 @@ fn parakeet_library_path(runtime_dir: &Path) -> Result<PathBuf> {
         .collect::<Vec<_>>()
         .join(", ");
     anyhow::bail!("Parakeet native library is missing; searched: {searched}")
-}
-
-#[cfg(windows)]
-fn configure_native_search(runtime_dir: &Path, library_path: &Path) -> Result<()> {
-    let library_dir = library_path
-        .parent()
-        .context("Parakeet DLL has no directory")?;
-    let dependencies = reader_core::native_paths::runtime_library_directories(runtime_dir);
-    unsafe {
-        anyhow::ensure!(
-            SetDefaultDllDirectories(
-                LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS
-            ) != 0,
-            "SetDefaultDllDirectories failed"
-        );
-        for path in std::iter::once(library_dir).chain(
-            dependencies
-                .iter()
-                .map(std::path::PathBuf::as_path)
-                .filter(|path| *path != library_dir && path.is_dir()),
-        ) {
-            let wide: Vec<u16> = path
-                .to_string_lossy()
-                .encode_utf16()
-                .chain(std::iter::once(0))
-                .collect();
-            anyhow::ensure!(
-                !AddDllDirectory(wide.as_ptr()).is_null(),
-                "AddDllDirectory failed for {}",
-                path.display()
-            );
-        }
-    }
-    Ok(())
-}
-
-#[cfg(not(windows))]
-fn configure_native_search(_: &Path, _: &Path) -> Result<()> {
-    Ok(())
 }

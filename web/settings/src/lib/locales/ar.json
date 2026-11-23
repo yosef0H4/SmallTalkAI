@@ -485,7 +485,6 @@
   "setup.choose_model": "اختر نموذجاً. يستمر التنزيل أثناء انتقالك إلى الخطوة التالية.",
   "module.runtime.vulkan": "المعالج وبطاقات الرسومات المتوافقة من NVIDIA وAMD وIntel.",
   "module.runtime.cuda": "بطاقات الرسومات المتوافقة من NVIDIA فقط.",
-  "module.runtime.blackwell": "بطاقات الرسومات من NVIDIA بمعمارية Blackwell فقط.",
   "module.runtime.cpu": "يعمل على المعالج دون الحاجة إلى بطاقة رسومات.",
   "module.runtime.webgpu": "المعالج وبطاقات الرسومات المتوافقة من NVIDIA وAMD وIntel.",
   "module.runtime.cuda_tradeoff": "قد يكون أسرع. يشغل مساحة أكبر على القرص وقد يستهلك ذاكرة أكثر.",

@@ -146,22 +146,23 @@ pub fn requirement_message(
     )
 }
 // Driver and GPU capability are necessary signals, not proof that CUDA will load.
-fn nvidia_cuda13_available() -> bool {
+fn nvidia_cuda12_available() -> bool {
     static AVAILABLE: OnceLock<bool> = OnceLock::new();
-    *AVAILABLE.get_or_init(detect_nvidia_cuda13)
+    *AVAILABLE.get_or_init(detect_nvidia_cuda12)
 }
 
-// CUDA 13 and cuDNN 9 require at least this Linux driver and Turing (7.5).
-// This does not guarantee the package contains a compatible kernel for every GPU.
-#[cfg(any(target_os = "linux", test))]
-fn cuda13_compatible_devices(output: &str) -> bool {
+// A 12.8-era driver handles PTX on both platforms. Linux includes native
+// Pascal kernels, which also passed with the older 550 driver on the GTX 1070.
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
+fn cuda12_compatible_devices(output: &str, windows: bool) -> bool {
+    let minimum_driver = if windows { (570, 65, 0) } else { (570, 26, 0) };
     output.lines().any(|line| {
         let Some((driver, capability)) = line.split_once(',') else {
             return false;
         };
         let mut driver = driver.trim().split('.').map(str::parse::<u32>);
-        let version = match (driver.next(), driver.next(), driver.next()) {
-            (Some(Ok(major)), Some(Ok(minor)), Some(Ok(patch))) => (major, minor, patch),
+        let version = match (driver.next(), driver.next(), driver.next().transpose()) {
+            (Some(Ok(major)), Some(Ok(minor)), Ok(patch)) => (major, minor, patch.unwrap_or(0)),
             _ => return false,
         };
         let Some((major, minor)) = capability.trim().split_once('.') else {
@@ -170,17 +171,25 @@ fn cuda13_compatible_devices(output: &str) -> bool {
         let (Ok(major), Ok(minor)) = (major.parse::<u32>(), minor.parse::<u32>()) else {
             return false;
         };
-        version >= (580, 65, 6) && (major, minor) >= (7, 5)
+        let capability = (major, minor);
+        let tested_pascal_driver = !windows && capability == (6, 1) && version >= (550, 163, 1);
+        capability >= (6, 1) && (version >= minimum_driver || tested_pascal_driver)
     })
 }
-
-fn detect_nvidia_cuda13() -> bool {
-    #[cfg(target_os = "linux")]
+fn detect_nvidia_cuda12() -> bool {
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         use std::io::Read;
         use std::process::{Command, Stdio};
         use std::time::{Duration, Instant};
-        Command::new("nvidia-smi")
+
+        let mut command = Command::new("nvidia-smi");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+        }
+        command
             .args([
                 "--query-gpu=driver_version,compute_cap",
                 "--format=csv,noheader,nounits",
@@ -198,7 +207,7 @@ fn detect_nvidia_cuda13() -> bool {
                             let mut output = String::new();
                             break child.stdout.take().is_some_and(|out| {
                                 out.take(65536).read_to_string(&mut output).is_ok()
-                                    && cuda13_compatible_devices(&output)
+                                    && cuda12_compatible_devices(&output, cfg!(windows))
                             });
                         }
                         Ok(None) if Instant::now() < deadline => {
@@ -213,18 +222,17 @@ fn detect_nvidia_cuda13() -> bool {
                 }
             })
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         false
     }
 }
-
-fn runtime_recommendation(id: &str, nvidia_cuda13: bool) -> Option<&'static str> {
+fn runtime_recommendation(id: &str, nvidia_cuda12: bool) -> Option<&'static str> {
     match id {
         "parakeet-vulkan" => Some("vulkan_cpu_gpu"),
         "sherpa-webgpu" | "paddle-webgpu" => Some("webgpu"),
-        "sherpa-cuda" if nvidia_cuda13 => Some("nvidia_driver_detected"),
-        "sherpa-cpu" if !nvidia_cuda13 => Some("cpu_voice"),
+        "sherpa-cuda" if nvidia_cuda12 => Some("nvidia_driver_detected"),
+        "sherpa-cpu" if !nvidia_cuda12 => Some("cpu_voice"),
         "paddle-cpu" => Some("small_capture_cpu"),
         _ => None,
     }
@@ -243,8 +251,8 @@ fn model_recommendation(id: &str, usable_nvidia_voice: bool) -> Option<&'static 
 pub fn inventory(config: &AppConfig) -> Value {
     let registry = routing::registry();
     let reader = crate::reader::load().ok();
-    let nvidia_cuda13 = nvidia_cuda13_available();
-    let usable_nvidia_voice = nvidia_cuda13
+    let nvidia_cuda12 = nvidia_cuda12_available();
+    let usable_nvidia_voice = nvidia_cuda12
         && registry.runtimes.iter().any(|runtime| {
             runtime.id == "sherpa-cuda"
                 && routing::runtime_installed(runtime, &crate::assets::root())
@@ -260,7 +268,7 @@ pub fn inventory(config: &AppConfig) -> Value {
             routing::Feature::Ocr => reader.as_ref().and_then(|config| config.ocr.selection.single.runtime.as_deref()) == Some(runtime.id.as_str()),
         };
         let action_asset = if runtime.backend == "cuda" { Some(crate::assets::NVIDIA_RUNTIME) } else { runtime.asset.as_deref() };
-        let recommendation = runtime_recommendation(&runtime.id, nvidia_cuda13);
+        let recommendation = runtime_recommendation(&runtime.id, nvidia_cuda12);
         json!({"id":runtime.id,"feature":runtime.feature,"engine":runtime.engine,"backend":runtime.backend,"label":runtime.label,"installed":installed,"bundled":bundled,"default":default,"selected":selected,"directory":directory,"asset":runtime.asset,"action_asset":action_asset,"recommended":recommendation.is_some(),"recommendation":recommendation})
     }).collect::<Vec<_>>();
     let mut models=registry.models.iter().map(|model| {
@@ -280,7 +288,7 @@ pub struct AutoInventory {
     pub registry: routing::Registry,
     pub installed: std::collections::BTreeSet<String>,
     pub stt_models: Vec<crate::models::ModelSpec>,
-    pub nvidia_cuda13: bool,
+    pub nvidia_cuda12: bool,
 }
 impl AutoInventory {
     pub fn capture(config: &AppConfig) -> Self {
@@ -295,7 +303,7 @@ impl AutoInventory {
             registry,
             installed,
             stt_models: crate::models::installed_models(config),
-            nvidia_cuda13: nvidia_cuda13_available(),
+            nvidia_cuda12: nvidia_cuda12_available(),
         }
     }
     fn has_runtime(&self, runtime: &routing::Runtime) -> bool {
@@ -414,7 +422,7 @@ fn auto_select_stt(
     runtimes.sort_by_key(|r| {
         (
             r.asset.as_deref() != Some(completed),
-            runtime_recommendation(&r.id, inventory.nvidia_cuda13).is_none(),
+            runtime_recommendation(&r.id, inventory.nvidia_cuda12).is_none(),
         )
     });
     let mut models: Vec<_> = inventory
@@ -560,7 +568,7 @@ fn fill_reader_binding(
     runtimes.sort_by_key(|runtime| {
         (
             runtime.asset.as_deref() != Some(completed),
-            runtime_recommendation(&runtime.id, inventory.nvidia_cuda13).is_none(),
+            runtime_recommendation(&runtime.id, inventory.nvidia_cuda12).is_none(),
         )
     });
     let mut models: Vec<_> = inventory
@@ -576,7 +584,7 @@ fn fill_reader_binding(
                 })
         })
         .collect();
-    let nvidia_installed = inventory.nvidia_cuda13
+    let nvidia_installed = inventory.nvidia_cuda12
         && inventory
             .registry
             .runtimes
@@ -669,7 +677,7 @@ mod recommendation_tests {
             .map(str::to_owned)
             .collect(),
             stt_models,
-            nvidia_cuda13: false,
+            nvidia_cuda12: false,
         }
     }
 
@@ -783,12 +791,12 @@ mod recommendation_tests {
 
     #[test]
     fn runtime_policy_recommends_vulkan_dictation_regardless_of_cuda_detection() {
-        for nvidia_cuda13 in [false, true] {
+        for nvidia_cuda12 in [false, true] {
             assert_eq!(
-                runtime_recommendation("parakeet-vulkan", nvidia_cuda13),
+                runtime_recommendation("parakeet-vulkan", nvidia_cuda12),
                 Some("vulkan_cpu_gpu")
             );
-            assert_eq!(runtime_recommendation("parakeet-cuda", nvidia_cuda13), None);
+            assert_eq!(runtime_recommendation("parakeet-cuda", nvidia_cuda12), None);
         }
     }
 
@@ -811,19 +819,22 @@ mod recommendation_tests {
     }
 
     #[test]
-    fn cuda13_requires_a_supported_driver_and_gpu() {
-        assert!(cuda13_compatible_devices("580.65.06, 7.5\n"));
-        assert!(cuda13_compatible_devices("590.01.01, 8.9\n"));
-        assert!(!cuda13_compatible_devices("580.65.05, 8.9\n"));
-        assert!(!cuda13_compatible_devices("579.99.99, 8.9\n"));
-        assert!(!cuda13_compatible_devices("580.65.06, 7.0\n"));
-        assert!(!cuda13_compatible_devices("580.65.06, [N/A]\n"));
-        assert!(!cuda13_compatible_devices("unknown, 8.9\n"));
-        assert!(cuda13_compatible_devices(
-            "580.65.06, 7.0\n580.65.06, 8.0\n"
+    fn cuda12_recognizes_pascal_and_platform_driver_versions() {
+        let linux = false;
+        let windows = true;
+        assert!(cuda12_compatible_devices("550.163.01, 6.1\n", linux));
+        assert!(cuda12_compatible_devices("572.16, 12.0\n", windows));
+        assert!(!cuda12_compatible_devices("550.163.00, 8.9\n", linux));
+        assert!(!cuda12_compatible_devices("550.163.01, 8.9\n", linux));
+        assert!(!cuda12_compatible_devices("570.64, 8.9\n", windows));
+        assert!(!cuda12_compatible_devices("590.01, 5.2\n", windows));
+        assert!(!cuda12_compatible_devices("590.01.01, [N/A]\n", linux));
+        assert!(!cuda12_compatible_devices("unknown, 8.9\n", linux));
+        assert!(cuda12_compatible_devices(
+            "570.26.00, 5.2\n570.26.00, 8.0\n",
+            linux
         ));
     }
-
     #[test]
     fn voice_recommendations_depend_on_installed_nvidia_runtime() {
         assert_eq!(

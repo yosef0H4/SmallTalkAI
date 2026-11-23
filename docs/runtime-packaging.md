@@ -2,7 +2,38 @@
 
 Parakeet Vulkan is the smallest cataloged GPU runtime for Dictation on Windows and Linux. Windows Read aloud and Image text already share one native ONNX Runtime WebGPU download. Read aloud also uses a Sherpa C API adapter included in the Windows application package. Linux has cataloged Sherpa CPU and CUDA options for both features. [Runtime selection](../src/modules.rs) · [Runtime catalog](../assets/catalog/modules.json) · [Windows adapter packaging](../scripts/build-distribution.ps1)
 
-## Download and installed size
+## Shared CUDA 12.8
+
+The optional NVIDIA download covers Dictation, Read aloud, and Image text. The
+base app still bundles Parakeet Vulkan and Sherpa CPU. Both operating systems
+use CUDA 12.8, cuBLAS 12.8.3.14, cuDNN 9.10.2, and the same Parakeet and
+Sherpa-ONNX versions. Parakeet and Sherpa load the same installed cudart and
+cuBLAS files on each system. Sherpa also uses the pinned cuDNN, NVRTC and
+cuRAND downloads. OCR and both speech models share Sherpa. The machine supplies
+the NVIDIA graphics driver. [Download catalog](../assets/catalog/downloads.json)
+
+OCR uses CPU by default with every runtime. The Device control enables CUDA
+or WebGPU only when the user explicitly chooses GPU.
+
+The Linux Parakeet library includes native kernels for the GTX 1070 and
+RTX 50-series targets, plus PTX for other supported GPUs. English and Arabic
+dictation, PaddleOCR, Kokoro, and Supertonic passed on the GTX 1070 with
+driver 550.163.01. Use a CUDA 12.8-era driver for PTX. The Windows upstream
+library uses PTX for Pascal. Its imports and GPU targets were inspected and
+the application was cross-compiled. Windows GPU execution with these new
+pins still needs a native test. [Linux engine release](https://github.com/yosef0H4/simple-stt-runtimes/releases/tag/parakeet-abi6-cuda12.8-linux-x64-v1) · [Windows build workflow](https://github.com/mudler/parakeet.cpp/blob/v0.5.0/.github/workflows/release.yml) · [NVIDIA driver compatibility](https://docs.nvidia.com/deploy/cuda-compatibility/latest/minor-version-compatibility.html)
+
+The Linux build of ONNX Runtime 1.31.1 processed the English and Arabic WebGPU
+OCR fixtures on the GTX 1070 test machine, then crashed during worker shutdown. Linux keeps
+WebGPU out of the installed runtime catalog while that failure and the native
+Sherpa WebGPU adapter remain unresolved.
+
+## Previous runtime packages
+
+The CUDA measurements, dependencies and compatibility notes below describe
+the superseded CUDA 13 and Windows Blackwell-only packages.
+
+### Download and installed size
 
 Numbers are bytes for x86-64, before model downloads or system driver installation. Download size includes each catalog dependency once. Extracted size adds the regular file payload the installer retains and excludes links, filesystem overhead and the base installer. WebGPU retains two files from the npm tarball. [Download catalog](../assets/catalog/downloads.json) · [Asset installer](../src/assets.rs)
 
@@ -70,4 +101,3 @@ Use the URLs and expected SHA-256 digests in `assets/catalog/downloads.json`. Op
 - First-run setup preselects Parakeet Vulkan for Dictation and Sherpa CPU for Read aloud and Image text. Windows also bundles WebGPU for Read aloud and Image text. Model downloads remain separate.
 - One NVIDIA asset job covers the engine-specific CUDA backends and reuses verified components. Removing it restores the bundled runtime for each affected route and preserves the selected models.
 - On Windows with an RTX 5080, an isolated package test completed the NVIDIA download from a verified partial cache, ran CUDA speech, and removed NVIDIA from all three runtime lists. Vulkan transcription, CPU and WebGPU speech, and CPU and WebGPU image text also passed with real inputs.
-- Linux packaging passed static and shell syntax checks. Native Linux package installation and WebGPU on AMD or Intel devices remain to be verified. The Windows NVIDIA package still contains both CUDA major versions described above.

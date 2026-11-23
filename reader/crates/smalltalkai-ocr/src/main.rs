@@ -117,7 +117,7 @@ struct OcrEngine {
     reverse_arabic: bool,
 }
 
-fn load_ocr(args: &Args, force_cpu: bool) -> Result<OcrEngine> {
+fn load_ocr(args: &Args) -> Result<OcrEngine> {
     let model_dir = args
         .model_dir
         .as_ref()
@@ -138,15 +138,19 @@ fn load_ocr(args: &Args, force_cpu: bool) -> Result<OcrEngine> {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let library = lib_dir.join("libonnxruntime.so");
     let library = args.library.as_ref().unwrap_or(&library);
+    #[cfg(windows)]
+    reader_core::native_paths::configure_windows_dll_search(runtime_dir, library)?;
     let environment = ort::init_from(library)
         .with_context(|| format!("loading ONNX Runtime from {}", library.display()))?;
     let (environment, use_webgpu) = args.webgpu.configure(environment, &args.device)?;
     environment.commit();
-    let cuda = ort::ep::CUDA::default().is_available().unwrap_or(false);
-    if args.device == "gpu" && !cuda && !use_webgpu {
-        bail!("CUDA execution provider is unavailable in the selected ONNX Runtime")
+    let use_cuda = args.device == "gpu" && !use_webgpu;
+    if use_cuda {
+        anyhow::ensure!(
+            ort::ep::CUDA::default().is_available().unwrap_or(false),
+            "CUDA execution provider is unavailable in the selected ONNX Runtime"
+        );
     }
-    let use_cuda = !use_webgpu && !force_cpu && args.device != "cpu" && cuda;
     let providers = if use_webgpu {
         // Both OAR adapters inherit the WebGPU device from the worker environment.
         Vec::new()
@@ -237,27 +241,22 @@ fn native_ocr(
     image: &image::DynamicImage,
 ) -> Result<String> {
     if cache.is_none() {
-        *cache = Some(load_ocr(args, false)?);
+        *cache = Some(load_ocr(args)?);
     }
-    let predict = |engine: &OcrEngine| engine.pipeline.predict(image);
-    let mut results = predict(cache.as_ref().unwrap())?;
     let engine = cache.as_mut().unwrap();
+    let results = engine.pipeline.predict(image)?;
     if engine.cuda && !engine.proven {
-        if reader_core::cuda::onnx_cuda_verified() {
-            engine.proven = true;
-            eprintln!("PaddleOCR CUDA verified: provider loaded and worker owns GPU allocation");
-        } else if args.device == "gpu" {
-            bail!("CUDA requested but PaddleOCR could not prove a GPU allocation for this worker")
-        } else {
-            eprintln!("PaddleOCR CUDA execution not proven; retrying on CPU");
-            *cache = Some(load_ocr(args, true)?);
-            results = predict(cache.as_ref().unwrap())?;
-        }
+        anyhow::ensure!(
+            reader_core::cuda::onnx_cuda_verified(),
+            "CUDA requested but PaddleOCR could not prove a GPU allocation for this worker"
+        );
+        engine.proven = true;
+        eprintln!("PaddleOCR CUDA verified: provider loaded and worker owns GPU allocation");
     }
     let text = results
         .iter()
         .map(|text| {
-            if cache.as_ref().is_some_and(|engine| engine.reverse_arabic) {
+            if engine.reverse_arabic {
                 arabic_decoder::logical_text(text)
             } else {
                 text.to_owned()
@@ -598,7 +597,7 @@ fn main() -> Result<()> {
             WorkerRequest::Shutdown => break,
             WorkerRequest::Prepare { device: _ } => {
                 if args.provider == "local_paddle" && native_engine.is_none() {
-                    native_engine = Some(load_ocr(&args, false)?);
+                    native_engine = Some(load_ocr(&args)?);
                 }
                 emit(&WorkerEvent::Ready {
                     incarnation: "prepared".into(),

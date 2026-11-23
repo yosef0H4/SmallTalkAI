@@ -485,7 +485,6 @@
   "setup.choose_model": "Choose a model. Downloads can continue while you move on.",
   "module.runtime.vulkan": "CPU and compatible NVIDIA, AMD, and Intel GPUs.",
   "module.runtime.cuda": "Compatible NVIDIA GPUs only.",
-  "module.runtime.blackwell": "NVIDIA Blackwell GPUs only.",
   "module.runtime.cpu": "Runs on your processor. No GPU required.",
   "module.runtime.webgpu": "CPU and compatible NVIDIA, AMD, and Intel GPUs.",
   "module.runtime.cuda_tradeoff": "Can be faster. Uses more disk space and can use more memory.",

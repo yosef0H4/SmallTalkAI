@@ -233,6 +233,8 @@ impl NativeTts {
             }
         };
         #[cfg(windows)]
+        reader_core::native_paths::configure_windows_dll_search(&args.runtime_dir, &library_path)?;
+        #[cfg(windows)]
         let onnx = unsafe {
             let directory = if args.webgpu {
                 args.runtime_dir.join("lib")

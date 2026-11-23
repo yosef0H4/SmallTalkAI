@@ -16,7 +16,7 @@
       "feature": "stt",
       "engine": "parakeet",
       "backend": "cuda",
-      "label": "Parakeet · CUDA",
+      "label": "Parakeet · CUDA 12.8",
       "asset": "parakeet-cuda",
       "platform_assets": {
         "windows": "parakeet-cuda-windows"
@@ -38,7 +38,7 @@
       "feature": "tts",
       "engine": "sherpa",
       "backend": "cuda",
-      "label": "Sherpa ONNX · CUDA",
+      "label": "Sherpa ONNX · CUDA 12.8",
       "asset": "sherpa-cuda",
       "platform_assets": {
         "windows": "sherpa-cuda-windows"
@@ -60,7 +60,7 @@
       "feature": "ocr",
       "engine": "paddleocr",
       "backend": "cuda",
-      "label": "Sherpa ONNX · CUDA",
+      "label": "Sherpa ONNX · CUDA 12.8",
       "asset": "sherpa-cuda",
       "platform_assets": {
         "windows": "sherpa-cuda-windows"

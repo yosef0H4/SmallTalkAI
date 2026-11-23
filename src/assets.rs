@@ -1128,15 +1128,15 @@ mod delivery_tests {
             (
                 "cuda-cublas",
                 vec![
-                    "nvidia/cu13/lib/libcublas.so.13",
-                    "nvidia/cu13/lib/libcublasLt.so.13",
+                    "nvidia/cublas/lib/libcublas.so.12",
+                    "nvidia/cublas/lib/libcublasLt.so.12",
                 ],
             ),
             (
                 "cuda-nvrtc",
                 vec![
-                    "nvidia/cu13/lib/libnvrtc.so.13",
-                    "nvidia/cu13/lib/libnvrtc-builtins.so.13.4",
+                    "nvidia/cuda_nvrtc/lib/libnvrtc.so.12",
+                    "nvidia/cuda_nvrtc/lib/libnvrtc-builtins.so.12.8",
                 ],
             ),
         ] {

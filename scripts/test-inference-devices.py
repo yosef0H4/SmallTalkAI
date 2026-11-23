@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -122,10 +123,11 @@ def run_mode(root: Path, mode: str, language: str, expected_gpu: str | None = No
         if mode == "gpu" and not any(marker in native_log for marker in gpu_markers):
             raise RuntimeError(f"{mode}: native runtime did not report {backend} selection: {native_log}")
         if mode == "gpu" and expected_gpu:
-            selected = native_log.split("using device: ")[-1].splitlines()[0]
-            index = selected.removeprefix("Vulkan")
+            selections = re.findall(r"using (?:GPU )?device: (?:CUDA|Vulkan)(\d+)", native_log)
+            index = selections[-1] if selections else None
+            prefix = f"Device {index}:" if backend == "cuda" else f"ggml_vulkan: {index} = "
             device_line = next((line for line in native_log.splitlines()
-                                if line.startswith(f"ggml_vulkan: {index} = ")), "")
+                                if line.lstrip().startswith(prefix)), "")
             if expected_gpu not in device_line:
                 raise RuntimeError(f"expected GPU {expected_gpu!r}, got {device_line!r}")
             print(f"PASS physical GPU: {device_line}")

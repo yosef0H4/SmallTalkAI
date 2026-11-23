@@ -46,7 +46,9 @@ need(
     'cfg(target_os = "linux")',
 )
 need("src/infer/parakeet_native.rs", "select_native_gpu_device", "preferred_gpu_device", "ggml_backend_dev_type", "GPU mode requires an available physical GPU", 'libparakeet.so', 'parakeet.so', 'parakeet_capi_load')
-need("src/capture/inference_supervisor.rs", 'LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'add_native_library_search_env')
+need("src/capture/inference_supervisor.rs", 'native_paths::configure_worker_libraries')
+need("reader/crates/reader-core/src/native_paths.rs", 'LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH',
+     'asset_receipt', 'dependency.required')
 need("src/config.rs", 'CONFIG_SCHEMA_VERSION: u32 = 10', 'pub struct GeneralConfig', 'pub struct AudioConfig', 'language_runtimes', 'parakeet_native_library_candidates', 'screen context requires AI cleanup')
 need("src/capture/input_language.rs", "org.kde.KeyboardLayouts", "getLayoutsList", "getLayout", "xkb::get_state", "_XKB_RULES_NAMES", "language_from_layout", "live_keyboard_language")
 need("src/capture/process.rs", 'use anyhow::Context;', 'use anyhow::Result;', 'kill')

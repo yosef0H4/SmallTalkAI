@@ -15,6 +15,12 @@
  const defaultRuntime=$derived(modules.runtimes.find(r=>r.feature===feature&&r.default));
  const runtimeId=$derived(binding.runtime||defaultRuntime?.id||'');
  const runtime=$derived(modules.runtimes.find(r=>r.id===runtimeId));
+ const device=$derived(runtime?.backend==='cpu'||(feature==='ocr'&&binding.device==='auto')?'cpu':binding.device);
+ const deviceOptions=$derived([
+   ...(runtime?.backend!=='cpu'&&feature!=='ocr'?[{value:'auto',label:'ui.automatic.ac9041'}]:[]),
+   {value:'cpu',label:'module.processor'},
+   ...(runtime?.backend==='cpu'?[]:[{value:'gpu',label:runtime?.backend==='cuda'?'module.nvidia':runtime?.backend==='webgpu'?'module.webgpu_choose_gpu':'ui.gpu_backend'}]),
+ ]);
  const runtimes=$derived([...(defaultRuntime?[]:[{value:'',label:'None'}]),...modules.runtimes.filter(r=>r.feature===feature&&r.installed).sort((a,b)=>Number(!!b.recommended)-Number(!!a.recommended)||a.label.localeCompare(b.label)).map(r=>({value:r.id,label:runtimeLabel(r),meta:[runtimeHardware(r), r.backend === 'cuda' ? t('module.runtime.cuda_tradeoff') : ''].filter(Boolean).join(' '),search:moduleSearchText(r,modules.models,modules.runtimes,modules.assets?.assets,false)}))]);
  const models=$derived([{value:'',label:'None'},...modules.models.filter(m=>m.feature===feature&&m.installed&&modules.runtimes.some(r=>r.feature===feature&&r.installed&&r.engine===m.engine)&&(!runtimeId||(runtime?.installed&&m.engine===runtime.engine))&&(!language||!m.languages.length||m.languages.includes(language))).sort((a,b)=>Number(b.recommended)-Number(a.recommended)||a.label.localeCompare(b.label)).map(m=>({value:m.id,label:m.label,search:moduleSearchText(m,modules.models,modules.runtimes,modules.assets?.assets,false)}))]);
  async function refresh(){try{await refreshModules();}catch(error){notice(t('ui.operation_failed.c4e6ed'),'error',String(error));}}
@@ -38,7 +44,7 @@
  <div class="field"><div class="field-copy"><label for={`${path}.steps`}>{t('module.steps')} · {binding.steps??5}</label><Help text="module.steps_help"/></div><div class="control"><RangeInput id={`${path}.steps`} min={5} max={12} value={binding.steps??5} oninput={(steps) => onchange({...binding,steps})}/></div></div>
  {/if}
  {/if}
- <Combo label="ui.device.a5a74a" path={`${path}.device`} value={runtime?.backend==='cpu'?'cpu':binding.device} items={runtime?.backend==='cpu'?[{value:'cpu',label:'module.processor'}]:[{value:'auto',label:'ui.automatic.ac9041'},{value:'cpu',label:'module.processor'},{value:'gpu',label:runtime?.backend==='cuda'?'module.nvidia':runtime?.backend==='webgpu'?'module.webgpu_choose_gpu':'ui.gpu_backend'}]} onselect={value=>onchange({...binding,device:value as Binding['device']})}/>
+ <Combo label="ui.device.a5a74a" path={`${path}.device`} value={device} items={deviceOptions} onselect={value=>onchange({...binding,device:value as Binding['device']})}/>
  {#if runtime?.backend === 'webgpu' && binding.device === 'gpu'}
    <div class="field" data-setting-path={`${path}.webgpu_adapter`}>
      <div class="field-copy">

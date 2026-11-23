@@ -12,8 +12,7 @@ export function runtimeLabel(runtime: Pick<Runtime, 'backend' | 'label'>): strin
   return runtimeNames[runtime.backend] ?? runtime.label;
 }
 
-export function runtimeHardware(runtime: Pick<Runtime, 'backend' | 'asset'>): string {
-  if (runtime.asset === 'parakeet-cuda-windows') return t('module.runtime.blackwell');
+export function runtimeHardware(runtime: Pick<Runtime, 'backend'>): string {
   return Object.hasOwn(runtimeNames, runtime.backend) ? t(`module.runtime.${runtime.backend}`) : '';
 }
 

@@ -1,7 +1,7 @@
 //! Shared engine capabilities and language routing. No runtime loading or desktop access.
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::OnceLock};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Feature {
@@ -317,10 +317,6 @@ pub fn registry() -> Registry {
         if let Some(asset) = runtime.platform_assets.get(std::env::consts::OS) {
             runtime.asset = Some(asset.clone());
         }
-        #[cfg(windows)]
-        if runtime.id == "parakeet-cuda" {
-            runtime.label = "Parakeet · CUDA 12.8 (Blackwell)".into();
-        }
     }
     registry
         .runtimes
@@ -329,21 +325,41 @@ pub fn registry() -> Registry {
 }
 
 #[derive(Deserialize)]
-struct AssetReceipt {
+pub(crate) struct AssetReceipt {
     id: String,
     sha256: String,
-    required: Vec<String>,
+    pub(crate) required: Vec<String>,
+    #[serde(default)]
+    pub(crate) dependencies: Vec<String>,
+}
+
+pub(crate) fn asset_receipt(id: &str) -> Option<&'static AssetReceipt> {
+    static CATALOG: OnceLock<Vec<AssetReceipt>> = OnceLock::new();
+    CATALOG
+        .get_or_init(|| {
+            serde_json::from_str(include_str!("../../../../assets/catalog/downloads.json"))
+                .expect("validated asset catalog")
+        })
+        .iter()
+        .find(|asset| asset.id == id)
 }
 
 pub fn asset_installed(id: &str, assets: &std::path::Path) -> bool {
     bundled_asset(id).is_some() || receipt_matches(id, &assets.join(id))
 }
 
+pub(crate) fn runtime_asset_installed(id: &str, assets: &std::path::Path) -> bool {
+    asset_installed(id, assets)
+        && asset_receipt(id).is_some_and(|asset| {
+            asset
+                .dependencies
+                .iter()
+                .all(|id| asset_installed(id, assets))
+        })
+}
+
 fn receipt_matches(id: &str, directory: &std::path::Path) -> bool {
-    let catalog: Vec<AssetReceipt> =
-        serde_json::from_str(include_str!("../../../../assets/catalog/downloads.json"))
-            .expect("validated asset catalog");
-    let Some(asset) = catalog.iter().find(|asset| asset.id == id) else {
+    let Some(asset) = asset_receipt(id) else {
         return false;
     };
     std::fs::read_to_string(directory.join(".verified"))
@@ -384,7 +400,7 @@ pub fn bundled_default(feature: Feature) -> Option<Runtime> {
 
 pub fn runtime_installed(runtime: &Runtime, assets: &std::path::Path) -> bool {
     match &runtime.asset {
-        Some(id) => asset_installed(id, assets),
+        Some(id) => runtime_asset_installed(id, assets),
         None => false,
     }
 }
@@ -612,12 +628,7 @@ impl crate::AppConfig {
                     asset_directory(&runtime.asset.context("OCR runtime has no asset")?, &assets);
                 let binding = self.ocr.selection.binding(language);
                 config.ocr.selection.single = binding.clone();
-                config.ocr.device = if runtime.backend == "webgpu" && binding.device == Device::Auto
-                {
-                    crate::DevicePreference::Auto
-                } else {
-                    ocr_device(binding.device)
-                };
+                config.ocr.device = ocr_device(binding.device);
             }
             _ => {}
         }
@@ -628,6 +639,13 @@ impl crate::AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ocr_uses_cpu_unless_the_device_is_explicitly_gpu() {
+        assert_eq!(ocr_device(Device::Auto), crate::DevicePreference::Cpu);
+        assert_eq!(ocr_device(Device::Cpu), crate::DevicePreference::Cpu);
+        assert_eq!(ocr_device(Device::Gpu), crate::DevicePreference::Cuda);
+    }
 
     #[test]
     fn local_language_routing_selects_independent_remote_models_voices_and_keys() {
@@ -692,12 +710,6 @@ mod tests {
             selection.binding(Some("en-US")).model.as_deref(),
             Some("kokoro")
         );
-    }
-    #[test]
-    fn ocr_auto_prefers_cpu_and_gpu_remains_explicit() {
-        assert_eq!(ocr_device(Device::Auto), crate::DevicePreference::Cpu);
-        assert_eq!(ocr_device(Device::Cpu), crate::DevicePreference::Cpu);
-        assert_eq!(ocr_device(Device::Gpu), crate::DevicePreference::Cuda);
     }
     #[test]
     fn language_routes_have_no_implicit_fallback() {

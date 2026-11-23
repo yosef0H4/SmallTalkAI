@@ -17,7 +17,7 @@ alone does not replace the headless service's environment file.
 smalltalkai credentials generate server --activate
 ```
 
-To retrieve it for your client, open `~/.config/simple-stt/server.env` locally and
+To retrieve it for your client, open `~/.config/smalltalkai/server.env` locally and
 copy only the value after `=`. Keep it private. Repeating the commands rotates
 the token and requires updating every client.
 
@@ -43,7 +43,7 @@ change the running server. Copying a printed-only key into a client gives HTTP
 | --- | --- | --- |
 | Text to speech | `kokoro-v1` | `POST /v1/audio/speech` |
 | Speech to text | `configured-stt` | `POST /v1/audio/transcriptions` |
-| Image OCR | `simple-tts-ocr` | `POST /v1/chat/completions` or `/v1/responses` |
+| Image OCR | `smalltalkai-ocr` | `POST /v1/chat/completions` or `/v1/responses` |
 
 The OCR endpoint reads text from images. It does not provide general chat or
 visual reasoning. This setup does not host a general-purpose chat LLM.
@@ -53,17 +53,17 @@ visual reasoning. This setup does not host a general-purpose chat LLM.
 In Bash, read the token without saving it in shell history:
 
 ```bash
-read -rsp 'Server token: ' SIMPLE_STT_TOKEN; echo
-export SIMPLE_STT_TOKEN
+read -rsp 'Server token: ' SMALLTALKAI_TOKEN; echo
+export SMALLTALKAI_TOKEN
 curl --fail http://100.85.156.101:8765/v1/models \
-  -H "Authorization: Bearer $SIMPLE_STT_TOKEN"
+  -H "Authorization: Bearer $SMALLTALKAI_TOKEN"
 ```
 
 Generate a WAV:
 
 ```bash
 curl --fail http://100.85.156.101:8765/v1/audio/speech \
-  -H "Authorization: Bearer $SIMPLE_STT_TOKEN" \
+  -H "Authorization: Bearer $SMALLTALKAI_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"model":"kokoro-v1","voice":"af_heart","input":"The server is ready.","response_format":"wav"}' \
   --output speech.wav
@@ -73,7 +73,7 @@ Transcribe a recording:
 
 ```bash
 curl --fail http://100.85.156.101:8765/v1/audio/transcriptions \
-  -H "Authorization: Bearer $SIMPLE_STT_TOKEN" \
+  -H "Authorization: Bearer $SMALLTALKAI_TOKEN" \
   -F model=configured-stt -F language=en -F file=@recording.wav
 ```
 
@@ -85,7 +85,7 @@ Run these commands on the laptop to configure remote STT:
 smalltalkai-ctl config set speech.remote_openai_compatible \
   '{"base_url":"http://100.85.156.101:8765/v1","model":"configured-stt","fallback_to_local":false,"timeout_ms":180000}'
 smalltalkai-ctl config set speech.provider '"remote_openai_compatible"'
-smalltalkai-ctl credentials set stt --env SIMPLE_STT_TOKEN
+smalltalkai-ctl credentials set stt --env SMALLTALKAI_TOKEN
 ```
 
 For reading and OCR, set the laptop's reader providers and credentials:
@@ -94,10 +94,10 @@ For reading and OCR, set the laptop's reader providers and credentials:
 smalltalkai-ctl config --scope reader set speech.provider \
   '{"kind":"open_ai_compatible","base_url":"http://100.85.156.101:8765/v1","model":"kokoro-v1","voice":"af_heart","format":"wav"}'
 smalltalkai-ctl config --scope reader set ocr.provider \
-  '{"kind":"open_ai_compatible","base_url":"http://100.85.156.101:8765/v1","model":"simple-tts-ocr","api":"chat_completions"}'
-smalltalkai-ctl credentials set speech --env SIMPLE_STT_TOKEN
-smalltalkai-ctl credentials set ocr --env SIMPLE_STT_TOKEN
-unset SIMPLE_STT_TOKEN
+  '{"kind":"open_ai_compatible","base_url":"http://100.85.156.101:8765/v1","model":"smalltalkai-ocr","api":"chat_completions"}'
+smalltalkai-ctl credentials set speech --env SMALLTALKAI_TOKEN
+smalltalkai-ctl credentials set ocr --env SMALLTALKAI_TOKEN
+unset SMALLTALKAI_TOKEN
 ```
 
 Reload the laptop app afterward. On Windows, use `smalltalkai-ctl.exe`; the same
@@ -171,11 +171,11 @@ Persistent setup files:
   `artifacts/linux-release/`.
 - Boot service source: `packaging/linux/smalltalkai-server.service`; installed
   under `/usr/lib/systemd/user/` and enabled for this user.
-- Token: `~/.config/simple-stt/server.env` (mode 0600).
-- App configuration: `~/.config/simple-stt/instances/installed/config.json`.
+- Token: `~/.config/smalltalkai/server.env` (mode 0600).
+- App configuration: `~/.config/smalltalkai/instances/installed/config.json`.
 - Reader configuration and assets:
-  `~/.local/share/simple-stt/instances/installed/`.
-- STT models: `~/.local/share/simple-stt/models/`.
+  `~/.local/share/smalltalkai/instances/installed/`.
+- STT models: `~/.local/share/smalltalkai/models/`.
 
 Repository changes also include the CLI fix in `src/admin.rs`, its integration
 test in `tests/admin_assets.rs`, the command example in `docs/cli.md`, and

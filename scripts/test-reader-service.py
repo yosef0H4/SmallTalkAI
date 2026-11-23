@@ -20,7 +20,7 @@ from urllib.error import HTTPError
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / 'scripts/fixtures/reader/ocr-light.png'
-EXPECTED = 'Simple TTS reads this screenshot.\nThe local voice stays on this device.'
+EXPECTED = 'SmallTalkAI Reader reads this screenshot.\nThe local voice stays on this device.'
 
 
 def wait_for(predicate, timeout, description):
@@ -151,11 +151,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bin-dir', type=Path, default=ROOT / 'target/debug')
     parser.add_argument('--tts-runtime', type=Path,
-                        default=Path.home() / '.local/share/simple-tts/runtime')
+                        default=Path.home() / '.local/share/smalltalkai-reader/runtime')
     parser.add_argument('--tts-model', type=Path,
-                        default=Path.home() / '.local/share/simple-tts/models/kokoro-multi-lang-v1_0')
+                        default=Path.home() / '.local/share/smalltalkai-reader/models/kokoro-multi-lang-v1_0')
     parser.add_argument('--ocr-model', type=Path, default=ROOT / 'artifacts/combined-app/downloads/model-paddle')
-    parser.add_argument('--ocr-runtime', type=Path, default=Path.home() / '.local/share/simple-tts/runtime')
+    parser.add_argument('--ocr-runtime', type=Path, default=Path.home() / '.local/share/smalltalkai-reader/runtime')
     parser.add_argument('--cpu-ocr-runtime', type=Path, default=ROOT / 'artifacts/combined-app/memory/cpu-runtime',
                         help='CPU ONNX Runtime used to verify low-memory auto OCR')
     parser.add_argument('--device', choices=['cpu', 'gpu'], default='gpu')
@@ -231,11 +231,11 @@ def main():
                         [entry.name for entry in args.tts_model.iterdir() if entry.name != '.verified'], catalog['kokoro']['sha256'])
         env = os.environ.copy()
         env.update(XDG_DATA_HOME=str(data), XDG_CONFIG_HOME=str(private / 'config'),
-                   XDG_CACHE_HOME=str(private / 'cache'), SIMPLE_STT_RUNTIME_ROOT=str(private / 'runtime'),
-                   SIMPLE_STT_READER_DATA=str(reader), SIMPLE_TTS_CONFIG=str(reader / 'config.json'),
-                   SIMPLE_TTS_NO_DESKTOP='1', DISPLAY='', WAYLAND_DISPLAY='',
+                   XDG_CACHE_HOME=str(private / 'cache'), SMALLTALKAI_RUNTIME_ROOT=str(private / 'runtime'),
+                   SMALLTALKAI_READER_DATA=str(reader), SMALLTALKAI_READER_CONFIG=str(reader / 'config.json'),
+                   SMALLTALKAI_READER_NO_DESKTOP='1', DISPLAY='', WAYLAND_DISPLAY='',
                    DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-smalltalkai-test-bus')
-        env['SIMPLE_TTS_SERVER_TOKEN'] = 'private-reader-acceptance-token'
+        env['SMALLTALKAI_SERVER_TOKEN'] = 'private-reader-acceptance-token'
         if args.stt_runtime:
             if not args.stt_runtime.is_dir() or not args.stt_model.is_file() or not args.stt_input.is_file():
                 raise SystemExit('STT runtime, model and input must exist')
@@ -245,7 +245,7 @@ def main():
                 'model_dir': str(args.stt_model.resolve().parent),
                 'single_model_filename': args.stt_model.name, 'inference_device': 'gpu',
                 'idle_worker_timeout_secs': 1}}))
-            env['SIMPLE_STT_CONFIG'] = str(stt_config)
+            env['SMALLTALKAI_CONFIG'] = str(stt_config)
         binding = lambda runtime, model: {'runtime': runtime, 'model': model, 'device': args.device}
         config = {
             'speech': {'selection': {'mode': 'auto_detect', 'languages': {'en': binding(args.tts_runtime_id, 'kokoro')}}},
@@ -265,7 +265,7 @@ def main():
                     if daemon.poll() is not None:
                         log.flush()
                         raise AssertionError(f'controller exited {daemon.returncode}: {(private / "smalltalkai-reader.log").read_text()}')
-                    return (reader / 'simple-tts.sock').exists()
+                    return (reader / 'smalltalkai-reader.sock').exists()
                 wait_for(socket_ready, 10, 'private controller socket')
                 cli = binaries['smalltalkai-linux']
                 def ocr():
@@ -382,7 +382,7 @@ def main():
                     base_url = f'http://127.0.0.1:{port}'
                     def http(path, value=None, authorized=True):
                         headers = {'Content-Type':'application/json'}
-                        if authorized: headers['Authorization'] = 'Bearer ' + env['SIMPLE_TTS_SERVER_TOKEN']
+                        if authorized: headers['Authorization'] = 'Bearer ' + env['SMALLTALKAI_SERVER_TOKEN']
                         request = Request(base_url + path, data=json.dumps(value,ensure_ascii=False).encode() if value else None, headers=headers)
                         with urlopen(request, timeout=45) as response:
                             return response.read()
@@ -414,7 +414,7 @@ def main():
                     image = 'data:image/png;base64,' + base64.b64encode(FIXTURE.read_bytes()).decode()
                     result = []
                     def request_ocr():
-                        result.append(json.loads(http('/v1/chat/completions', {'model':'simple-tts-ocr', 'messages':[
+                        result.append(json.loads(http('/v1/chat/completions', {'model':'smalltalkai-ocr', 'messages':[
                             {'role':'user','content':[{'type':'image_url','image_url':{'url':image}}]}]})))
                     http_ocr_pids = observed_operation('smalltalkai-ocr', request_ocr)
                     recognized = result[0]

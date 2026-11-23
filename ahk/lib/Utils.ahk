@@ -1,8 +1,8 @@
-SimpleSttQuote(value) {
+SmallTalkAIQuote(value) {
     return Chr(34) . value . Chr(34)
 }
 
-SimpleSttResolveExe(stem) {
+SmallTalkAIResolveExe(stem) {
     sameDir := A_ScriptDir . "\" . stem . ".exe"
     if FileExist(sameDir)
         return sameDir
@@ -24,13 +24,13 @@ SimpleSttResolveExe(stem) {
     return sameDir
 }
 
-SimpleSttTempFile(prefix := "smalltalkai") {
+SmallTalkAITempFile(prefix := "smalltalkai") {
     dir := A_Temp . "\smalltalkai-shell"
     DirCreate(dir)
     return dir . "\" . prefix . "-" . A_TickCount . "-" . Random(100000, 999999) . ".txt"
 }
 
-SimpleSttRandomToken() {
+SmallTalkAIRandomToken() {
     bytes := Buffer(32, 0)
     ok := DllCall("advapi32\SystemFunction036", "Ptr", bytes.Ptr, "UInt", bytes.Size, "Int")
     token := ""
@@ -44,22 +44,22 @@ SimpleSttRandomToken() {
     return token
 }
 
-SimpleSttBool(value) {
+SmallTalkAIBool(value) {
     return value = true || value = 1 || StrLower(value . "") = "true"
 }
 
-SimpleSttBoolText(value) {
-    return SimpleSttBool(value) ? "true" : "false"
+SmallTalkAIBoolText(value) {
+    return SmallTalkAIBool(value) ? "true" : "false"
 }
 
-SimpleSttNoticeEndsSession(event) {
+SmallTalkAINoticeEndsSession(event) {
     return event.Has("values")
         && IsObject(event["values"])
         && event["values"].Has("terminal")
-        && SimpleSttBool(event["values"]["terminal"])
+        && SmallTalkAIBool(event["values"]["terminal"])
 }
 
-SimpleSttNextDeliveryMode(current, configured := "smart_paste,type") {
+SmallTalkAINextDeliveryMode(current, configured := "smart_paste,type") {
     modes := []
     for mode in StrSplit(configured, ",") {
         mode := Trim(mode)
@@ -75,18 +75,18 @@ SimpleSttNextDeliveryMode(current, configured := "smart_paste,type") {
     return modes[1]
 }
 
-SimpleSttWriteStdOut(text := "") {
+SmallTalkAIWriteStdOut(text := "") {
     try FileAppend(text, "*", "UTF-8")
 }
 
-SimpleSttWriteStdErr(text := "") {
+SmallTalkAIWriteStdErr(text := "") {
     try FileAppend(text, "**", "UTF-8")
 }
 
-SimpleSttConsoleLine(text := "") {
-    SimpleSttWriteStdOut(text . "`n")
+SmallTalkAIConsoleLine(text := "") {
+    SmallTalkAIWriteStdOut(text . "`n")
 }
 
-SimpleSttConsoleError(text) {
-    SimpleSttWriteStdErr(text . "`n")
+SmallTalkAIConsoleError(text) {
+    SmallTalkAIWriteStdErr(text . "`n")
 }

@@ -23,7 +23,7 @@ def wait_for(predicate, message):
 
 
 def main():
-    assert os.environ.get("SIMPLE_STT_PASTE_X11_E2E") == "1", "Use isolated test-linux-paste.py"
+    assert os.environ.get("SMALLTALKAI_PASTE_X11_E2E") == "1", "Use isolated test-linux-paste.py"
     launcher = subprocess.Popen(["/usr/libexec/at-spi-bus-launcher", "--launch-immediately"],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     registry = None
@@ -138,7 +138,7 @@ GLib.timeout_add(1000,ready);Gtk.main()
             subprocess.run(['xdotool', 'windowfocus', '--sync', win], env=env, check=True)
             subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+End'], env=env, check=True)
             test_retry(folder, output, output.read_text())
-            transcript_file = os.environ.get("SIMPLE_STT_TEST_TRANSCRIPT_FILE")
+            transcript_file = os.environ.get("SMALLTALKAI_TEST_TRANSCRIPT_FILE")
             if transcript_file:
                 transcript = " ".join(Path(transcript_file).read_text(encoding="utf-8").splitlines())
                 for mode in ("paste_ctrl_v", "type"):
@@ -175,8 +175,8 @@ def test_retry(folder, output, initial, mode="paste_ctrl_v", payload="Retry EXAC
     runtime.mkdir()
     data = folder / "data"
     config = folder / "config.json"
-    config.write_text(json.dumps({"schema_version": 9, "general": {"ui_language": "en"}, "output": {
-        "delivery_mode": mode, "linux_automation_backend": "xdotool", "paced_typing_enabled": False,
+    config.write_text(json.dumps({"schema_version": 10, "general": {"ui_language": "en"}, "output": {
+            "delivery_mode": mode, "paced_typing_enabled": False,
         "preserve_clipboard": False, "lowercase": True, "remove_punctuation": True, "trailing_space": True}}))
     hashed = 0xcbf29ce484222325
     for byte in str(runtime).encode(): hashed = ((hashed ^ byte) * 0x100000001b3) & ((1 << 64) - 1)
@@ -220,13 +220,13 @@ def test_retry(folder, output, initial, mode="paste_ctrl_v", payload="Retry EXAC
                         stream.write(json.dumps({"type": "response", "request_id": request["request_id"], "response": response}).encode() + b"\n"); stream.flush()
             except Exception as error: errors.append(error)
     thread = threading.Thread(target=serve); thread.start()
-    env = dict(os.environ, SIMPLE_STT_CONFIG=str(config), SIMPLE_STT_RUNTIME_ROOT=str(runtime), XDG_DATA_HOME=str(data))
+    env = dict(os.environ, SMALLTALKAI_CONFIG=str(config), SMALLTALKAI_RUNTIME_ROOT=str(runtime), XDG_DATA_HOME=str(data))
     binary = ROOT / "target/debug/smalltalkai-linux"
     try:
         # Hold the trigger modifiers on this private X server. Retry must wait
         # instead of injecting Meta+Ctrl+V into the editor or clearing keys.
         subprocess.run(["xdotool", "keydown", "Super_L", "Control_L"], check=True)
-        retry = subprocess.Popen([str(binary), "retry-delivery"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        retry = subprocess.Popen([str(binary), "repeat"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
             wait_for(lambda: "begin_delivery" in commands, "retry waiting state did not start while keys were held")
             time.sleep(2.25)
@@ -249,13 +249,13 @@ def test_retry(folder, output, initial, mode="paste_ctrl_v", payload="Retry EXAC
         assert notices == ["Retry sent"], notices
         assert commands.index("begin_delivery") < commands.index("delivery_progress") < commands.index("delivery_complete"), commands
         cached[0] = None; commands.clear(); notices.clear(); session_file.write_text(json.dumps(original_session))
-        result = subprocess.run([str(binary), "retry-delivery"], env=env, capture_output=True, timeout=15)
+        result = subprocess.run([str(binary), "repeat"], env=env, capture_output=True, timeout=15)
         assert result.returncode == 0
         assert commands == ["last_delivery", "show_notice"] and json.loads(session_file.read_text()) == original_session, "empty retry cancelled work"
         assert notices == ["No dictation to retry"], notices
         assert output.read_text() == initial + payload, "empty retry inserted something"
         commands.clear(); notices.clear(); cache_failure[0] = True
-        result = subprocess.run([str(binary), "retry-delivery"], env=env, capture_output=True, timeout=15)
+        result = subprocess.run([str(binary), "repeat"], env=env, capture_output=True, timeout=15)
         assert result.returncode != 0, "cache failure was silently accepted"
         assert commands == ["last_delivery", "show_notice"], commands
         assert notices == ["Retry failed. Try again."], notices

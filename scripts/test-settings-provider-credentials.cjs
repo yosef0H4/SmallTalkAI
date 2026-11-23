@@ -43,7 +43,7 @@ const f = require('./settings-fixture.cjs');
       if(feature==='tts')await page.getByRole('button',{name:'Refresh voices',exact:true}).click();
       const model=page.locator(`[data-setting-path="${feature}-remote-model"] .combo-input`);await model.click();await model.fill('server-model');await model.press('Enter');
       const save=page.getByRole('button',{name:'Save connection',exact:true});
-      if(feature==='tts'&&process.env.SIMPLE_STT_TEST_SCREENSHOT) await page.screenshot({path:process.env.SIMPLE_STT_TEST_SCREENSHOT,fullPage:true});
+      if(feature==='tts'&&process.env.SMALLTALKAI_TEST_SCREENSHOT) await page.screenshot({path:process.env.SMALLTALKAI_TEST_SCREENSHOT,fullPage:true});
       await save.click();
       await page.waitForFunction(id=>document.getElementById(id)?.value==='',keyId);
       assert.equal(keys[kind],`${feature}-fixture-key`);

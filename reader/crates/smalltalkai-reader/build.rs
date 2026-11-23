@@ -33,7 +33,7 @@ fn main() {
         return;
     }
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is set"));
-    let helper = out_dir.join("simple-tts-active-app");
+    let helper = out_dir.join("smalltalkai-active-app");
     let flags = Command::new("pkg-config")
         .args(["--cflags", "--libs", "atspi-2", "gobject-2.0"])
         .output();
@@ -55,7 +55,7 @@ fn main() {
     match command.status() {
         Ok(status) if status.success() => {
             println!(
-                "cargo:rustc-env=SIMPLE_TTS_ACTIVE_APP_HELPER={}",
+                "cargo:rustc-env=SMALLTALKAI_READER_ACTIVE_APP_HELPER={}",
                 helper.display()
             );
             println!("cargo:rustc-cfg=atspi_helper");

@@ -8,11 +8,8 @@ Closing it exits the webview and Settings server while the background app
 continues to run. The native window uses WebKitGTK on Linux and Microsoft Edge
 WebView2 on Windows.
 
-Pass `--browser` to open Settings in an external browser. For a headless
-session, pass `--no-browser` to print the authenticated loopback URL without
-starting a window. Both flags work with `smalltalkai settings` on Linux and
-`smalltalkai-settings.exe` on Windows. An SSH tunnel can forward the loopback
-port to a browser on another machine.
+For local diagnostics, pass `--headless` to start the authenticated loopback
+Settings server without opening a window.
 
 ## Media
 
@@ -144,9 +141,9 @@ arguments. Set a credential from a pipe or a named environment variable; the CLI
 never prints its value:
 
 ```text
-printf '%s' "$SIMPLE_STT_AI_API_KEY" | smalltalkai-ctl credentials set ai --stdin
+printf '%s' "$SMALLTALKAI_AI_API_KEY" | smalltalkai-ctl credentials set ai --stdin
 smalltalkai-ctl credentials set ocr --env OCR_API_KEY
-smalltalkai-ctl credentials set stt --env SIMPLE_STT_STT_API_KEY
+smalltalkai-ctl credentials set stt --env SMALLTALKAI_STT_API_KEY
 smalltalkai-ctl credentials list
 smalltalkai-ctl credentials remove ai
 smalltalkai-ctl credentials generate server --activate
@@ -163,7 +160,7 @@ until you stop it or sign out.
 `--stdout` prints a key without saving or activating it, and emits a reminder on
 stderr. Remote STT connections may be saved before
 choosing a model, but transcription still requires a model. This server
-advertises `configured-stt`, `kokoro-v1`, and `simple-tts-ocr`, with feature hints
+advertises `configured-stt`, `kokoro-v1`, and `smalltalkai-ocr`, with feature hints
 so STT discovery does not offer OCR or TTS aliases.
 
 The `stt` credential is independent from the `ai` cleanup credential. The

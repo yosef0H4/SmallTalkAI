@@ -221,7 +221,7 @@ mod tests {
             );
         }
         let config = crate::config::AppConfig::normalize_json(
-            &serde_json::json!({"schema_version":9,"general":{"ui_language":"ar"}}),
+            &serde_json::json!({"schema_version":10,"general":{"ui_language":"ar"}}),
         );
         assert_eq!(config.general.ui_language, UiLanguage::Ar);
         assert_eq!(

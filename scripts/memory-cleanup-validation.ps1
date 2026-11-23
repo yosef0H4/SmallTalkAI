@@ -18,7 +18,7 @@ New-Item -ItemType Directory -Force -Path $RunDir | Out-Null
 $Config = Join-Path $RunDir 'config.json'
 $State = Join-Path $RunDir 'capture-state.json'
 $Token = [Guid]::NewGuid().ToString('N')
-$env:SIMPLE_STT_CONFIG = $Config
+$env:SMALLTALKAI_CONFIG = $Config
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function Read-TabResponse([string]$Path) {

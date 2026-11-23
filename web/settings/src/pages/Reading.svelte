@@ -17,7 +17,6 @@
   let status = $state<Record<string, unknown> | null>(null);
   let outputDevices = $state<{id: string; name: string}[]>([]);
   const outputDevice = $derived(reading.config?.playback.output_device || "");
-  const selectedDevice = $derived(outputDevices.find(device => device.id === outputDevice || device.name === outputDevice)?.id ?? outputDevice);
   const outputChoices = $derived([
     {value: "", label: "ui.system_default.9d8d38"},
     ...outputDevices.map(device => ({value: device.id, label: device.name})),
@@ -76,7 +75,7 @@
     {#if typeof status?.prepared_text === 'string' && status.prepared_text}<div class="spoken-text"><strong>{t('reading.spoken_text')}</strong><p dir="auto">{status.prepared_text}</p></div>{/if}
   </Group>
   <Group title="reading.playback" icon="audio">
-    <Combo label="reading.output_device" path="playback.output_device" value={selectedDevice}
+    <Combo label="reading.output_device" path="playback.output_device" value={outputDevice}
       items={outputChoices} unavailable help="reading.output_device_help"
       onselect={value => { if (reading.config) reading.config.playback.output_device = value || null; }} />
   </Group>

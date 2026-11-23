@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-EnvironmentFile=%h/.config/simple-stt/server.env
+EnvironmentFile=%h/.config/smalltalkai/server.env
 ExecStart=/usr/lib/smalltalkai/smalltalkai-ctl serve
 Restart=on-failure
 RestartSec=10

@@ -15,7 +15,7 @@
   let agents = $state<Agent[]>([]);
   let installing = $state("");
   let markdown = $state("");
-  let preview: HTMLTextAreaElement;
+  let preview = $state<HTMLTextAreaElement>();
   let saving = $state(false);
   const skillExport = "/api/agent-skills/export";
   onMount(() => { void api<Agent[]>("/api/agent-skills").then((items) => agents = items).catch(() => {}); });
@@ -31,8 +31,8 @@
     try {
       await navigator.clipboard.writeText(markdown);
     } catch {
-      preview.focus();
-      preview.select();
+      preview?.focus();
+      preview?.select();
       if (!document.execCommand("copy")) {
         notice(t("agent_skills.copy_failed"), "error");
         return;

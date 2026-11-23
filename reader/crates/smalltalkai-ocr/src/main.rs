@@ -282,7 +282,7 @@ fn remote_ocr(
         .as_deref()
         .context("remote OCR needs --base-url")?;
     let model = args.model.as_deref().context("remote OCR needs --model")?;
-    let token = std::env::var("SIMPLE_TTS_OCR_API_KEY").unwrap_or_default();
+    let token = std::env::var("SMALLTALKAI_OCR_API_KEY").unwrap_or_default();
     let prompt = std::env::var(reader_core::provider_prompts::OCR_ENV).unwrap_or_default();
     reader_core::provider_prompts::validate(&prompt)?;
     let instructions = reader_core::provider_prompts::ocr(&prompt);
@@ -603,7 +603,7 @@ fn main() -> Result<()> {
             } => {
                 let path = PathBuf::from(image_path);
                 // Input images are created under the app-private scratch directory and deleted by the caller.
-                let allowed = std::env::var_os("SIMPLE_TTS_CAPTURE_DIR")
+                let allowed = std::env::var_os("SMALLTALKAI_READER_CAPTURE_DIR")
                     .map(PathBuf::from)
                     .unwrap_or_else(|| data_dir().join("capture"));
                 std::fs::create_dir_all(&allowed)?;

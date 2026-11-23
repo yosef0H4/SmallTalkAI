@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def request_json(url, token, method="GET", body=None):
     encoded = None if body is None else json.dumps(body).encode()
     request = Request(url, data=encoded, method=method)
-    request.add_header("X-Simple-STT-Token", token)
+    request.add_header("X-SmallTalkAI-Token", token)
     request.add_header("Origin", urlparse(url).scheme + "://" + urlparse(url).netloc)
     if encoded is not None:
         request.add_header("Content-Type", "application/json")
@@ -37,11 +37,11 @@ def main():
         raise SystemExit(".env is missing; copy .env.example and fill it first")
     with tempfile.TemporaryDirectory(prefix="smalltalkai-cleanup-live-") as temp:
         env = os.environ.copy()
-        env["SIMPLE_STT_CONFIG"] = str(Path(temp) / "config.json")
-        for name in ("SIMPLE_STT_AI_API_KEY", "SIMPLE_STT_AI_BASE_URL", "SIMPLE_STT_AI_MODEL"):
+        env["SMALLTALKAI_CONFIG"] = str(Path(temp) / "config.json")
+        for name in ("SMALLTALKAI_AI_API_KEY", "SMALLTALKAI_AI_BASE_URL", "SMALLTALKAI_AI_MODEL"):
             env.pop(name, None)
         process = subprocess.Popen(
-            [str(binary), "--no-browser"],
+            [str(binary), "--headless"],
             cwd=ROOT,
             env=env,
             stdout=subprocess.PIPE,

@@ -7,7 +7,7 @@ class ProcessSupervisor {
         this.onRestart := onRestart
         this.stateFile := config.Get("service_state_path")
         this.configFile := config.Get("config_path")
-        this.token := SimpleSttRandomToken()
+        this.token := SmallTalkAIRandomToken()
         this.pid := 0
         this.expectedStop := false
         this.restartAfterStop := false
@@ -30,12 +30,12 @@ class ProcessSupervisor {
         this.expectedStop := false
         this.restartAfterStop := false
         this.readyProbeInFlight := false
-        this.token := SimpleSttRandomToken()
+        this.token := SmallTalkAIRandomToken()
         if IsObject(this.ipc)
             this.ipc.ResetServiceSession(this.token)
         if FileExist(this.stateFile)
             try FileDelete(this.stateFile)
-        command := SimpleSttQuote(this.captureExe) . " --token " . SimpleSttQuote(this.token) . " --state-file " . SimpleSttQuote(this.stateFile) . " --config " . SimpleSttQuote(this.configFile)
+        command := SmallTalkAIQuote(this.captureExe) . " --token " . SmallTalkAIQuote(this.token) . " --state-file " . SmallTalkAIQuote(this.stateFile) . " --config " . SmallTalkAIQuote(this.configFile)
         try Run(command, A_ScriptDir, "Hide", &pid)
         catch Error as err {
             this.pid := 0
@@ -162,8 +162,8 @@ class ProcessSupervisor {
         if !this.pid
             return
         this.expectedStop := true
-        output := SimpleSttTempFile("shutdown")
-        command := SimpleSttQuote(this.ctlExe) . " --state-file " . SimpleSttQuote(this.stateFile) . " --token " . SimpleSttQuote(this.token) . " --output " . SimpleSttQuote(output) . " shutdown"
+        output := SmallTalkAITempFile("shutdown")
+        command := SmallTalkAIQuote(this.ctlExe) . " --state-file " . SmallTalkAIQuote(this.stateFile) . " --token " . SmallTalkAIQuote(this.token) . " --output " . SmallTalkAIQuote(output) . " shutdown"
         try RunWait(command, A_ScriptDir, "Hide")
         catch Error as err
             this.logger.Write("warning", "graceful capture-service shutdown request failed: " . err.Message)

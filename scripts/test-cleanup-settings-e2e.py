@@ -48,7 +48,7 @@ class Provider(BaseHTTPRequestHandler):
 def request_json(url, token, method="GET", body=None):
     encoded = None if body is None else json.dumps(body).encode()
     request = Request(url, data=encoded, method=method)
-    request.add_header("X-Simple-STT-Token", token)
+    request.add_header("X-SmallTalkAI-Token", token)
     request.add_header("Origin", urlparse(url).scheme + "://" + urlparse(url).netloc)
     if encoded is not None:
         request.add_header("Content-Type", "application/json")
@@ -69,16 +69,16 @@ def main():
         env = os.environ.copy()
         env.update(
             {
-                "SIMPLE_STT_CONFIG": str(Path(temp) / "config.json"),
-                "SIMPLE_STT_RUNTIME_ROOT": str(Path(temp) / "runtime"),
+                "SMALLTALKAI_CONFIG": str(Path(temp) / "config.json"),
+                "SMALLTALKAI_RUNTIME_ROOT": str(Path(temp) / "runtime"),
                 "XDG_DATA_HOME": str(Path(temp) / "data"),
-                "SIMPLE_STT_AI_API_KEY": "settings-e2e-key",
-                "SIMPLE_STT_AI_BASE_URL": f"http://127.0.0.1:{provider.server_port}",
-                "SIMPLE_STT_AI_MODEL": "settings-e2e-model",
+                "SMALLTALKAI_AI_API_KEY": "settings-e2e-key",
+                "SMALLTALKAI_AI_BASE_URL": f"http://127.0.0.1:{provider.server_port}",
+                "SMALLTALKAI_AI_MODEL": "settings-e2e-model",
             }
         )
         process = subprocess.Popen(
-            [str(binary), "--no-browser"],
+            [str(binary), "--headless"],
             cwd=ROOT,
             env=env,
             stdout=subprocess.PIPE,
@@ -92,8 +92,8 @@ def main():
             origin = f"{parsed.scheme}://{parsed.netloc}"
             state = request_json(origin + "/api/state", token)
             compatible = state["config"]["cleanup"]["openai_compatible"]
-            assert compatible["base_url"] == env["SIMPLE_STT_AI_BASE_URL"]
-            assert compatible["model"] == env["SIMPLE_STT_AI_MODEL"]
+            assert compatible["base_url"] == env["SMALLTALKAI_AI_BASE_URL"]
+            assert compatible["model"] == env["SMALLTALKAI_AI_MODEL"]
             result = request_json(
                 origin + "/api/cleanup-action",
                 token,

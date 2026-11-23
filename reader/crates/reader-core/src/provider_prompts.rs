@@ -3,8 +3,8 @@
 use serde::Deserialize;
 use std::sync::LazyLock;
 
-pub const SPEECH_ENV: &str = "SIMPLE_TTS_REMOTE_SPEECH_INSTRUCTIONS";
-pub const OCR_ENV: &str = "SIMPLE_TTS_REMOTE_OCR_PROMPT";
+pub const SPEECH_ENV: &str = "SMALLTALKAI_READER_REMOTE_SPEECH_INSTRUCTIONS";
+pub const OCR_ENV: &str = "SMALLTALKAI_READER_REMOTE_OCR_PROMPT";
 
 #[derive(Deserialize)]
 struct Defaults<'a> {

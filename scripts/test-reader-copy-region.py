@@ -57,7 +57,7 @@ def isolated(args, private):
     model = catalog['paddle-ar-en']
     service.stage_asset(assets, 'paddle-ar-en', args.ocr_model.resolve(), model['required'], model['sha256'])
     stage_runtime(assets, args.ocr_runtime.resolve(), catalog)
-    instance = data / 'simple-stt/instances/installed'
+    instance = data / 'smalltalkai/instances/installed'
     instance.mkdir(parents=True)
     (instance / 'assets').symlink_to(assets)
     config = {
@@ -71,9 +71,9 @@ def isolated(args, private):
     env = os.environ.copy()
     env.update(HOME=str(private / 'home'), XDG_DATA_HOME=str(data),
                XDG_CONFIG_HOME=str(private / 'config'), XDG_CACHE_HOME=str(private / 'cache'),
-               XDG_RUNTIME_DIR=str(private / 'xdg-runtime'), SIMPLE_STT_RUNTIME_ROOT=str(private / 'runtime'),
-               SIMPLE_STT_READER_DATA=str(reader), SIMPLE_TTS_CONFIG=str(reader / 'config.json'),
-               SIMPLE_TTS_NO_DESKTOP='1', SIMPLE_STT_NO_DESKTOP='1', DISPLAY='',
+               XDG_RUNTIME_DIR=str(private / 'xdg-runtime'), SMALLTALKAI_RUNTIME_ROOT=str(private / 'runtime'),
+               SMALLTALKAI_READER_DATA=str(reader), SMALLTALKAI_READER_CONFIG=str(reader / 'config.json'),
+               SMALLTALKAI_READER_NO_DESKTOP='1', SMALLTALKAI_NO_DESKTOP='1', DISPLAY='',
                WAYLAND_DISPLAY='private-unavailable-wayland',
                DBUS_SESSION_BUS_ADDRESS='unix:path=/nonexistent-private-test-bus',
                PATH=str(private / 'bin') + ':/usr/bin:/bin',
@@ -96,7 +96,7 @@ def isolated(args, private):
                 if daemon.poll() is not None:
                     log.flush()
                     raise AssertionError('private reader exited: ' + (private / 'smalltalkai-reader.log').read_text())
-                return (reader / 'simple-tts.sock').exists()
+                return (reader / 'smalltalkai-reader.sock').exists()
             service.wait_for(socket_ready, 10, 'private reader socket')
 
             def status():
@@ -171,7 +171,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bin-dir', type=Path, default=ROOT / 'target/debug')
     parser.add_argument('--ocr-model', type=Path, default=ROOT / 'artifacts/combined-app/downloads/model-paddle')
-    parser.add_argument('--ocr-runtime', type=Path, default=Path.home() / '.local/share/simple-tts/runtime')
+    parser.add_argument('--ocr-runtime', type=Path, default=Path.home() / '.local/share/smalltalkai-reader/runtime')
     parser.add_argument('--inside', type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.inside:

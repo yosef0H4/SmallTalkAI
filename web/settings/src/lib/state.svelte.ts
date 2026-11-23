@@ -112,7 +112,6 @@ export async function refreshState(reloaded = false, signal?: AbortSignal) {
         "general.enabled",
         "output.delivery_mode",
         "cleanup.enabled",
-        "output.linux_automation_backend",
       ]);
       const routing = ["selection_mode", "single_model_filename", "language_models", "language_runtimes", "runtime_dir", "language_devices"] as const;
       if (!ui.jsonInvalid && !ui.jsonPending) {

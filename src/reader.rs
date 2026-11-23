@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 pub fn data_dir() -> PathBuf {
-    if let Some(path) = std::env::var_os("SIMPLE_STT_READER_DATA") {
+    if let Some(path) = std::env::var_os("SMALLTALKAI_READER_DATA") {
         return PathBuf::from(path);
     }
     crate::config::AppConfig::local_data_dir().join("reader")
@@ -84,17 +84,19 @@ fn command_in_profile(
             "smalltalkai-readerctl"
         });
     anyhow::ensure!(executable.is_file(), "Reading components are not installed");
-    initialize()?;
+    if args != ["stop"] {
+        initialize()?;
+    }
     let mut command = Command::new(executable);
     if headless {
-        command.env("SIMPLE_TTS_NO_DESKTOP", "1");
-        command.env("SIMPLE_STT_MANAGED_API", "1");
+        command.env("SMALLTALKAI_READER_NO_DESKTOP", "1");
+        command.env("SMALLTALKAI_MANAGED_API", "1");
     }
     let mut child = command
         .args(args)
-        .env("SIMPLE_STT_EMBEDDED_READER", "1")
-        .env("SIMPLE_STT_READER_DATA", profile)
-        .env("SIMPLE_TTS_CONFIG", store().path())
+        .env("SMALLTALKAI_EMBEDDED_READER", "1")
+        .env("SMALLTALKAI_READER_DATA", profile)
+        .env("SMALLTALKAI_READER_CONFIG", store().path())
         .stdin(if input.is_some() {
             Stdio::piped()
         } else {
@@ -744,7 +746,7 @@ fn preflight(name: &str) -> Result<bool> {
                 model_ready,
                 keyboard.as_deref(),
             );
-            if std::env::var_os("SIMPLE_STT_NO_DESKTOP").is_some() {
+            if std::env::var_os("SMALLTALKAI_NO_DESKTOP").is_some() {
                 anyhow::bail!("{message}");
             }
             let overlay = crate::capture::overlay::OverlayHandle::spawn()?;
@@ -762,7 +764,7 @@ pub fn action(name: &str, text: &str) -> Result<String> {
     preflight(name)?;
     if matches!(
         name,
-        "stop" | "pause" | "resume" | "unload" | "shutdown" | "server_stop"
+        "pause" | "resume" | "unload" | "shutdown" | "server_stop"
     ) && status().is_none()
     {
         return Ok("Stopped".into());
@@ -778,6 +780,7 @@ pub fn action(name: &str, text: &str) -> Result<String> {
         "copy_region" => &["copy-region"],
         "listen_clipboard" => &["listen-clipboard"],
         "read_along" => &["read-along"],
+        // The bounded helper handles both a silent Reader and a missing one.
         "stop" => &["stop"],
         "pause" => &["pause"],
         "resume" => &["resume"],

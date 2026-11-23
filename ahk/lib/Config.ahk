@@ -8,8 +8,8 @@ class ConfigStore {
     }
 
     LoadSync() {
-        output := SimpleSttTempFile("config-show")
-        command := SimpleSttQuote(this.ctlExe) . " --output " . SimpleSttQuote(output) . " config-show"
+        output := SmallTalkAITempFile("config-show")
+        command := SmallTalkAIQuote(this.ctlExe) . " --output " . SmallTalkAIQuote(output) . " config-show"
         try RunWait(command, A_ScriptDir, "Hide")
         catch Error as err
             throw Error("Unable to run smalltalkai-ctl config-show: " . err.Message)
@@ -23,8 +23,8 @@ class ConfigStore {
     }
 
     SaveSync() {
-        input := SimpleSttTempFile("config-save-input")
-        output := SimpleSttTempFile("config-save-output")
+        input := SmallTalkAITempFile("config-save-input")
+        output := SmallTalkAITempFile("config-save-output")
         keys := ["hotkey_enabled", "recording_mode", "record_hotkey", "toggle_delivery_hotkey", "cancel_hotkey", "toggle_cleanup_hotkey", "retry_delivery_hotkey", "show_shortcuts_hotkey", "show_shortcuts_mode", "shortcut_reminders", "preserve_clipboard", "cleanup_enabled", "capslock_behavior", "audio_device_contains", "audio_gain", "paced_typing_enabled", "typing_speed_wpm", "trailing_space", "text_delivery_mode", "remove_punctuation", "lowercase_output", "idle_worker_timeout_secs", "worker_shutdown_grace_ms", "start_with_windows", "log_level", "diagnostic_overlay", "log_transcripts", "clipboard_buffer_notices", "inference_device", "ui_theme", "ui_language", "parakeet_runtime_dir", "model_dir", "single_model_filename", "language_models", "language_runtimes", "selection_mode"]
         text := ""
         for key in keys
@@ -32,7 +32,7 @@ class ConfigStore {
         ; smalltalkai-ctl expects tab-delimited UTF-8 without a BOM. AHK's "UTF-8"
         ; encoding writes a BOM which becomes part of the first config key.
         FileAppend(text, input, "UTF-8-RAW")
-        command := SimpleSttQuote(this.ctlExe) . " --output " . SimpleSttQuote(output) . " config-save --input " . SimpleSttQuote(input)
+        command := SmallTalkAIQuote(this.ctlExe) . " --output " . SmallTalkAIQuote(output) . " config-save --input " . SmallTalkAIQuote(input)
         try RunWait(command, A_ScriptDir, "Hide")
         catch Error as err
             throw Error("Unable to run smalltalkai-ctl config-save: " . err.Message)
@@ -53,7 +53,7 @@ class ConfigStore {
         this.values[key] := value . ""
     }
     Bool(key, fallback := false) {
-        return SimpleSttBool(this.Get(key, fallback ? "true" : "false"))
+        return SmallTalkAIBool(this.Get(key, fallback ? "true" : "false"))
     }
     Int(key, fallback := 0) {
         value := this.Get(key, fallback)

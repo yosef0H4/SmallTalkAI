@@ -27,7 +27,7 @@ it does not grant or pre-approve desktop control. [KDE portal permission guidanc
 
 ## Implementation
 
-`smalltalkai-reader` uses the same `io.github.yosef0H4.simple_stt` app ID as the main
+`smalltalkai-reader` uses the same `io.github.yosef0H4.smalltalkai` app ID as the main
 SmallTalkAI shell and ensures a matching desktop entry exists before registering
 that ID through ashpd. Registration happens before it starts portal
 integrations. The installed entry uses the SmallTalkAI name and icon.

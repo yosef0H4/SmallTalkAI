@@ -6,7 +6,7 @@
 #Include ..\lib\Typist.ahk
 
 if A_Args.Length && A_Args[1] = "--blocked-child" {
-    target := Gui(, "SimpleStt blocked paste probe")
+    target := Gui(, "SmallTalkAI blocked paste probe")
     targetEdit := target.AddEdit("w200", "blocked")
     subclass := CallbackCreate(SlowTextLength, , 6)
     DllCall("comctl32\SetWindowSubclass", "Ptr", targetEdit.Hwnd, "Ptr", subclass, "UPtr", 1, "Ptr", 0)
@@ -32,9 +32,9 @@ childScript := A_Temp . "\smalltalkai-paste-latency-child-" . A_TickCount . ".ah
 try {
     childSource := StrReplace(FileRead(A_ScriptFullPath, "UTF-8"), "#Include ..\lib\", "#Include " . A_ScriptDir . "\..\lib\")
     FileAppend(childSource, childScript, "UTF-8")
-    Run(SimpleSttQuote(A_AhkPath) . " /ErrorStdOut=UTF-8 " . SimpleSttQuote(childScript) . " --blocked-child", , "Hide", &childPid)
+    Run(SmallTalkAIQuote(A_AhkPath) . " /ErrorStdOut=UTF-8 " . SmallTalkAIQuote(childScript) . " --blocked-child", , "Hide", &childPid)
     DetectHiddenWindows(true)
-    if !WinWait("SimpleStt blocked paste probe ahk_pid " . childPid, , 5)
+    if !WinWait("SmallTalkAI blocked paste probe ahk_pid " . childPid, , 5)
         throw Error("blocked paste target did not start")
     controlHwnd := ControlGetHwnd("Edit1", "ahk_pid " . childPid)
     instance := Typist(ShellLog(A_Temp . "\smalltalkai-paste-latency.log"), NoopNotice)
@@ -45,9 +45,9 @@ try {
         throw Error("blocked target unexpectedly answered")
     if elapsed > 300
         throw Error("paste probe stalled the shell for " . elapsed . " ms")
-    SimpleSttConsoleLine("PASS: unresponsive paste target bounded to " . elapsed . " ms")
+    SmallTalkAIConsoleLine("PASS: unresponsive paste target bounded to " . elapsed . " ms")
 } catch Error as err {
-    SimpleSttConsoleError("FAIL: " . err.Message)
+    SmallTalkAIConsoleError("FAIL: " . err.Message)
     exitCode := 1
 } finally {
     if childPid && ProcessExist(childPid)

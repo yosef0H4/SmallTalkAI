@@ -15,7 +15,7 @@ fn headless_asset_install_accepts_an_existing_stt_model_without_capture() {
     std::fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_smalltalkai-ctl"))
         .args(["assets", "install", model])
-        .env("SIMPLE_STT_CONFIG", path)
+        .env("SMALLTALKAI_CONFIG", path)
         .env("XDG_DATA_HOME", temporary.path().join("data"))
         .output()
         .unwrap();
@@ -44,8 +44,8 @@ fn headless_removal_clears_inactive_bindings_and_shared_runtime_assignments() {
     let run = |args: &[&str]| {
         let output = Command::new(env!("CARGO_BIN_EXE_smalltalkai-ctl"))
             .args(args)
-            .env("SIMPLE_STT_CONFIG", root.join("config.json"))
-            .env("SIMPLE_STT_READER_DATA", root.join("reader"))
+            .env("SMALLTALKAI_CONFIG", root.join("config.json"))
+            .env("SMALLTALKAI_READER_DATA", root.join("reader"))
             .env("XDG_DATA_HOME", root.join("data"))
             .output()
             .unwrap();

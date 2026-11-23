@@ -17,11 +17,11 @@ spec = importlib.util.spec_from_file_location('workers', ROOT / 'scripts/test-re
 workers = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(workers)
 OUT = ROOT / 'artifacts/combined-app/memory'
-GPU = Path.home() / '.local/share/simple-tts/runtime'
+GPU = Path.home() / '.local/share/smalltalkai-reader/runtime'
 CPU = OUT / 'cpu-runtime'
 MODELS = {
     'paddle': ROOT / 'artifacts/combined-app/downloads/model-paddle',
-    'kokoro': Path.home() / '.local/share/simple-tts/models/kokoro-multi-lang-v1_0',
+    'kokoro': Path.home() / '.local/share/smalltalkai-reader/models/kokoro-multi-lang-v1_0',
     'supertonic3': ROOT / 'artifacts/combined-app/downloads/sherpa-onnx-supertonic-3-tts-int8-2026-05-11',
 }
 
@@ -61,7 +61,7 @@ def main():
             for model,path in MODELS.items():
                 env=dict(os.environ, XDG_DATA_HOME=tmp,XDG_CONFIG_HOME=tmp,XDG_CACHE_HOME=tmp,XDG_RUNTIME_DIR=tmp,
                          DISPLAY='',WAYLAND_DISPLAY='',DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-memory-bus',
-                         LD_LIBRARY_PATH=str(runtime/'lib'),SIMPLE_TTS_CAPTURE_DIR=str(ROOT/'scripts/fixtures/reader'))
+                         LD_LIBRARY_PATH=str(runtime/'lib'),SMALLTALKAI_READER_CAPTURE_DIR=str(ROOT/'scripts/fixtures/reader'))
                 arguments=['--model-dir',str(path),'--runtime-dir',str(runtime),'--device',device if model=='paddle' else 'cuda' if device=='gpu' else 'cpu']
                 if model!='paddle':arguments += ['--provider','local_supertonic' if model=='supertonic3' else 'local_kokoro']
                 binary=ROOT/'target/debug'/('smalltalkai-ocr' if model=='paddle' else 'smalltalkai-tts')

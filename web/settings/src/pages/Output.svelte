@@ -7,7 +7,7 @@
     platformAction,
   } from "../lib/state.svelte";
   import { fields, deliveryOptions } from "../lib/settings";
-  import type { Backend, DeliveryMode } from "../lib/types";
+  import type { DeliveryMode } from "../lib/types";
   import Group from "../components/Group.svelte";
   import Field from "../components/Field.svelte";
   import Combo from "../components/Combo.svelte";
@@ -44,50 +44,20 @@
   );
   function select(value: string) {
     set("output.delivery_mode", value as DeliveryMode);
-    if (linux) {
-      set("output.linux_automation_backend", "auto");
-      normalizeLinuxCycle();
-    }
-  }
-  function normalizeLinuxCycle() {
-    if (!ui.config) return;
-    const seen = new Set<DeliveryMode>();
-    ui.config.output.linux_delivery_cycle = ui.config.output.linux_delivery_cycle
-      .filter((entry) => {
-        if (seen.has(entry.mode)) return false;
-        seen.add(entry.mode);
-        return true;
-      })
-      .map((entry) => ({ mode: entry.mode, backend: "auto" as Backend }));
   }
   function included(mode: DeliveryMode) {
-    return linux
-      ? ui.config?.output.linux_delivery_cycle.some((c) => c.mode === mode)
-      : ui.config?.output.enabled_delivery_modes.includes(mode);
+    return ui.config?.output.enabled_delivery_modes.includes(mode);
   }
   function toggle(mode: DeliveryMode) {
     if (!ui.config) return;
-    const output = ui.config.output;
-    if (linux) {
-      normalizeLinuxCycle();
-      if (included(mode)) {
-        if (output.linux_delivery_cycle.length === 1)
-          return notice(t("ui.keep_at_least_one_delivery.2d7d41"), "error");
-        output.linux_delivery_cycle = output.linux_delivery_cycle.filter(
-          (c) => c.mode !== mode,
-        );
-      } else output.linux_delivery_cycle.push({ mode, backend: "auto" });
-      set("output.linux_automation_backend", "auto");
+    const modes = ui.config.output.enabled_delivery_modes;
+    if (modes.includes(mode)) {
+      if (modes.length === 1)
+        return notice(t("ui.keep_at_least_one_delivery.2d7d41"), "error");
+      set("output.enabled_delivery_modes", modes.filter((entry) => entry !== mode));
     } else {
-      if (included(mode)) {
-        if (output.enabled_delivery_modes.length === 1)
-          return notice(t("ui.keep_at_least_one_delivery.2d7d41"), "error");
-        output.enabled_delivery_modes = output.enabled_delivery_modes.filter(
-          (m) => m !== mode,
-        );
-      } else output.enabled_delivery_modes.push(mode);
+      set("output.enabled_delivery_modes", [...modes, mode]);
     }
-    markDirty();
   }
   async function addCurrent() {
     const result = await platformAction("focused_app");
@@ -127,11 +97,7 @@
   <Field spec={fields.preserveClipboard} />
   <details class="delivery-picker-advanced">
     <summary>{t("ui.cycle_between.75667a")}</summary>
-    <div
-      data-setting-path={linux
-        ? "output.linux_delivery_cycle"
-        : "output.enabled_delivery_modes"}
-    >
+    <div data-setting-path="output.enabled_delivery_modes">
       <input
         type="search"
         placeholder={t("ui.search_tools_and_delivery_methods.717e7b")}

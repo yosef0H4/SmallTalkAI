@@ -99,8 +99,8 @@ async function main() {
   const cdp = `http://127.0.0.1:${port}`;
   const env = {
     ...process.env,
-    SIMPLE_STT_CONFIG: config,
-    SIMPLE_STT_RUNTIME_ROOT: path.join(temp, "runtime"),
+    SMALLTALKAI_CONFIG: config,
+    SMALLTALKAI_RUNTIME_ROOT: path.join(temp, "runtime"),
     LOCALAPPDATA: path.join(temp, "data"),
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
   };
@@ -126,7 +126,7 @@ async function main() {
     await page.locator("#ui-language").waitFor();
     const health = await page.evaluate(async () => {
       const token = new URLSearchParams(location.hash.slice(1)).get("token");
-      const response = await fetch("/api/health", { headers: { "X-Simple-STT-Token": token } });
+      const response = await fetch("/api/health", { headers: { "X-SmallTalkAI-Token": token } });
       return response.json();
     });
     assert.equal(health.ok, true);

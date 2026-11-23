@@ -124,7 +124,7 @@ async function main() {
         ? { kind: "open_ai_compatible", base_url: "", model: "", voice: "", format: "wav" }
         : { kind: "local_kokoro" };
       const page = await browser.newPage();
-      await page.addInitScript(() => { window.__SIMPLE_STT_DESKTOP__ = true; });
+      await page.addInitScript(() => { window.__SMALLTALKAI_DESKTOP__ = true; });
       await page.route("**/api/modules", route => {
         const catalog = fixture.inventory();
         for (let index = 1; index <= 32; index++) {

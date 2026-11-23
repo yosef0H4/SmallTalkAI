@@ -2,13 +2,13 @@ use anyhow::{Context, Result};
 #[cfg(target_os = "linux")]
 use std::process::{Command, Stdio};
 
-const SERVICE: &str = "simple-stt";
+const SERVICE: &str = "smalltalkai";
 const COMPATIBLE_KEY_ACCOUNT: &str = "cleanup-compatible-api-key";
 const STT_KEY_ACCOUNT: &str = "stt-api-key";
 const CHATGPT_ACCOUNT: &str = "cleanup-chatgpt-oauth";
 
 pub fn compatible_api_key() -> Result<Option<String>> {
-    if let Ok(value) = std::env::var("SIMPLE_STT_AI_API_KEY") {
+    if let Ok(value) = std::env::var("SMALLTALKAI_AI_API_KEY") {
         if !value.trim().is_empty() {
             return Ok(Some(value));
         }
@@ -26,9 +26,9 @@ pub fn delete_compatible_api_key() -> Result<()> {
 }
 
 /// Read the dedicated remote speech-to-text API key.
-/// `SIMPLE_STT_STT_API_KEY` overrides the desktop secret store when present.
+/// `SMALLTALKAI_STT_API_KEY` overrides the desktop secret store when present.
 pub fn stt_api_key() -> Result<Option<String>> {
-    if let Ok(value) = std::env::var("SIMPLE_STT_STT_API_KEY") {
+    if let Ok(value) = std::env::var("SMALLTALKAI_STT_API_KEY") {
         if !value.trim().is_empty() {
             return Ok(Some(value));
         }
@@ -223,12 +223,12 @@ mod tests {
 
     #[test]
     fn stt_key_uses_its_own_environment_override() {
-        let previous = std::env::var_os("SIMPLE_STT_STT_API_KEY");
-        std::env::set_var("SIMPLE_STT_STT_API_KEY", "speech-only-token");
+        let previous = std::env::var_os("SMALLTALKAI_STT_API_KEY");
+        std::env::set_var("SMALLTALKAI_STT_API_KEY", "speech-only-token");
         assert_eq!(stt_api_key().unwrap().as_deref(), Some("speech-only-token"));
         match previous {
-            Some(value) => std::env::set_var("SIMPLE_STT_STT_API_KEY", value),
-            None => std::env::remove_var("SIMPLE_STT_STT_API_KEY"),
+            Some(value) => std::env::set_var("SMALLTALKAI_STT_API_KEY", value),
+            None => std::env::remove_var("SMALLTALKAI_STT_API_KEY"),
         }
     }
 }

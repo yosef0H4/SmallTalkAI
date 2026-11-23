@@ -46,7 +46,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 #[derive(Parser)]
-#[command(name = "smalltalkai-reader", about = "Simple TTS desktop controller")]
+#[command(
+    name = "smalltalkai-reader",
+    about = "SmallTalkAI Reader desktop controller"
+)]
 struct Args {
     #[command(subcommand)]
     command: Mode,
@@ -2406,7 +2409,7 @@ fn spawn_tts(
         ]);
         command.env(reader_core::provider_prompts::SPEECH_ENV, instructions);
         command.env(
-            "SIMPLE_TTS_SPEECH_API_KEY",
+            "SMALLTALKAI_SPEECH_API_KEY",
             if let Some(slot) = &config.speech.key_slot {
                 reader_core::secrets::connection_key(slot)?
             } else if config.speech.use_feature_key {
@@ -3038,13 +3041,11 @@ fn open_preferred_output<T>(
     mut open: impl FnMut(&cpal::Device) -> Result<T>,
 ) -> Result<T> {
     let host = cpal::default_host();
-    if let Some(preferred) = preferred.filter(|name| !name.trim().is_empty()) {
-        let device = host.output_devices().ok().and_then(|mut devices| {
-            if let Ok(id) = preferred.parse::<cpal::DeviceId>() {
+    if let Some(preferred) = preferred.filter(|id| !id.trim().is_empty()) {
+        let device = preferred.parse::<cpal::DeviceId>().ok().and_then(|id| {
+            host.output_devices().ok().and_then(|mut devices| {
                 devices.find(|device| device.id().is_ok_and(|candidate| candidate == id))
-            } else {
-                devices.find(|device| device.to_string() == preferred)
-            }
+            })
         });
         if let Some(device) = device {
             match open(&device) {
@@ -5562,10 +5563,10 @@ impl App {
                 "remote server binding is disabled; select a loopback address or enable private-network access"
             )
         }
-        let token = if let Ok(value) = std::env::var("SIMPLE_TTS_SERVER_TOKEN") {
+        let token = if let Ok(value) = std::env::var("SMALLTALKAI_SERVER_TOKEN") {
             anyhow::ensure!(
                 !value.trim().is_empty() && value.len() <= 512,
-                "SIMPLE_TTS_SERVER_TOKEN must contain 1 to 512 non-whitespace bytes"
+                "SMALLTALKAI_SERVER_TOKEN must contain 1 to 512 non-whitespace bytes"
             );
             value
         } else {
@@ -6500,9 +6501,9 @@ fn with_ocr_worker<T>(
             &config.ocr.runtime_dir,
         )?;
         command
-            .env("SIMPLE_TTS_CAPTURE_DIR", &allowed)
+            .env("SMALLTALKAI_READER_CAPTURE_DIR", &allowed)
             .env(
-                "SIMPLE_TTS_OCR_API_KEY",
+                "SMALLTALKAI_OCR_API_KEY",
                 reader_core::secrets::ocr_key()?.unwrap_or_default(),
             )
             .stdin(Stdio::piped())
@@ -6871,14 +6872,14 @@ fn synthesize_media_units(
 
 fn server_tts_models() -> Vec<serde_json::Value> {
     let mut models = vec![
-        serde_json::json!({"id":"kokoro-v1","object":"model","owned_by":"simple-tts","capabilities":["tts"]}),
+        serde_json::json!({"id":"kokoro-v1","object":"model","owned_by":"smalltalkai-reader","capabilities":["tts"]}),
     ];
     let assets = reader_core::config::data_dir()
         .parent()
         .unwrap()
         .join("assets");
     if reader_core::routing::asset_installed("supertonic3", &assets) {
-        models.push(serde_json::json!({"id":"supertonic3","object":"model","owned_by":"simple-tts","capabilities":["tts"]}));
+        models.push(serde_json::json!({"id":"supertonic3","object":"model","owned_by":"smalltalkai-reader","capabilities":["tts"]}));
     }
     models
 }
@@ -7182,7 +7183,7 @@ fn handle_server_request(app: &App, token: &str, mut request: tiny_http::Request
     let client_session = request
         .headers()
         .iter()
-        .find(|h| h.field.equiv("X-Simple-TTS-Session"))
+        .find(|h| h.field.equiv("X-SmallTalkAI-Session"))
         .map(|h| String::from_utf8_lossy(h.value.as_bytes()).to_string())
         .unwrap_or_default();
     let path = request.url().split('?').next().unwrap_or("").to_owned();
@@ -7246,7 +7247,7 @@ fn handle_server_request(app: &App, token: &str, mut request: tiny_http::Request
         "/v1/models" => Ok(server_json(200, &{
             let mut models = server_tts_models();
             models.insert(0, serde_json::json!({"id":"configured-stt","object":"model","owned_by":"smalltalkai","capabilities":["stt"]}));
-            models.push(serde_json::json!({"id":"simple-tts-ocr","object":"model","owned_by":"simple-tts","capabilities":["ocr"]}));
+            models.push(serde_json::json!({"id":"smalltalkai-ocr","object":"model","owned_by":"smalltalkai-reader","capabilities":["ocr"]}));
             serde_json::json!({"object":"list","data":models})
         })),
         "/v1/audio/transcriptions" if *request.method() == tiny_http::Method::Post => {
@@ -7310,12 +7311,12 @@ fn handle_server_request(app: &App, token: &str, mut request: tiny_http::Request
         }
         "/app/v1/capabilities" => Ok(server_json(
             200,
-            &serde_json::json!({"protocol_version":1,"server_id":format!("simple-tts-{}",std::process::id()),"warmup_leases":true,"jobs":true,"job_events":true,"cancel_jobs":true,"tts":[{"id":"kokoro-v1","voices":["af_heart","af_bella","af_nicole","af_sarah","am_adam","am_michael","bf_emma"],"languages":["en-us","en-gb"],"formats":["pcm","wav"],"pcm":{"encoding":"s16le","sample_rate_hz":24000,"channels":1},"timing":"sentence"}],"ocr":[{"id":"paddle-ar-en","languages":["eng"],"word_boxes":false}]}),
+            &serde_json::json!({"protocol_version":1,"server_id":format!("smalltalkai-reader-{}",std::process::id()),"warmup_leases":true,"jobs":true,"job_events":true,"cancel_jobs":true,"tts":[{"id":"kokoro-v1","voices":["af_heart","af_bella","af_nicole","af_sarah","am_adam","am_michael","bf_emma"],"languages":["en-us","en-gb"],"formats":["pcm","wav"],"pcm":{"encoding":"s16le","sample_rate_hz":24000,"channels":1},"timing":"sentence"}],"ocr":[{"id":"paddle-ar-en","languages":["eng"],"word_boxes":false}]}),
         )),
         "/app/v1/warmups" if *request.method() == tiny_http::Method::Post => {
             anyhow::ensure!(
                 uuid::Uuid::parse_str(&client_session).is_ok(),
-                "X-Simple-TTS-Session must be a UUID"
+                "X-SmallTalkAI-Session must be a UUID"
             );
             let value: serde_json::Value = serde_json::from_slice(&body)?;
             let models = value
@@ -7437,7 +7438,7 @@ fn handle_server_request(app: &App, token: &str, mut request: tiny_http::Request
         "/app/v1/jobs" if *request.method() == tiny_http::Method::Post => {
             anyhow::ensure!(
                 uuid::Uuid::parse_str(&client_session).is_ok(),
-                "X-Simple-TTS-Session must be a UUID"
+                "X-SmallTalkAI-Session must be a UUID"
             );
             let input: serde_json::Value = serde_json::from_slice(&body)?;
             let text = input
@@ -7888,8 +7889,8 @@ fn handle_server_request(app: &App, token: &str, mut request: tiny_http::Request
             let value: serde_json::Value = serde_json::from_slice(&body)?;
             let model = requested_server_model(
                 &value,
-                "simple-tts-ocr",
-                &["simple-tts-ocr", "paddle-ar-en"],
+                "smalltalkai-ocr",
+                &["smalltalkai-ocr", "paddle-ar-en"],
             )?;
             let messages = value
                 .get("messages")
@@ -7933,8 +7934,8 @@ fn handle_server_request(app: &App, token: &str, mut request: tiny_http::Request
             let value: serde_json::Value = serde_json::from_slice(&body)?;
             let model = requested_server_model(
                 &value,
-                "simple-tts-ocr",
-                &["simple-tts-ocr", "paddle-ar-en"],
+                "smalltalkai-ocr",
+                &["smalltalkai-ocr", "paddle-ar-en"],
             )?;
             let input = value
                 .get("input")
@@ -8175,13 +8176,13 @@ fn serve_daemon(app: App, no_desktop: bool) -> Result<()> {
     std::fs::set_permissions(data_dir(), std::fs::Permissions::from_mode(0o700))?;
     if path.exists() {
         if UnixStream::connect(&path).is_ok() {
-            bail!("Simple TTS controller is already running")
+            bail!("SmallTalkAI Reader controller is already running")
         };
         std::fs::remove_file(&path)?;
     }
     let listener = UnixListener::bind(&path).context("binding local controller socket")?;
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-    eprintln!("Simple TTS controller is ready");
+    eprintln!("SmallTalkAI Reader controller is ready");
     app.inner
         .desktop_enabled
         .store(!no_desktop, Ordering::Relaxed);
@@ -8271,7 +8272,7 @@ fn serve_daemon(app: App, no_desktop: bool) -> Result<()> {
                     std::io::ErrorKind::AddrInUse | std::io::ErrorKind::PermissionDenied
                 )
             });
-            if !occupied || std::env::var_os("SIMPLE_STT_MANAGED_API").is_some() {
+            if !occupied || std::env::var_os("SMALLTALKAI_MANAGED_API").is_some() {
                 return Err(error);
             }
             tracing::warn!(%error, "API address is already in use; reader IPC stays available");
@@ -8358,7 +8359,7 @@ fn start_desktop_integrations(app: App) {
                 tracing::debug!(%error, "system suspend signal is unavailable");
             }
         });
-        if std::env::var_os("SIMPLE_STT_EMBEDDED_READER").is_none()
+        if std::env::var_os("SMALLTALKAI_EMBEDDED_READER").is_none()
             && std::env::var_os("WAYLAND_DISPLAY").is_some()
         {
             let portal = app.clone();
@@ -8376,10 +8377,10 @@ fn start_desktop_integrations(app: App) {
             });
         }
         let tray_app = app.clone();
-        if std::env::var_os("SIMPLE_STT_EMBEDDED_READER").is_none() {
+        if std::env::var_os("SMALLTALKAI_EMBEDDED_READER").is_none() {
             std::thread::spawn(move || start_tray(tray_app));
         }
-        if std::env::var_os("SIMPLE_STT_EMBEDDED_READER").is_none()
+        if std::env::var_os("SMALLTALKAI_EMBEDDED_READER").is_none()
             && std::env::var_os("WAYLAND_DISPLAY").is_none()
             && std::env::var_os("DISPLAY").is_some()
         {
@@ -8394,11 +8395,11 @@ fn start_desktop_integrations(app: App) {
     #[cfg(windows)]
     {
         let tray_app = app.clone();
-        if std::env::var_os("SIMPLE_STT_EMBEDDED_READER").is_none() {
+        if std::env::var_os("SMALLTALKAI_EMBEDDED_READER").is_none() {
             std::thread::spawn(move || windows_tray(tray_app));
         }
         let hotkeys = app.clone();
-        if std::env::var_os("SIMPLE_STT_EMBEDDED_READER").is_none() {
+        if std::env::var_os("SMALLTALKAI_EMBEDDED_READER").is_none() {
             std::thread::spawn(move || {
                 if let Err(error) = windows_hotkeys(hotkeys) {
                     tracing::error!(%error,"Windows global shortcuts stopped");
@@ -9801,7 +9802,7 @@ fn active_selection_app(app: &App, generation: u64) -> Result<Option<String>> {
 
 #[cfg(target_os = "linux")]
 fn active_app_query_path() -> Result<Option<PathBuf>> {
-    if let Some(path) = std::env::var_os("SIMPLE_TTS_ACTIVE_APP_QUERY") {
+    if let Some(path) = std::env::var_os("SMALLTALKAI_READER_ACTIVE_APP_QUERY") {
         return Ok(Some(PathBuf::from(path)));
     }
     #[cfg(atspi_helper)]
@@ -9819,7 +9820,7 @@ fn install_active_app_helper() -> Result<PathBuf> {
     let directory = data_dir();
     std::fs::create_dir_all(&directory)?;
     let path = directory.join("active-app-query");
-    let expected = include_bytes!(env!("SIMPLE_TTS_ACTIVE_APP_HELPER"));
+    let expected = include_bytes!(env!("SMALLTALKAI_READER_ACTIVE_APP_HELPER"));
     if !std::fs::read(&path).is_ok_and(|installed| installed == expected) {
         let temporary = directory.join(format!("active-app-query-{}.tmp", Uuid::new_v4()));
         std::fs::write(&temporary, expected)?;
@@ -9868,15 +9869,15 @@ fn windows_copy_selection(app: &App, generation: u64, config: &AppConfig) -> Res
     let script = r#"
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
-Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class SimpleTtsClipboardGuard { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId); [DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber(); }'
-$settings = $env:SIMPLE_TTS_COPY_SETTINGS | ConvertFrom-Json
+Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class SmallTalkAIClipboardGuard { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId); [DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber(); }'
+$settings = $env:SMALLTALKAI_READER_COPY_SETTINGS | ConvertFrom-Json
 $backend = $settings.backend
 $shortcut = $settings.shortcut
-$foreground = [SimpleTtsClipboardGuard]::GetForegroundWindow()
+$foreground = [SmallTalkAIClipboardGuard]::GetForegroundWindow()
 [uint32]$foregroundPid = 0
-[void][SimpleTtsClipboardGuard]::GetWindowThreadProcessId($foreground, [ref]$foregroundPid)
+[void][SmallTalkAIClipboardGuard]::GetWindowThreadProcessId($foreground, [ref]$foregroundPid)
 $processName = (Get-Process -Id $foregroundPid -ErrorAction SilentlyContinue).ProcessName
-foreach ($rule in ($env:SIMPLE_TTS_COPY_OVERRIDES | ConvertFrom-Json)) { if ($rule.app_id -and $processName -and ([string]::Equals($rule.app_id, $processName, [StringComparison]::OrdinalIgnoreCase) -or [string]::Equals($rule.app_id, "$processName.exe", [StringComparison]::OrdinalIgnoreCase))) { $shortcut = $rule.shortcut; if ($rule.backend) { $backend = $rule.backend }; break } }
+foreach ($rule in ($env:SMALLTALKAI_READER_COPY_OVERRIDES | ConvertFrom-Json)) { if ($rule.app_id -and $processName -and ([string]::Equals($rule.app_id, $processName, [StringComparison]::OrdinalIgnoreCase) -or [string]::Equals($rule.app_id, "$processName.exe", [StringComparison]::OrdinalIgnoreCase))) { $shortcut = $rule.shortcut; if ($rule.backend) { $backend = $rule.backend }; break } }
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 if ($backend -eq 'auto' -or $backend -eq 'accessibility') {
   $selection = $null
@@ -9894,18 +9895,18 @@ if ($backend -eq 'auto' -or $backend -eq 'accessibility') {
   if ($backend -eq 'accessibility') { throw 'Selected text is unavailable through accessibility.' }
 }
 if (!$settings.allow_clipboard_copy) { throw 'Copy the selection manually or enable shortcut copy in Settings.' }
-$before = [SimpleTtsClipboardGuard]::GetClipboardSequenceNumber()
+$before = [SmallTalkAIClipboardGuard]::GetClipboardSequenceNumber()
 $key = switch ($shortcut) { 'ctrl_c' { '^c' } 'ctrl_shift_c' { '^+c' } default { '^{INSERT}' } }
 [System.Windows.Forms.SendKeys]::SendWait($key)
 $deadline = [DateTime]::UtcNow.AddSeconds(2)
 do {
-  $copiedAt = [SimpleTtsClipboardGuard]::GetClipboardSequenceNumber()
+  $copiedAt = [SmallTalkAIClipboardGuard]::GetClipboardSequenceNumber()
   if ($copiedAt -ne $before) { break }
   Start-Sleep -Milliseconds 15
 } while ([DateTime]::UtcNow -lt $deadline)
 if ($copiedAt -eq $before) { throw 'The selected app did not update the clipboard.' }
 $s = [System.Windows.Forms.Clipboard]::GetText()
-if ([SimpleTtsClipboardGuard]::GetClipboardSequenceNumber() -ne $copiedAt) { throw 'Clipboard changed again; retry.' }
+if ([SmallTalkAIClipboardGuard]::GetClipboardSequenceNumber() -ne $copiedAt) { throw 'Clipboard changed again; retry.' }
 if ([string]::IsNullOrWhiteSpace($s)) { throw 'There is no selected text.' }
 [Console]::Write((@{text=$s; clipboard_replaced=$true} | ConvertTo-Json -Compress))
 "#;
@@ -9913,11 +9914,11 @@ if ([string]::IsNullOrWhiteSpace($s)) { throw 'There is no selected text.' }
     command
         .args(["-NoLogo", "-NoProfile", "-STA", "-Command", script])
         .env(
-            "SIMPLE_TTS_COPY_OVERRIDES",
+            "SMALLTALKAI_READER_COPY_OVERRIDES",
             serde_json::to_string(&config.selection_copy_overrides)?,
         )
         .env(
-            "SIMPLE_TTS_COPY_SETTINGS",
+            "SMALLTALKAI_READER_COPY_SETTINGS",
             serde_json::to_string(&config.selection_copy)?,
         )
         .creation_flags(CREATE_NO_WINDOW);
@@ -9952,10 +9953,10 @@ struct Tray {
 #[cfg(target_os = "linux")]
 impl ksni::Tray for Tray {
     fn id(&self) -> String {
-        "simple-tts".into()
+        "smalltalkai-reader".into()
     }
     fn title(&self) -> String {
-        "Simple TTS".into()
+        "SmallTalkAI Reader".into()
     }
     fn icon_name(&self) -> String {
         "audio-volume-high".into()
@@ -10203,7 +10204,7 @@ fn windows_tray(app: App) {
     }
     unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
-        let class: Vec<u16> = "SimpleTtsTrayWindow"
+        let class: Vec<u16> = "SmallTalkAITrayWindow"
             .encode_utf16()
             .chain(Some(0))
             .collect();
@@ -10235,7 +10236,7 @@ fn windows_tray(app: App) {
             tracing::error!("could not create Windows tray window");
             return;
         }
-        let tip: Vec<u16> = "Simple TTS".encode_utf16().chain(Some(0)).collect();
+        let tip: Vec<u16> = "SmallTalkAI Reader".encode_utf16().chain(Some(0)).collect();
         let mut data: NOTIFYICONDATAW = std::mem::zeroed();
         data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
         data.hWnd = hwnd;
@@ -10247,7 +10248,7 @@ fn windows_tray(app: App) {
             *dst = src;
         }
         if Shell_NotifyIconW(NIM_ADD, &data) == 0 {
-            tracing::error!("could not add Simple TTS tray icon");
+            tracing::error!("could not add SmallTalkAI Reader tray icon");
             DestroyWindow(hwnd);
             return;
         }
@@ -11288,15 +11289,15 @@ mod server_model_tests {
             requested_server_model(&request, "kokoro-v1", &["kokoro-v1"]).unwrap(),
             "kokoro-v1"
         );
-        let request = serde_json::json!({"model":"simple-tts-ocr"});
+        let request = serde_json::json!({"model":"smalltalkai-ocr"});
         assert_eq!(
             requested_server_model(
                 &request,
-                "simple-tts-ocr",
-                &["simple-tts-ocr", "paddle-ar-en"]
+                "smalltalkai-ocr",
+                &["smalltalkai-ocr", "paddle-ar-en"]
             )
             .unwrap(),
-            "simple-tts-ocr"
+            "smalltalkai-ocr"
         );
         let request = serde_json::json!({"model":"not-installed"});
         assert!(requested_server_model(&request, "kokoro-v1", &["kokoro-v1"]).is_err());

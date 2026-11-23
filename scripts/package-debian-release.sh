@@ -30,16 +30,12 @@ install -d "$stage/usr/share/icons/hicolor"
 cp -a icons/hicolor/. "$stage/usr/share/icons/hicolor/"
 install -Dm644 packaging/linux/smalltalkai-linux.service "$stage/usr/lib/systemd/user/smalltalkai-linux.service"
 install -Dm644 packaging/linux/smalltalkai-server.service "$stage/usr/lib/systemd/user/smalltalkai-server.service"
-bash packaging/linux/install-compatibility-links.sh "$stage"
 install -Dm644 LICENSE "$stage/usr/share/doc/smalltalkai/copyright"
 install -m644 THIRD_PARTY_NOTICES.md assets/language/ATTRIBUTION.md assets/language/LICENSE-CC-BY-SA-3.0.txt assets/fonts/LICENSE-*.txt "$stage/usr/share/doc/smalltalkai/"
 install -m644 web/settings/public/settings-sans-license.txt "$stage/usr/share/doc/smalltalkai/"
 cat > "$stage/DEBIAN/control" <<EOF
 Package: smalltalkai
 Version: $version
-Provides: simple-stt
-Replaces: simple-stt
-Conflicts: simple-stt
 Architecture: amd64
 Maintainer: SmallTalkAI contributors
 Depends: libasound2t64, libcairo2, libpango-1.0-0, libpangocairo-1.0-0, libpipewire-0.3-0, libsecret-tools, libvulkan1, ffmpeg, xdg-utils, wl-clipboard, xclip, slurp, libatspi2.0-0t64, libxtst6, libwebkit2gtk-4.1-0

@@ -68,7 +68,7 @@ pub enum Scope {
 pub enum ConfigCommand {
     Path,
     Show,
-    /// Show all default values, including optional settings absent from an older file.
+    /// Show the default values for this configuration.
     Defaults,
     Get {
         key: String,
@@ -204,8 +204,8 @@ pub fn dispatch(command: Command) -> Result<()> {
                 .args(["--config"])
                 .arg(crate::reader::store().path())
                 .arg("server")
-                .env("SIMPLE_STT_EMBEDDED_READER", "1")
-                .env("SIMPLE_STT_READER_DATA", crate::reader::data_dir())
+                .env("SMALLTALKAI_EMBEDDED_READER", "1")
+                .env("SMALLTALKAI_READER_DATA", crate::reader::data_dir())
                 .status()
                 .context("starting installed API controller")?;
             anyhow::ensure!(status.success(), "API controller exited with {status}");
@@ -423,8 +423,8 @@ fn credentials(command: CredentialCommand) -> Result<()> {
                 println!("{}", generated_server_token(None, true));
                 return Ok(());
             }
-            anyhow::ensure!(std::env::var_os("SIMPLE_TTS_SERVER_TOKEN").is_none(),
-                "SIMPLE_TTS_SERVER_TOKEN overrides the saved token; unset it before generating a saved token");
+            anyhow::ensure!(std::env::var_os("SMALLTALKAI_SERVER_TOKEN").is_none(),
+                "SMALLTALKAI_SERVER_TOKEN overrides the saved token; unset it before generating a saved token");
             let existing = secrets::server_key()?;
             let token = generated_server_token(existing.as_deref(), replace);
             if existing.as_deref() != Some(token.as_str()) {
@@ -507,11 +507,11 @@ fn write_server_token(path: &std::path::Path, token: &str) -> Result<()> {
             .open(&temporary)?;
         for line in existing
             .lines()
-            .filter(|line| !line.trim_start().starts_with("SIMPLE_TTS_SERVER_TOKEN="))
+            .filter(|line| !line.trim_start().starts_with("SMALLTALKAI_SERVER_TOKEN="))
         {
             writeln!(output, "{line}")?;
         }
-        writeln!(output, "SIMPLE_TTS_SERVER_TOKEN={token}")?;
+        writeln!(output, "SMALLTALKAI_SERVER_TOKEN={token}")?;
         output.sync_all()?;
         std::fs::rename(&temporary, path)?;
         Ok(())
@@ -527,7 +527,7 @@ fn activate_server_token(token: &str) -> Result<()> {
     {
         let path = dirs::config_dir()
             .context("user configuration directory unavailable")?
-            .join("simple-stt/server.env");
+            .join("smalltalkai/server.env");
         write_server_token(&path, token)?;
         let status = std::process::Command::new("systemctl")
             .args(["--user", "restart", "smalltalkai-server.service"])
@@ -539,8 +539,8 @@ fn activate_server_token(token: &str) -> Result<()> {
     #[cfg(windows)]
     {
         use reader_core::secrets;
-        anyhow::ensure!(std::env::var_os("SIMPLE_TTS_SERVER_TOKEN").is_none(),
-            "SIMPLE_TTS_SERVER_TOKEN overrides the saved token; unset it before activating a saved token");
+        anyhow::ensure!(std::env::var_os("SMALLTALKAI_SERVER_TOKEN").is_none(),
+            "SMALLTALKAI_SERVER_TOKEN overrides the saved token; unset it before activating a saved token");
         let config = crate::reader::load()?.server;
         anyhow::ensure!(
             config.enabled,
@@ -816,11 +816,11 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("server.env");
-        std::fs::write(&path, "OTHER_SETTING=keep\nSIMPLE_TTS_SERVER_TOKEN=old\n").unwrap();
+        std::fs::write(&path, "OTHER_SETTING=keep\nSMALLTALKAI_SERVER_TOKEN=old\n").unwrap();
         write_server_token(&path, "fixture-token").unwrap();
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
-            "OTHER_SETTING=keep\nSIMPLE_TTS_SERVER_TOKEN=fixture-token\n"
+            "OTHER_SETTING=keep\nSMALLTALKAI_SERVER_TOKEN=fixture-token\n"
         );
         assert_eq!(
             std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,

@@ -37,18 +37,18 @@ const windowsMenu = menu.map(group => group.filter(item => item.windows_icon))
 const content = `; Generated from desktop catalogs and tray menu. Run node web/settings/tools/locales.mjs.
 ; catalog-sha256: ${digest}
 UiSetLanguage(language := "auto") {
-    global SimpleSttUiLocale
+    global SmallTalkAIUiLocale
     if language = "auto"
         language := (DllCall("GetUserDefaultUILanguage", "UShort") & 0x3ff) = 1 ? "ar" : "en"
-    SimpleSttUiLocale := language = "ar" ? "ar" : "en"
+    SmallTalkAIUiLocale := language = "ar" ? "ar" : "en"
 }
 UiText(id, args := unset) {
-    global SimpleSttUiLocale
+    global SmallTalkAIUiLocale
     static english := ${map(enText)}
     static arabic := ${map(arText)}
-    if !IsSet(SimpleSttUiLocale)
+    if !IsSet(SmallTalkAIUiLocale)
         UiSetLanguage()
-    catalog := SimpleSttUiLocale = "ar" ? arabic : english
+    catalog := SmallTalkAIUiLocale = "ar" ? arabic : english
     text := catalog.Has(id) ? catalog[id] : (english.Has(id) ? english[id] : id)
     output := ""
     offset := 1

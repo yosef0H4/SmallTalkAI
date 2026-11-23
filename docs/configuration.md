@@ -1,12 +1,12 @@
 # Configuration schema and ownership
 
-`config.json` is SmallTalkAI's canonical, portable configuration. The disposable `smalltalkai-settings` browser process is only a visual editor for it. Windows uses `%APPDATA%\smalltalkai\instances\<runtime-id>\config.json`; Linux uses the matching XDG config directory. `SIMPLE_STT_CONFIG` overrides the path for development and tests.
+`config.json` is SmallTalkAI's canonical, portable configuration. The disposable `smalltalkai-settings` browser process is only a visual editor for it. Windows uses `%APPDATA%\smalltalkai\instances\<runtime-id>\config.json`; Linux uses the matching XDG config directory. `SMALLTALKAI_CONFIG` overrides the path for development and tests.
 
 The current schema is version 9:
 
 ```json
 {
-  "schema_version": 9,
+  "schema_version": 10,
   "general": {
     "enabled": true,
     "recording_mode": "hold",
@@ -31,11 +31,6 @@ The current schema is version 9:
   "output": {
     "delivery_mode": "smart_paste",
     "enabled_delivery_modes": ["smart_paste", "type"],
-    "linux_automation_backend": "auto",
-    "linux_delivery_cycle": [
-      { "backend": "auto", "mode": "type" },
-      { "backend": "auto", "mode": "smart_paste" }
-    ],
     "app_overrides": [],
     "paced_typing_enabled": true,
     "typing_speed_wpm": 450,
@@ -77,13 +72,12 @@ installing a model never replaces an assignment, and saved assignments block rem
 
 Writes use a temporary file, flush it, and atomically replace the destination. Relative runtime/model paths are preserved in JSON and resolved against the runtime root only when used. An unavailable `audio.preferred_device_id` is retained while capture temporarily follows the system default.
 
-`output.delivery_mode` is the method used immediately. On Windows,
-`output.enabled_delivery_modes` is the ordered list advanced by the delivery-cycle
-hotkey. On Linux, `output.linux_delivery_cycle` is the ordered list because each
-choice includes both an automation backend and a delivery method. The active
-choice does not have to be part of either cycle. Smart Paste, typing, clipboard
-only, and every advanced paste shortcut can be included; both cycle lists must
-contain at least one choice. Linux defaults to typing, with Smart Paste second in its cycle; Windows defaults to Smart Paste. Typing defaults to 450 WPM, at the center of the speed slider. Finite speeds span 50–1650 WPM; the far-right Instant position uses `paced_typing_enabled: false` and keeps the saved finite speed. Instant still types without a clipboard paste.
+`output.delivery_mode` is the method used immediately. On both platforms,
+`output.enabled_delivery_modes` lists the methods in shortcut cycle order.
+The active method can be outside the cycle. Include at least one method.
+Linux starts with typing and Windows starts with Smart Paste. Typing defaults
+to 450 WPM. Finite speeds span 50–1650 WPM. Instant uses
+`paced_typing_enabled: false` and keeps the saved finite speed.
 
 The settings server detects external edits with a content hash before Save. A successful Save asks the capture service to reload and emits `configuration_reloaded`; Windows AHK then reapplies its owned hotkeys, startup registration, transforms, and delivery settings.
 
@@ -91,7 +85,7 @@ On Windows and Linux, GPU mode selects a physical Vulkan GPU, preferring a discr
 
 ## Interface language
 
-`general.ui_language` accepts `auto` (default), `en`, or `ar` within schema 9. Missing/invalid values become `auto`. This setting is independent of keyboard layout, speech model assignments, and transcript content. Settings previews changes immediately; Save applies them to desktop menus and capture notices. System uses Windows user UI language or Linux message-locale preferences, with English fallback.
+`general.ui_language` accepts `auto` (default), `en`, or `ar` within schema 10. Missing/invalid values become `auto`. This setting is independent of keyboard layout, speech model assignments, and transcript content. Settings previews changes immediately; Save applies them to desktop menus and capture notices. System uses Windows user UI language or Linux message-locale preferences, with English fallback.
 
 Canonical messages live in `web/settings/src/lib/locales/`: `en.json`/`ar.json` for Settings and `desktop.en.json`/`desktop.ar.json` for native UI. Use stable keys and named placeholders. `node web/settings/tools/locales.mjs` validates key/placeholder parity and generates `ahk/lib/Locale.ahk`; `npm run build` runs it automatically. Rust embeds the same desktop catalogs. Do not edit the generated AHK catalog directly.
 
@@ -108,7 +102,7 @@ On a headless host without a keyring, generate to a private file and explicitly 
 ```sh
 umask 077
 smalltalkai credentials generate server --stdout > ~/smalltalkai-server.token
-export SIMPLE_TTS_SERVER_TOKEN="$(cat ~/smalltalkai-server.token)"
+export SMALLTALKAI_SERVER_TOKEN="$(cat ~/smalltalkai-server.token)"
 smalltalkai serve
 ```
 

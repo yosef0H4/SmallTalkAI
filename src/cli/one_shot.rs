@@ -11,7 +11,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-pub(super) const WORKSPACE_ENV: &str = "SIMPLE_STT_CLI_WORKSPACE";
+pub(super) const WORKSPACE_ENV: &str = "SMALLTALKAI_CLI_WORKSPACE";
 const READY: &str = "ready";
 const SPEECH_OUTPUT: &str = "speech.wav";
 
@@ -194,7 +194,7 @@ impl OneShotBackend {
             .arg("media")
             .arg("--config")
             .arg(crate::reader::store().path())
-            .env("SIMPLE_STT_READER_DATA", &self.workspace)
+            .env("SMALLTALKAI_READER_DATA", &self.workspace)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()

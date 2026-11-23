@@ -163,11 +163,11 @@ def main():
         alias = tempfile.TemporaryDirectory(prefix='paddle-gpu-')
         short = Path(alias.name) / 'instance'
         short.symlink_to(assets.parent, target_is_directory=True)
-        env = dict(os.environ, SIMPLE_STT_CONFIG=str(profile / 'config.json'), SIMPLE_STT_RUNTIME_ROOT=str(profile / 'runtime'), XDG_DATA_HOME=str(profile / 'data'), XDG_CONFIG_HOME=str(profile / 'config'), XDG_CACHE_HOME=str(profile / 'cache'), SIMPLE_STT_READER_DATA=str(short / 'reader'), SIMPLE_TTS_CONFIG=str(short / 'reader/config.json'), SIMPLE_TTS_NO_DESKTOP='1', SIMPLE_STT_NO_DESKTOP='1', DISPLAY='', WAYLAND_DISPLAY='', DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-paddle-test')
+        env = dict(os.environ, SMALLTALKAI_CONFIG=str(profile / 'config.json'), SMALLTALKAI_RUNTIME_ROOT=str(profile / 'runtime'), XDG_DATA_HOME=str(profile / 'data'), XDG_CONFIG_HOME=str(profile / 'config'), XDG_CACHE_HOME=str(profile / 'cache'), SMALLTALKAI_READER_DATA=str(short / 'reader'), SMALLTALKAI_READER_CONFIG=str(short / 'reader/config.json'), SMALLTALKAI_READER_NO_DESKTOP='1', SMALLTALKAI_NO_DESKTOP='1', DISPLAY='', WAYLAND_DISPLAY='', DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-paddle-test')
         env.pop('LD_LIBRARY_PATH', None)
         log = (profile / 'smalltalkai-reader.log').open('w')
         daemon = subprocess.Popen([str(bins / 'smalltalkai-reader'), 'daemon', '--foreground', '--no-desktop'], env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
-        service.wait_for(lambda: (reader / 'simple-tts.sock').exists(), 12, 'private OCR controller')
+        service.wait_for(lambda: (reader / 'smalltalkai-reader.sock').exists(), 12, 'private OCR controller')
         monitor = service.WorkerMonitor(daemon.pid)
         def watch_gpu():
             while not stop_gpu.wait(.1):

@@ -368,7 +368,7 @@ impl EventBuffer {
 fn main() -> Result<()> {
     let args = Args::parse();
     if let Some(config) = &args.config {
-        std::env::set_var("SIMPLE_STT_CONFIG", config);
+        std::env::set_var("SMALLTALKAI_CONFIG", config);
     }
     let state_file = args
         .state_file

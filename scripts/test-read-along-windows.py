@@ -19,7 +19,7 @@ from PIL import Image, ImageGrab
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BIN = ROOT / "target/debug"
-PICKER_CLASS = "SimpleSttScreenRegionPicker"
+PICKER_CLASS = "SmallTalkAIScreenRegionPicker"
 PAGE_COLORS = ("#cc3333", "#33aa33", "#3333cc", "#ac7324")
 PAGE_NAMES = ("First page.", "Second page.", "Third page.", "Fourth page.")
 DURATION = 5
@@ -244,9 +244,9 @@ def main():
             profile = Path(folder) if assets else Path(folder) / "reader"
             profile.mkdir(exist_ok=True)
             config = profile / "config.json"
-            env = dict(os.environ, SIMPLE_STT_READER_DATA=str(profile), SIMPLE_TTS_CONFIG=str(config),
-                       SIMPLE_STT_EMBEDDED_READER="1", SIMPLE_TTS_NO_DESKTOP="1",
-                       SIMPLE_TTS_OCR_API_KEY="desktop-ocr-fixture", SIMPLE_TTS_SPEECH_API_KEY="desktop-tts-fixture", RUST_LOG="info")
+            env = dict(os.environ, SMALLTALKAI_READER_DATA=str(profile), SMALLTALKAI_READER_CONFIG=str(config),
+                       SMALLTALKAI_EMBEDDED_READER="1", SMALLTALKAI_READER_NO_DESKTOP="1",
+                       SMALLTALKAI_OCR_API_KEY="desktop-ocr-fixture", SMALLTALKAI_SPEECH_API_KEY="desktop-tts-fixture", RUST_LOG="info")
             options = dict(env=env, creationflags=subprocess.CREATE_NO_WINDOW)
             defaults = subprocess.run(
                 [binaries / "smalltalkai-ctl.exe", "config", "--scope", "reader", "defaults"],
@@ -465,7 +465,7 @@ def main():
                         tooltip.geometry(f"130x80+{app.winfo_rootx()+225}+{app.winfo_rooty()+115}")
                         app.update()
                         tooltip_hwnd = user32.GetAncestor(tooltip.winfo_id(), 2)
-                        assert user32.SetPropW(tooltip_hwnd, "SimpleSttOverlay", 1)
+                        assert user32.SetPropW(tooltip_hwnd, "SmallTalkAIOverlay", 1)
                         assert user32.IsWindowVisible(tooltip_hwnd)
                     focus_target()
                     started = time.monotonic()

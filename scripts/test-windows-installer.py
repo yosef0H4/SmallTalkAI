@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 import time
 import tomllib
 
@@ -116,13 +117,14 @@ def inspect_wizard(installer, version):
 
 
 def verify_launcher(target):
-    launchers = [target / "SmallTalkAI.exe", target / "runtime/SmallTalkAI.exe"]
-    assert launchers[0].read_bytes() == launchers[1].read_bytes()
-    probe = OUT / "Launcher Probe With Spaces"
+    launchers = list(target.rglob("SmallTalkAI.exe"))
+    assert launchers == [target / "SmallTalkAI.exe"], launchers
+    assert not list(target.rglob("*.cmd")), "installer added command-script launchers"
+    probe = target.parent / "Launcher Probe With Spaces"
     runtime = probe / "runtime"
     runtime.mkdir(parents=True, exist_ok=True)
-    for source, destination in zip(launchers, [probe / "SmallTalkAI.exe", runtime / "SmallTalkAI.exe"]):
-        destination.write_bytes(source.read_bytes())
+    launcher = probe / "SmallTalkAI.exe"
+    launcher.write_bytes(launchers[0].read_bytes())
     (runtime / "AutoHotkey64.exe").write_bytes((target / "runtime/AutoHotkey64.exe").read_bytes())
     script = runtime / "smalltalkai.ahk"
     script.write_text(
@@ -131,27 +133,25 @@ def verify_launcher(target):
         encoding="ascii",
     )
     argument = 'café with "quotes"'
-    for index, exe in enumerate([probe / "SmallTalkAI.exe", runtime / "SmallTalkAI.exe"]):
-        marker = probe / f"launch result {index}.txt"
-        marker.unlink(missing_ok=True)
-        subprocess.run([str(exe), str(marker), argument], cwd=OUT, check=True, timeout=10)
-        expected = [str(runtime), str(script), argument]
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            try:
-                if marker.read_text(encoding="utf-8").splitlines() == expected:
-                    break
-            except OSError:
-                pass
-            time.sleep(0.05)
-        else:
-            raise AssertionError(f"{exe} did not launch the bundled script with the expected working directory and arguments")
-    print("PASS both EXE launcher paths start the bundled AHK script from a directory with spaces", flush=True)
+    marker = probe / "launch result.txt"
+    subprocess.run([str(launcher), str(marker), argument], cwd=OUT, check=True, timeout=10)
+    expected = [str(runtime), str(script), argument]
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            if marker.read_text(encoding="utf-8").splitlines() == expected:
+                break
+        except OSError:
+            pass
+        time.sleep(0.05)
+    else:
+        raise AssertionError(f"{launcher} did not launch the bundled script with the expected working directory and arguments")
+    print("PASS the single native launcher starts the bundled AHK script from a directory with spaces", flush=True)
 
 
 def install_payload(iscc, version):
     source = (ROOT / "artifacts/smalltalkai.iss").read_text(encoding="utf-8")
-    # Keep all install tasks, files, cleanup and launch logic identical; isolate
+    # Keep all install tasks, files and launch logic identical; isolate
     # only registration/output metadata so the user's installation is untouched.
     overrides = {
         "AppId": "{{11B34A39-5E88-47A0-A600-826B9185F0D1}",
@@ -166,16 +166,15 @@ def install_payload(iscc, version):
     test_script = OUT / "setup-isolated.iss"
     test_script.write_text(source, encoding="utf-8")
     with (OUT / "compile.log").open("w") as log:
-        subprocess.run([str(iscc), f"/DSimpleSttVersion={version}", str(test_script)], stdout=log, stderr=subprocess.STDOUT, check=True, timeout=120)
-    target = OUT / "installed SmallTalkAI"
-    markers = [target / "models/keep.gguf", target / "runtime/external/parakeet-runtime/models/keep.gguf", target / "config.json"]
-    for path in markers:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"existing user data must survive")
-    (target / "runtime/SmallTalkAI.exe").write_bytes(b"previous compiled launcher")
-    subprocess.run([str(OUT / "setup-isolated.exe"), "/VERYSILENT", "/SP-", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOICONS", "/TASKS=", f"/DIR={target}", f"/LOG={OUT / 'install.log'}"], check=True, timeout=120)
-    assert all(p.read_bytes() == b"existing user data must survive" for p in markers)
-    assert set(target.rglob("*.gguf")) == set(markers[:2]), "installer added speech models"
+        subprocess.run([str(iscc), f"/DSmallTalkAIVersion={version}", str(test_script)], stdout=log, stderr=subprocess.STDOUT, check=True, timeout=120)
+    with tempfile.TemporaryDirectory(prefix="clean-install-", dir=OUT) as directory:
+        target = Path(directory) / "installed SmallTalkAI"
+        subprocess.run([str(OUT / "setup-isolated.exe"), "/VERYSILENT", "/SP-", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOICONS", "/TASKS=", f"/DIR={target}", f"/LOG={OUT / 'install.log'}"], check=True, timeout=120)
+        verify_installed_payload(target)
+
+
+def verify_installed_payload(target):
+    assert not list(target.rglob("*.gguf")), "installer added speech models"
     assert not list(target.rglob("*.onnx")), "installer added TTS/OCR models"
     libraries = (ROOT / "artifacts/smalltalkai-portable").rglob("*.dll")
     assert not any(path.name.startswith(("parakeet", "ggml", "onnxruntime", "sherpa-onnx")) for path in libraries), "installer bundled an inference runtime"
@@ -185,7 +184,7 @@ def install_payload(iscc, version):
     assert (target / "runtime/smalltalkai.ahk").is_file()
     verify_launcher(target)
     executable = target / "runtime/smalltalkai-ctl.exe"
-    env = dict(os.environ, SIMPLE_STT_CONFIG=str(target / "unused-test-config.json"))
+    env = dict(os.environ, SMALLTALKAI_CONFIG=str(target / "unused-test-config.json"))
     for scope in ["app", "reader"]:
         result = json.loads(subprocess.check_output([str(executable), "config", "--scope", scope, "defaults"], env=env, timeout=15))
         result = result.get("config", result)
@@ -198,7 +197,7 @@ def install_payload(iscc, version):
             assert result["general"]["show_shortcuts_mode"] == "hold"
         else:
             assert all(value == "None" for value in result["shortcuts"].values())
-    print("PASS isolated install: existing models/settings preserved, no models added, packaged defaults stay empty", flush=True)
+    print("PASS isolated clean install: no models added, packaged defaults stay empty", flush=True)
 
 
 if __name__ == "__main__":

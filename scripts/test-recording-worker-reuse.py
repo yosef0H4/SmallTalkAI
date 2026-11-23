@@ -28,15 +28,15 @@ def main():
         for filename in ['hang.gguf', 'normal.gguf', 'other.gguf']:
             (directory / filename).touch()
         config = directory / 'config.json'
-        draft = {'schema_version': 9, 'speech': {
+        draft = {'schema_version': 10, 'speech': {
             'selection_mode': 'single_model', 'single_model_filename': 'hang.gguf',
             'model_dir': str(directory), 'runtime_dir': str(directory),
             'inference_device': 'cpu', 'worker_shutdown_grace_ms': 250,
             'idle_worker_timeout_secs': 10,
         }}
         config.write_text(json.dumps(draft))
-        env = dict(os.environ, SIMPLE_STT_CONFIG=str(config),
-                   SIMPLE_STT_RUNTIME_ROOT=str(directory), XDG_DATA_HOME=str(directory / 'data'))
+        env = dict(os.environ, SMALLTALKAI_CONFIG=str(config),
+                   SMALLTALKAI_RUNTIME_ROOT=str(directory), XDG_DATA_HOME=str(directory / 'data'))
         state_path = directory / 'state.json'
         token = secrets.token_hex(32)
         with (directory / 'capture.log').open('w') as output:

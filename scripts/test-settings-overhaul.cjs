@@ -60,7 +60,7 @@ const f = require("./settings-fixture.cjs");
   const desktop = await context.newPage();
   await desktop.setViewportSize({ width: 900, height: 620 });
   await desktop.emulateMedia({ colorScheme: "dark" });
-  await desktop.addInitScript(() => { window.__SIMPLE_STT_DESKTOP__ = true; });
+  await desktop.addInitScript(() => { window.__SMALLTALKAI_DESKTOP__ = true; });
   await desktop.goto(url);
   await desktop.getByRole("button", { name: "Maximize Settings", exact: true }).locator(".frame-maximize").waitFor();
   for (const maximized of [true, false]) {
@@ -316,12 +316,12 @@ const f = require("./settings-fixture.cjs");
     page.getByRole("button", { name: "Export", exact: true }).click(),
   ]);
   const exportPath = await exported[0].path();
-  assert.equal(JSON.parse(fs.readFileSync(exportPath)).schema_version, 9);
+  assert.equal(JSON.parse(fs.readFileSync(exportPath)).schema_version, 10);
   await page.getByRole("button", { name: "Copy JSON", exact: true }).click();
   assert.equal(
     JSON.parse(await page.evaluate(() => navigator.clipboard.readText()))
       .schema_version,
-    9,
+    10,
   );
   await page.locator("#json").fill("{broken");
   await page.locator("#savebar button[type=submit]").click();
@@ -333,7 +333,7 @@ const f = require("./settings-fixture.cjs");
   );
   assert.equal(
     JSON.parse(await page.locator("#json").inputValue()).schema_version,
-    9,
+    10,
   );
   const edited = JSON.parse(await page.locator("#json").inputValue());
   edited.audio.gain = 1.4;
@@ -371,12 +371,7 @@ const f = require("./settings-fixture.cjs");
   await page.locator("#savebar").waitFor({ state: "detached" });
   f.options.online = true;
   f.options.platform = "linux";
-  f.getConfig().output.linux_automation_backend = "xdotool";
-  f.getConfig().output.linux_delivery_cycle = [
-    { mode: "type", backend: "ydotool" },
-    { mode: "type", backend: "xdotool" },
-    { mode: "clipboard", backend: "clipboard_only" },
-  ];
+  f.getConfig().output.enabled_delivery_modes = ["type", "clipboard"];
   await page.reload();
   await page.locator('[data-setting-path="general.enabled"] input').waitFor();
   await page
@@ -391,15 +386,11 @@ const f = require("./settings-fixture.cjs");
   await page.locator('[data-combo-list="output.delivery_mode"]').getByRole("option", { name: "Ctrl+V", exact: true }).click();
   await page.getByText("Cycle between", { exact: true }).click();
   const typeCycle = page.getByRole("checkbox", { name: "Include Type in delivery cycle", exact: true });
-  assert(await typeCycle.isChecked(), "legacy duplicate Type entries normalize by mode");
+  assert(await typeCycle.isChecked(), "the saved Type choice is included");
   await typeCycle.uncheck();
   await page.getByRole("checkbox", { name: "Include Ctrl+V in delivery cycle", exact: true }).check();
   await save();
-  assert.equal(f.getConfig().output.linux_automation_backend, "auto");
-  assert.deepEqual(f.getConfig().output.linux_delivery_cycle, [
-    { mode: "clipboard", backend: "auto" },
-    { mode: "paste_ctrl_v", backend: "auto" },
-  ]);
+  assert.deepEqual(f.getConfig().output.enabled_delivery_modes, ["clipboard", "paste_ctrl_v"]);
   const folder = path.resolve("artifacts/settings-overhaul");
   fs.mkdirSync(folder, { recursive: true });
   for (const theme of ["light", "dark"])

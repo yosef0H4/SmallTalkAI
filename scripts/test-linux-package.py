@@ -39,11 +39,13 @@ def main():
         assert feature in symbols, f'Paste helper missing {feature}'
     assert "XTestFakeKeyEvent" not in symbols, "Legacy XTest injection must not ship"
     for installed in ['/usr/bin/smalltalkai', '/usr/lib/systemd/user/smalltalkai-linux.service',
-                      '/usr/share/applications/io.github.yosef0H4.simple_stt.desktop',
+                      '/usr/lib/systemd/user/smalltalkai-server.service',
+                      '/usr/share/applications/io.github.yosef0H4.smalltalkai.desktop',
                       '/usr/share/applications/smalltalkai-reader.desktop']:
         assert Path(installed).is_file(), installed
+    assert Path('/usr/bin/smalltalkai-ctl').samefile(root / 'smalltalkai-ctl')
     assert not Path('/usr/share/applications/smalltalkai-settings.desktop').exists()
-    launcher = Path('/usr/share/applications/io.github.yosef0H4.simple_stt.desktop').read_text()
+    launcher = Path('/usr/share/applications/io.github.yosef0H4.smalltalkai.desktop').read_text()
     assert 'Name=SmallTalkAI\n' in launcher and 'Exec=smalltalkai launch\n' in launcher
     for size in (16, 22, 24, 32, 48, 64, 128, 256):
         icon = Path(f'/usr/share/icons/hicolor/{size}x{size}/apps/smalltalkai.png')
@@ -51,13 +53,6 @@ def main():
             header = stream.read(24)
         assert header.startswith(b'\x89PNG\r\n\x1a\n')
         assert int.from_bytes(header[16:20], 'big') == int.from_bytes(header[20:24], 'big') == size
-    for legacy, current in [
-        ('/usr/bin/simple-stt', '/usr/bin/smalltalkai'),
-        ('/usr/bin/simple-stt-ctl', '/usr/bin/smalltalkai-ctl'),
-        ('/usr/lib/systemd/user/simple-stt-linux.service', '/usr/lib/systemd/user/smalltalkai-linux.service'),
-        ('/usr/lib/systemd/user/simple-stt-server.service', '/usr/lib/systemd/user/smalltalkai-server.service'),
-    ]:
-        assert Path(legacy).is_symlink() and Path(legacy).samefile(current), legacy
     kwin_grant = Path('/usr/share/applications/smalltalkai-reader.desktop').read_text()
     assert 'Exec=/usr/lib/smalltalkai/smalltalkai-reader' in kwin_grant
     assert 'X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2' in kwin_grant
@@ -69,7 +64,7 @@ def main():
                    XDG_RUNTIME_DIR=str(home / 'run'), XDG_SESSION_TYPE='wayland',
                    WAYLAND_DISPLAY='unavailable-package-test-display',
                    DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-package-test-bus')
-        for name in ['SIMPLE_STT_RUNTIME_ROOT', 'SIMPLE_STT_CONFIG', 'SIMPLE_STT_BINDIR', 'DISPLAY']:
+        for name in ['SMALLTALKAI_RUNTIME_ROOT', 'SMALLTALKAI_CONFIG', 'SMALLTALKAI_BINDIR', 'DISPLAY']:
             env.pop(name, None)
         (home / 'run').mkdir(mode=0o700)
         subprocess.run(['/usr/bin/smalltalkai', '--help'], cwd=home, env=env,
@@ -77,7 +72,7 @@ def main():
         # ExecStop must also succeed after a tray quit has removed capture state.
         subprocess.run(['/usr/bin/smalltalkai', 'shutdown'], cwd=home, env=env,
                        check=True, timeout=10)
-        process = subprocess.Popen([str(root / 'smalltalkai-settings'), '--no-browser'],
+        process = subprocess.Popen([str(root / 'smalltalkai-settings'), '--headless'],
                                    cwd=home, env=env, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True)
         try:
@@ -98,12 +93,12 @@ def main():
                 assert 0 < int.from_bytes(titlebar_icon[16:20], 'big') < 64
             token = parse_qs(parsed.fragment)['token'][0]
             request = Request(origin + '/api/state', headers={
-                'Origin': origin, 'X-Simple-STT-Token': token})
+                'Origin': origin, 'X-SmallTalkAI-Token': token})
             with urlopen(request, timeout=20) as response:
                 state = json.load(response)
-            assert state['config_path'] == str(home / 'config/simple-stt/instances/installed/config.json')
+            assert state['config_path'] == str(home / 'config/smalltalkai/instances/installed/config.json')
             assert state['config']['speech']['runtime_dir'] == ''
-            assert state['resolved_model_dir'] == str(home / 'data/simple-stt/models')
+            assert state['resolved_model_dir'] == str(home / 'data/smalltalkai/models')
             assert not state['runtime_ready']
             assert not state['service_online']
             assert state['linux_automation']['recommended'] == 'portal', 'installed input must use the portal'
@@ -113,13 +108,13 @@ def main():
             assert state['config']['speech']['selection_mode']=='follow_keyboard'
             assert state['config']['speech']['language_models']=={}
             assert state['config']['speech']['language_runtimes']=={}
-            (home / 'data/simple-stt/models').mkdir(parents=True, exist_ok=True)
-            (home / 'data/simple-stt/models/write-test').write_text('user-writable')
+            (home / 'data/smalltalkai/models').mkdir(parents=True, exist_ok=True)
+            (home / 'data/smalltalkai/models/write-test').write_text('user-writable')
             # A stopped portal shell must return an error, never report success
             # or launch a real desktop settings application in this isolated test.
             action = Request(origin + '/api/platform-action',
                              data=json.dumps({'action': 'configure_shortcuts'}).encode(),
-                             headers={'Origin': origin, 'X-Simple-STT-Token': token,
+                             headers={'Origin': origin, 'X-SmallTalkAI-Token': token,
                                       'Content-Type': 'application/json'})
             try:
                 urlopen(action, timeout=15).close()
@@ -129,7 +124,7 @@ def main():
                 assert b'not running' in error.read(), 'Missing actionable shortcut error'
             # Exercise the real Settings -> shell request/result transport with
             # a fake portal responder. No session bus, keyboard or host UI is used.
-            shell_data = home / 'data/simple-stt/instances/installed'
+            shell_data = home / 'data/smalltalkai/instances/installed'
             (shell_data / 'linux-daemon.pid').write_text(str(os.getpid()))
             request_file = shell_data / 'linux-configure-shortcuts.request'
             result_file = shell_data / 'linux-configure-shortcuts.result'

@@ -21,8 +21,7 @@ fn run() -> Result<()> {
     ));
     let mut command = Command::new(executable);
     command.args(std::env::args_os().skip(1));
-    let error_context =
-        "opening native Settings; pass --browser or --no-browser for browser Settings";
+    let error_context = "opening native SmallTalkAI Settings";
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;

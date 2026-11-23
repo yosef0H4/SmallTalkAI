@@ -434,7 +434,7 @@ mod platform {
         let mut converted = Vec::new();
         let mut was_recording = false;
         let mut level_meter = AudioLevelMeter::new();
-        let debug_levels = std::env::var_os("SIMPLE_STT_AUDIO_LEVEL_DEBUG").is_some();
+        let debug_levels = std::env::var_os("SMALLTALKAI_AUDIO_LEVEL_DEBUG").is_some();
         let mut debug_frame_index: u64 = 0;
         Ok(device.build_input_stream(
             config,

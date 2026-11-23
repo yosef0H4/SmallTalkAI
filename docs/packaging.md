@@ -71,8 +71,6 @@ The portable archive contains the same runtime payload used by the installer:
 ```text
 smalltalkai-portable\
     SmallTalkAI.exe                         native Windows launcher
-    smalltalkai.cmd                         compatibility launcher
-    simple-stt.cmd                          compatibility launcher
     LICENSE
     START_HERE.txt
     THIRD_PARTY_NOTICES.md

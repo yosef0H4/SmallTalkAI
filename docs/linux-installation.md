@@ -75,19 +75,14 @@ systemctl --user is-active smalltalkai-linux.service   # inactive
 ## Settings and models
 
 Settings and state use the stable `installed` profile under
-`~/.config/simple-stt/instances/installed/` and
-`~/.local/share/simple-stt/instances/installed/`. Downloaded optional assets default to
-`~/.local/share/simple-stt/instances/installed/assets/`. XDG directory overrides
-are respected. The package keeps these paths and the existing credential and portal
-identifiers so SmallTalkAI can use profiles created by Simple STT.
-The app binaries are read-only package files in
-`/usr/lib/smalltalkai/`; upgrades preserve user settings and models.
+`~/.config/smalltalkai/instances/installed/` and
+`~/.local/share/smalltalkai/instances/installed/`. Downloaded optional assets default to
+`~/.local/share/smalltalkai/instances/installed/assets/`. XDG directory overrides
+are respected. The binaries are installed under `/usr/lib/smalltalkai/`.
 
-On a branded upgrade, quit the desktop app from its tray menu before installing
-the package. If you run the headless API as a user service, stop it before the
-upgrade, then reload the user manager and restart it using
-`smalltalkai-server.service`. The old service names and command names are
-compatibility links.
+This rebrand starts with a fresh profile. Uninstall the previous app before
+installing SmallTalkAI. Set up your models and credentials again, and use
+**Set up shortcuts** in Settings to register the new KDE portal identity.
 
 ## Switching from a checkout installation
 
@@ -114,7 +109,7 @@ Install and select the required optional assets in installed Settings.
 Old manually installed application-menu entries may still launch the checkout;
 use `smalltalkai launch` during testing. If the menu starts a standalone reader
 instead, check whether
-`~/.local/share/applications/io.github.yosef0H4.simple_stt.desktop` runs
+`~/.local/share/applications/io.github.yosef0H4.smalltalkai.desktop` runs
 `smalltalkai-readerctl read-selection`. Move that old entry outside the applications
 directory to restore the packaged launcher. Rebind any desktop shortcuts that contain
 a checkout path to `smalltalkai toggle`, `smalltalkai cancel`, etc.; the app's
@@ -159,6 +154,6 @@ system. They are not universal Linux binaries. Windows packaging remains separat
 
 Enable Settings → Advanced → Diagnostics → **Clipboard buffer notices**, then Save. This developer option is off by default. Each current copy shows a buffering notice followed by ready or failed in the existing overlay. New copies replace unfinished buffers. For metadata-only troubleshooting logs, run `journalctl --user -u smalltalkai-linux.service --since "5 minutes ago"`; copied content is never included in buffer logs.
 
-For repeated local test builds, `SIMPLE_STT_REUSE_BUILDER=1` reuses an existing
+For repeated local test builds, `SMALLTALKAI_REUSE_BUILDER=1` reuses an existing
 Podman builder instead of refreshing its base image and toolchain. Omit this
 flag to rebuild the builder. Package installation smoke tests still run.

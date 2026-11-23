@@ -1,6 +1,6 @@
 {
   "productName": "SmallTalk",
-  "identifier": "io.github.yosef0h4.simple-stt.settings",
+  "identifier": "io.github.yosef0h4.smalltalkai.settings",
   "app": {
     "windows": [],
     "security": { "capabilities": [] }

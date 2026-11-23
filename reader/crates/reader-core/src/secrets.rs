@@ -2,9 +2,9 @@ use anyhow::{Context, Result};
 #[cfg(target_os = "linux")]
 use std::process::{Command, Stdio};
 
-const SERVICE: &str = "simple-stt-reader";
+const SERVICE: &str = "smalltalkai-reader";
 pub fn speech_key() -> Result<Option<String>> {
-    if let Ok(value) = std::env::var("SIMPLE_TTS_SPEECH_API_KEY") {
+    if let Ok(value) = std::env::var("SMALLTALKAI_SPEECH_API_KEY") {
         if !value.trim().is_empty() {
             return Ok(Some(value));
         }
@@ -12,7 +12,7 @@ pub fn speech_key() -> Result<Option<String>> {
     get("speech-api-key")
 }
 pub fn ocr_key() -> Result<Option<String>> {
-    if let Ok(value) = std::env::var("SIMPLE_TTS_OCR_API_KEY") {
+    if let Ok(value) = std::env::var("SMALLTALKAI_OCR_API_KEY") {
         if !value.trim().is_empty() {
             return Ok(Some(value));
         }
@@ -231,7 +231,7 @@ fn set(account: &str, value: &str) -> Result<()> {
         .args([
             "store",
             "--label",
-            "Simple TTS provider credential",
+            "SmallTalkAI Reader provider credential",
             "service",
             SERVICE,
             "account",

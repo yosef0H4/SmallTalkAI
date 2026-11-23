@@ -37,7 +37,7 @@ The new shell preserves these behaviors and adds `Restart Audio Service`; labels
 
 ## Old persisted config and defaults
 
-The old JSON was stored at the platform config directory as `smalltalkai/config.json`, overrideable through `SIMPLE_STT_CONFIG`. It had no explicit schema version.
+The old JSON was stored at the platform config directory as `smalltalkai/config.json`, overrideable through `SMALLTALKAI_CONFIG`. It had no explicit schema version.
 
 | Old field | Old default | Notes |
 | --- | --- | --- |
@@ -178,7 +178,7 @@ keycaps. Localized status text stays readable in Common Controls. The Windows tr
 installer use the same microphone artwork as the Linux launcher. Windows
 tray menus display color emoji as native item icons.
 
-The Linux base package leaves speech/OCR runtime and model installation to Settings → Downloads; it bundles the compressed fastText language-identification model. CUDA/Vulkan dictation and the integrated Kokoro/Supertonic/PaddleOCR reading routes use separate optional assets. Dictation defaults to keyboard-language routing, reading defaults to automatic text-language routing, and OCR defaults to a single Paddle selection. Reading settings use the existing explicit Save bar; the main shell owns reading shortcuts and tray actions. Reading workers, API providers, OCR, clipboard listening, chunk navigation and cancellation are adapted from Simple TTS under `reader/crates/`, without depending on that checkout.
+The Linux base package leaves speech/OCR runtime and model installation to Settings → Downloads; it bundles the compressed fastText language-identification model. CUDA/Vulkan dictation and the integrated Kokoro/Supertonic/PaddleOCR reading routes use separate optional assets. Dictation defaults to keyboard-language routing, reading defaults to automatic text-language routing, and OCR defaults to a single Paddle selection. Reading settings use the existing explicit Save bar; the main shell owns reading shortcuts and tray actions. Reading workers, API providers, OCR, clipboard listening, chunk navigation and cancellation are adapted from SmallTalkAI Reader under `reader/crates/`, without depending on that checkout.
 
 Mode-based assignments show one editor for the selected language, with explicit assignments only and no general fallback. Voice speed is local to the assignment; background timeouts remain shared per module. The default recording finish delay is 500 ms. Normal completed work stays warm until its configured independent idle timeout; memory estimates do not evict a just-used worker. The local reading tooltip shows the current prepared spoken passage, while notification privacy remains separate.
 

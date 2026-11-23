@@ -40,12 +40,12 @@ pub struct CleanupHistoryEntry {
 #[cfg(debug_assertions)]
 pub fn apply_development_env(config: &mut CleanupConfig) {
     let _ = dotenvy::dotenv();
-    if let Ok(value) = std::env::var("SIMPLE_STT_AI_BASE_URL") {
+    if let Ok(value) = std::env::var("SMALLTALKAI_AI_BASE_URL") {
         if !value.trim().is_empty() {
             config.openai_compatible.base_url = value.trim().to_owned();
         }
     }
-    if let Ok(value) = std::env::var("SIMPLE_STT_AI_MODEL") {
+    if let Ok(value) = std::env::var("SMALLTALKAI_AI_MODEL") {
         if !value.trim().is_empty() {
             config.openai_compatible.model = value.trim().to_owned();
         }
@@ -474,11 +474,11 @@ mod tests {
     #[test]
     fn compatible_cleanup_preserves_unicode_and_uses_stateless_prompt() {
         let _guard = environment_lock();
-        std::env::set_var("SIMPLE_STT_AI_API_KEY", "test-token");
+        std::env::set_var("SMALLTALKAI_AI_API_KEY", "test-token");
         let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
         let address = format!("http://{}", server.server_addr());
-        std::env::set_var("SIMPLE_STT_AI_BASE_URL", &address);
-        std::env::set_var("SIMPLE_STT_AI_MODEL", "mock-cleaner");
+        std::env::set_var("SMALLTALKAI_AI_BASE_URL", &address);
+        std::env::set_var("SMALLTALKAI_AI_MODEL", "mock-cleaner");
         let handle = std::thread::spawn(move || {
             let mut request = server.recv().unwrap();
             assert_eq!(request.url(), "/chat/completions");
@@ -509,8 +509,8 @@ mod tests {
         assert_eq!(result.text, "مرحبا بالعالم");
         assert_eq!(result.model, "mock-cleaner");
         handle.join().unwrap();
-        std::env::remove_var("SIMPLE_STT_AI_API_KEY");
-        std::env::remove_var("SIMPLE_STT_AI_BASE_URL");
-        std::env::remove_var("SIMPLE_STT_AI_MODEL");
+        std::env::remove_var("SMALLTALKAI_AI_API_KEY");
+        std::env::remove_var("SMALLTALKAI_AI_BASE_URL");
+        std::env::remove_var("SMALLTALKAI_AI_MODEL");
     }
 }

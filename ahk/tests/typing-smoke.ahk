@@ -10,7 +10,7 @@ global FinishedSessions := Array()
 typistInstance := Typist(logger, Notice, DeliveryFinished)
 
 Notice(text, level := "info") {
-    SimpleSttConsoleLine("NOTICE[" . level . "]: " . text)
+    SmallTalkAIConsoleLine("NOTICE[" . level . "]: " . text)
 }
 
 DeliveryFinished(sessionId) {
@@ -19,7 +19,7 @@ DeliveryFinished(sessionId) {
 }
 
 Fail(message, exitCode := 1) {
-    SimpleSttConsoleError("FAIL: " . message)
+    SmallTalkAIConsoleError("FAIL: " . message)
     ExitApp(exitCode)
 }
 
@@ -72,5 +72,5 @@ if typistInstance.queue.Length != 0
 if FinishedSessions.Length != 4 || FinishedSessions[3] != 3 || FinishedSessions[4] != 4
     Fail("explicit cancel did not acknowledge every discarded delivery")
 
-SimpleSttConsoleLine("PASS: typist queue/cancel headless smoke")
+SmallTalkAIConsoleLine("PASS: typist queue/cancel headless smoke")
 ExitApp(0)

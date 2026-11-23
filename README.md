@@ -90,7 +90,7 @@ SmallTalkAI.exe
         └── smalltalkai-infer.exe  disposable Parakeet DLL/model process
 
 smalltalkai-ctl.exe                 disposable AHK control helper
-smalltalkai-settings.exe            Settings launcher and explicit browser server
+smalltalkai-settings.exe            Settings launcher
 smalltalkai-settings-window.exe     on-demand Tauri window with its Settings server
 ```
 

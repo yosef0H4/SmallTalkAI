@@ -26,12 +26,6 @@ export function loadReading(): Promise<ReadingState> {
     reading.speechKeySaved=state.speech_key_saved;reading.ocrKeySaved=state.ocr_key_saved;reading.sttKeySaved=!!state.stt_key_saved;
     if (!reading.config) {
       const config = state.config;
-      config.read_along ??= {prefetch:true,advance_key:"Space",action:"key",delay_ms:900,retry_count:5};
-      config.selection_copy ??= {backend:"auto",shortcut:"ctrl_insert",allow_clipboard_copy:true,show_clipboard_notice:true};
-      config.selection_copy_overrides ??= [];
-      config.speech.selection ??= {mode:"auto_detect",single:{runtime:null,model:null,device:"auto"},languages:{}};
-      config.ocr.selection ??= {mode:"single_model",single:{runtime:null,model:null,device:"auto"},languages:{}};
-      config.speech.fallback_to_local ??= true; config.ocr.fallback_to_local ??= true;
       reading.config=config; reading.baseline=JSON.stringify(config); reading.raw=JSON.stringify(config,null,2);
     }
     return state;

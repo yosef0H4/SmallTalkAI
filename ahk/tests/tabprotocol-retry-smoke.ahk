@@ -5,11 +5,11 @@
 #Include ..\lib\TabProtocol.ahk
 
 Fail(message, exitCode := 1) {
-    SimpleSttConsoleError("FAIL: " . message)
+    SmallTalkAIConsoleError("FAIL: " . message)
     ExitApp(exitCode)
 }
 
-path := SimpleSttTempFile("tabprotocol-retry")
+path := SmallTalkAITempFile("tabprotocol-retry")
 FileAppend("status`tok`nmessage`tpong`n", path, "UTF-8-RAW")
 handle := DllCall("kernel32\CreateFileW", "Str", path, "UInt", 0x80000000, "UInt", 0, "Ptr", 0, "UInt", 3, "UInt", 0x80, "Ptr", 0, "Ptr")
 if handle = -1
@@ -21,5 +21,5 @@ try FileDelete(path)
 if !response["ok"] || response["message"] != "pong"
     Fail("retry read did not parse response")
 
-SimpleSttConsoleLine("PASS: TabProtocol sharing-violation retry smoke")
+SmallTalkAIConsoleLine("PASS: TabProtocol sharing-violation retry smoke")
 ExitApp(0)

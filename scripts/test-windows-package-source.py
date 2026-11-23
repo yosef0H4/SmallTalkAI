@@ -16,7 +16,7 @@ if "IncludeModel" in builder:
     errors.append("distribution builder still supports embedding speech models")
 if "InferenceLibraries" not in builder or "ParakeetSource" in builder:
     errors.append("Windows distribution must obtain inference runtimes after installation")
-if "SimpleSttVersion" not in setup or "/DSimpleSttVersion=" not in builder:
+if "SmallTalkAIVersion" not in setup or "/DSmallTalkAIVersion=" not in builder:
     errors.append("installer version is not supplied from Cargo")
 if re.search(r"^AppVersion=\d", setup, re.M):
     errors.append("installer version is hardcoded")
@@ -24,12 +24,14 @@ if "'runtime\\action-replay.ahk'" not in builder:
     errors.append("recorded keyboard action helper is not required in the package")
 if "'runtime\\smalltalkai-settings-window.exe'" not in builder:
     errors.append("the native Settings window is not required in the package")
-if not all(part in builder for part in ("'SmallTalkAI.exe'", "'runtime\\SmallTalkAI.exe'", "smalltalkai-launcher.exe", "VersionInfo.FileDescription")):
-    errors.append("the native launcher, compatibility copy and Windows metadata must be verified")
+if not all(part in builder for part in ("'SmallTalkAI.exe'", "smalltalkai-launcher.exe", "VersionInfo.FileDescription")):
+    errors.append("the native launcher and its Windows metadata must be verified")
+if "'runtime\\SmallTalkAI.exe'" in builder or ".cmd')" in builder:
+    errors.append("the distribution must ship a single native launcher")
 if "Ahk2Exe" in builder:
     errors.append("the Windows package still compiles the AutoHotkey script")
-if "AppName=SmallTalkAI" not in setup or "UsePreviousAppDir=yes" not in setup:
-    errors.append("the installer must carry the new name and reuse the existing profile's install directory")
+if "AppName=SmallTalkAI" not in setup or "UsePreviousAppDir=no" not in setup or "[InstallDelete]" in setup:
+    errors.append("the installer must use the current name and a clean installation directory")
 icon = r"runtime\icons\smalltalkai.ico"
 if f"'{icon}'" not in builder or f"SetupIconFile=smalltalkai-portable\\{icon}" not in setup:
     errors.append("the branded Windows icon is missing from the package or setup")

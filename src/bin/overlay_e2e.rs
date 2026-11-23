@@ -17,7 +17,7 @@ use smalltalkai::capture::overlay::OverlayHandle;
 
 #[cfg(target_os = "linux")]
 fn shot(name: &str) {
-    let directory = std::env::var("SIMPLE_STT_OVERLAY_SCREENSHOT_DIR")
+    let directory = std::env::var("SMALLTALKAI_OVERLAY_SCREENSHOT_DIR")
         .unwrap_or_else(|_| "artifacts/localization/native".into());
     std::fs::create_dir_all(&directory).expect("create screenshot directory");
     let path = format!("{directory}/{name}.png");
@@ -146,7 +146,7 @@ fn render_offscreen() {
         RecordingIndicators,
     };
     use smalltalkai::localization::{translate, Locale};
-    let directory = std::env::var("SIMPLE_STT_OVERLAY_SCREENSHOT_DIR")
+    let directory = std::env::var("SMALLTALKAI_OVERLAY_SCREENSHOT_DIR")
         .unwrap_or_else(|_| "artifacts/localization/offscreen".into());
     std::fs::create_dir_all(&directory).expect("create screenshot directory");
     let mut waveform = empty_visualizer_levels();

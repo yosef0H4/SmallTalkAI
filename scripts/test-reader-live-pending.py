@@ -34,7 +34,7 @@ def reader_status(path):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--socket', type=Path, default=Path.home() / '.local/share/simple-stt/instances/installed/reader/simple-tts.sock')
+    parser.add_argument('--socket', type=Path, default=Path.home() / '.local/share/smalltalkai/instances/installed/reader/smalltalkai-reader.sock')
     args = parser.parse_args()
     state = reader_status(args.socket)
     notice = state.get('notice_text', '')

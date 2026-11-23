@@ -19,7 +19,7 @@ Up() {
 }
 
 Fail(message, exitCode := 1) {
-    SimpleSttConsoleError("FAIL: " . message)
+    SmallTalkAIConsoleError("FAIL: " . message)
     ExitApp(exitCode)
 }
 
@@ -84,7 +84,7 @@ screenshotNotice := Map(
     "text", "Screen context requested",
     "values", Map()
 )
-if SimpleSttNoticeEndsSession(screenshotNotice)
+if SmallTalkAINoticeEndsSession(screenshotNotice)
     Fail("screen-context progress must preserve the recording session")
 terminalNotice := Map(
     "kind", "notice",
@@ -92,18 +92,18 @@ terminalNotice := Map(
     "text", "No speech detected",
     "values", Map("terminal", "true")
 )
-if !SimpleSttNoticeEndsSession(terminalNotice)
+if !SmallTalkAINoticeEndsSession(terminalNotice)
     Fail("terminal recording notices must close the recording session")
 
 cycle := "smart_paste,paste_ctrl_shift_v,clipboard"
-if SimpleSttNextDeliveryMode("smart_paste", cycle) != "paste_ctrl_shift_v"
+if SmallTalkAINextDeliveryMode("smart_paste", cycle) != "paste_ctrl_shift_v"
     Fail("delivery cycle should include advanced paste modes")
-if SimpleSttNextDeliveryMode("paste_ctrl_shift_v", cycle) != "clipboard"
+if SmallTalkAINextDeliveryMode("paste_ctrl_shift_v", cycle) != "clipboard"
     Fail("delivery cycle should preserve configured order")
-if SimpleSttNextDeliveryMode("clipboard", cycle) != "smart_paste"
+if SmallTalkAINextDeliveryMode("clipboard", cycle) != "smart_paste"
     Fail("delivery cycle should wrap")
-if SimpleSttNextDeliveryMode("type", cycle) != "smart_paste"
+if SmallTalkAINextDeliveryMode("type", cycle) != "smart_paste"
     Fail("delivery cycle should start at the first choice when current mode is outside the cycle")
 
-SimpleSttConsoleLine("PASS: hotkey parser and binding smoke")
+SmallTalkAIConsoleLine("PASS: hotkey parser and binding smoke")
 ExitApp(0)

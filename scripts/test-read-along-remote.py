@@ -16,7 +16,7 @@ def main():
             return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
         image=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',100,50,8,2,0,0,0))+chunk(b'IDAT',zlib.compress((b'\0'+b'\xff'*300)*50))+chunk(b'IEND',b'')
         (capture/'mock.png').write_bytes(image)
-        env={**os.environ,'SIMPLE_STT_READER_DATA':str(root),'SIMPLE_TTS_CONFIG':str(root/'config.json'),'SIMPLE_TTS_OCR_API_KEY':'private-fixture-key'}
+        env={**os.environ,'SMALLTALKAI_READER_DATA':str(root),'SMALLTALKAI_READER_CONFIG':str(root/'config.json'),'SMALLTALKAI_OCR_API_KEY':'private-fixture-key'}
         child=subprocess.Popen(['cargo','test','-p','smalltalkai-reader','--bin','smalltalkai-reader','remote_read_along_chunks_overlap_independent_ocr','--','--ignored','--nocapture'],env=env,start_new_session=os.name!='nt')
         try:
             assert child.wait(timeout=120)==0,'remote chunk integration failed'

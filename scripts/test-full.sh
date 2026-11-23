@@ -9,7 +9,6 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --all-targets
 cargo build --bin smalltalkai-settings
 python scripts/test-settings-single-instance.py
-python scripts/test-settings-upgrade.py
 python scripts/test-settings-selection-api.py
 python scripts/test-cleanup-settings-e2e.py
 python scripts/verify-static.py

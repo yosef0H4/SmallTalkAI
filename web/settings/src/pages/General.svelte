@@ -67,7 +67,7 @@
       <span>{t(label)}</span><output>{ui.state?.shortcut_state?.[id] || t("ui.not_assigned.b781e6")}</output>
     </div>
   {:else if ui.state?.platform === "linux" && backend !== "x11"}
-    {@const command = ["toggle", "cancel", "cycle-delivery", "toggle-cleanup", "retry-delivery", "show-shortcuts"][index]}
+    {@const command = ["toggle", "cancel", "cycle-delivery", "toggle-cleanup", "repeat", "show-shortcuts"][index]}
     <div class="field"><span>{t(label)}</span><code>smalltalkai-linux {command}</code></div>
   {:else}
     <Shortcut {path} {label} />

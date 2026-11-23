@@ -20,8 +20,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "scripts/fixtures/linux-unicode"
 HELPER = ROOT / "resources/bin/smalltalkai-paste"
-SHELL = Path(os.environ.get("SIMPLE_STT_TEST_SHELL", ROOT / "target/debug/smalltalkai-linux")).resolve()
-OLD_SHELL = os.environ.get("SIMPLE_STT_OLD_SHELL")
+SHELL = Path(os.environ.get("SMALLTALKAI_TEST_SHELL", ROOT / "target/debug/smalltalkai-linux")).resolve()
 IMAGE_FORMAT_COUNT = 37
 SLOW_FORMATS = tuple(
     f"application/postscript;profile=eps-alias-{index}" for index in range(3)
@@ -100,7 +99,7 @@ def stress_clipboard_snapshot(seed=0):
     snapshot = {}
     for info, mime in enumerate(mimes):
         snapshot[mime] = bytes((info * 29 + offset * 17 + 3 + seed) & 0xff for offset in range(96))
-    snapshot["application/x-smalltalkai-e2e"] = bytes((0, 1, *b"Simple-STT clipboard fixture", 255))
+    snapshot["application/x-smalltalkai-e2e"] = bytes((0, 1, *b"SmallTalkAI clipboard fixture", 255))
     snapshot["image/png"] = bytes.fromhex(
         "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
         "0000000b49444154789c636000020000050001a5f645400000000049454e44ae426082")
@@ -174,31 +173,6 @@ def clipboard_slow_offer_regression(env, root, output_file, initial_text,
                 continue
             if clipboard_data(env, mime) != payload:
                 raise RuntimeError(f"Stress clipboard provider published wrong fixture payload for {mime}")
-
-        if OLD_SHELL:
-            old_shell = Path(OLD_SHELL).resolve()
-            if not old_shell.is_file():
-                raise RuntimeError(f"SIMPLE_STT_OLD_SHELL does not exist: {old_shell}")
-            old = subprocess.Popen([str(old_shell), "clipboard-transaction"], env=env,
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
-            old.stdin.write(json.dumps("old binary must time out") + "\n")
-            old.stdin.flush()
-            try:
-                readable, _, _ = __import__("select").select([old.stdout], [], [], 30)
-                first_line = old.stdout.readline().strip() if readable else ""
-                if first_line == "ready":
-                    raise RuntimeError("Old clipboard binary became ready despite three serialized slow formats")
-                if first_line:
-                    raise RuntimeError(f"Old clipboard binary emitted unexpected pre-ready output: {first_line!r}")
-                try:
-                    old.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    raise RuntimeError("Old clipboard binary neither became ready nor failed within its 30s bound")
-                error = old.stderr.read().strip() if old.stderr else ""
-                if "reading complete clipboard backup" not in error.lower() and "clipboard backup timed out" not in error.lower():
-                    raise RuntimeError(f"Old clipboard binary did not fail in the complete-backup path: {error!r}")
-            finally:
-                stop_process(old)
 
         expected = initial_text + "slow clipboard regression paste Ω"
         checked([str(injector), "--click", "450", "300"], env=env, timeout=8)
@@ -506,11 +480,10 @@ def run_retry_cli(env, root, output_file, initial_text, clipboard_snapshot, inje
         json.dumps({"recording": False, "session_id": 41, "updated_at": 1}), encoding="utf-8")
     config = root / "retry-config.json"
     config.write_text(json.dumps({
-        "schema_version": 9,
+        "schema_version": 10,
         "general": {"enabled": True, "ui_language": "en"},
         "output": {
             "delivery_mode": "smart_paste",
-            "linux_automation_backend": "native",
             "preserve_clipboard": True,
             "lowercase": False,
             "remove_punctuation": False,
@@ -569,19 +542,19 @@ def run_retry_cli(env, root, output_file, initial_text, clipboard_snapshot, inje
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
     shell_env = env.copy()
-    shell_env.update({"SIMPLE_STT_CONFIG": str(config),
-                      "SIMPLE_STT_RUNTIME_ROOT": str(runtime_root)})
+    shell_env.update({"SMALLTALKAI_CONFIG": str(config),
+                      "SMALLTALKAI_RUNTIME_ROOT": str(runtime_root)})
     try:
         checked([str(injector), "--click", "450", "300"], env=env, timeout=8)
-        retry = subprocess.run([str(SHELL), "retry-delivery"], env=shell_env,
+        retry = subprocess.run([str(SHELL), "repeat"], env=shell_env,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=40)
         if retry.returncode != 0:
-            raise RuntimeError("Rust retry-delivery failed: " + retry.stderr.decode("utf-8", "replace")
+            raise RuntimeError("Rust repeat failed: " + retry.stderr.decode("utf-8", "replace")
                                + f"; fixture messages={messages!r}; fixture errors={errors!r}")
         expected = initial_text + "retry\nمرحبا 🙂"
         try:
             wait_for(lambda: output_file.exists() and output_file.read_text(encoding="utf-8") == expected,
-                     "Rust retry-delivery paste into GTK", timeout=10)
+                     "Rust repeat paste into GTK", timeout=10)
         except RuntimeError as exc:
             actual = output_file.read_text(encoding="utf-8") if output_file.exists() else "<missing>"
             raise RuntimeError(f"{exc}; actual={actual!r}; stdout={retry.stdout.decode('utf-8', 'replace')!r}; "
@@ -592,7 +565,7 @@ def run_retry_cli(env, root, output_file, initial_text, clipboard_snapshot, inje
             raise RuntimeError(f"Rust retry CLI did not use the expected authenticated fixture commands: {messages}")
         for mime, payload in clipboard_snapshot.items():
             if clipboard_data(env, mime) != payload:
-                raise RuntimeError(f"Rust retry-delivery changed clipboard MIME {mime}")
+                raise RuntimeError(f"Rust repeat changed clipboard MIME {mime}")
         if errors:
             raise RuntimeError(f"Rust retry shell fixture error: {errors[0]}")
     finally:
@@ -930,7 +903,7 @@ def run_private_session(root, cache_only=False):
         # Verify a multi-MIME source owned by the test editor before paste.
         initial_text = "before\n"
         mime_payloads = {
-            "application/x-smalltalkai-e2e": b"\x00\x01Simple-STT clipboard fixture\xff",
+            "application/x-smalltalkai-e2e": b"\x00\x01SmallTalkAI clipboard fixture\xff",
             "image/png": bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000b49444154789c636000020000050001a5f645400000000049454e44ae426082"),
         }
         wait_for(lambda: result_file.exists(), "target initialized clipboard")
@@ -957,7 +930,7 @@ def run_private_session(root, cache_only=False):
         initial_text = result_file.read_text(encoding="utf-8")
         primary_ready = root / "slow-primary.ready"
         primary_provider = subprocess.Popen([str(slow_provider_binary), str(primary_ready)],
-            env=dict(env, SIMPLE_STT_TEST_PRIMARY="1"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            env=dict(env, SMALLTALKAI_TEST_PRIMARY="1"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             publish_provider(primary_provider, primary_ready, env, injector)
             started = time.monotonic()

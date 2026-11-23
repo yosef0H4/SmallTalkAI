@@ -41,7 +41,7 @@ fn open_window(settings: DesktopSettings) -> Result<()> {
                 .decorations(false)
                 .data_directory(data_dir)
                 .initialization_script(
-                    "window.__SIMPLE_STT_DESKTOP__ = true;
+                    "window.__SMALLTALKAI_DESKTOP__ = true;
                     window.addEventListener('settings-close-approved', (event) => {
                         event.preventDefault();
                         window.location.href = '/__settings_close';
@@ -151,7 +151,7 @@ fn frame_action(window: &tauri::WebviewWindow, action: &str) -> tauri::Result<()
 
 #[cfg(debug_assertions)]
 fn settings_dev_url(url: tauri::Url) -> Result<tauri::Url> {
-    let Ok(origin) = std::env::var("SIMPLE_STT_SETTINGS_DEV_ORIGIN") else {
+    let Ok(origin) = std::env::var("SMALLTALKAI_SETTINGS_DEV_ORIGIN") else {
         return Ok(url);
     };
     let mut dev = tauri::Url::parse(&origin)?;
@@ -164,7 +164,7 @@ fn settings_dev_url(url: tauri::Url) -> Result<tauri::Url> {
             && dev.path() == "/"
             && dev.query().is_none()
             && dev.fragment().is_none(),
-        "SIMPLE_STT_SETTINGS_DEV_ORIGIN must be an HTTP loopback origin with a port"
+        "SMALLTALKAI_SETTINGS_DEV_ORIGIN must be an HTTP loopback origin with a port"
     );
     dev.set_fragment(url.fragment());
     Ok(dev)

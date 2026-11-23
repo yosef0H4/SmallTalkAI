@@ -140,7 +140,7 @@ def main():
     parser.add_argument('--repeat-region', action='store_true', help='Manually change dialogue, then Repeat the saved area without reselecting or advancing')
     parser.add_argument('--repeat-read-along', action='store_true', help='Repeat a saved read-along area while its initial audio is still playing')
     args = parser.parse_args()
-    installed = Path.home() / '.local/share/simple-stt/instances/installed'
+    installed = Path.home() / '.local/share/smalltalkai/instances/installed'
     folder = Path(tempfile.mkdtemp(prefix='smalltalkai-readalong-e2e-'))
     data = folder / 'reader'
     data.mkdir()
@@ -155,7 +155,7 @@ def main():
     config['playback']['keep_warm_seconds'] = 2
     config['ocr']['idle_timeout_secs'] = 2
     (data / 'config.json').write_text(json.dumps(config))
-    env = dict(os.environ, SIMPLE_STT_READER_DATA=str(data), SIMPLE_TTS_CONFIG=str(data / 'config.json'), SIMPLE_STT_EMBEDDED_READER='1', RUST_LOG='info')
+    env = dict(os.environ, SMALLTALKAI_READER_DATA=str(data), SMALLTALKAI_READER_CONFIG=str(data / 'config.json'), SMALLTALKAI_EMBEDDED_READER='1', RUST_LOG='info')
     window = Gtk.Window(title=TITLE)
     window.set_default_size(940, 400)
     window.set_keep_above(True)
@@ -222,7 +222,7 @@ def main():
             target = wait_for(lambda: (v if (v := query_target(folder)).get('found') and v.get('active') else None), 10, 'test target foreground')
             (folder / 'target.json').write_text(json.dumps(target))
             daemon = subprocess.Popen([str(args.bin_dir.resolve() / 'smalltalkai-reader'), 'daemon', '--no-desktop'], env=env, stdout=log, stderr=log)
-            ipc = data / 'simple-tts.sock'
+            ipc = data / 'smalltalkai-reader.sock'
             wait_for(ipc.exists, 10, 'isolated reader socket')
             def preserve_captures():
                 while daemon.poll() is None:
@@ -344,7 +344,7 @@ def main():
                     destination.write(rotated_token.read_bytes())
             if daemon:
                 try:
-                    request(data / 'simple-tts.sock', {'op': 'shutdown'})
+                    request(data / 'smalltalkai-reader.sock', {'op': 'shutdown'})
                     daemon.wait(timeout=5)
                 except Exception:
                     daemon.kill()

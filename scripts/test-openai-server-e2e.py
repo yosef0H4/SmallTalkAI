@@ -22,10 +22,10 @@ import cairo
 from openai import OpenAI, AuthenticationError, BadRequestError, APITimeoutError
 
 ROOT = Path(__file__).resolve().parents[1]
-BINS = Path(os.environ.get('SIMPLE_STT_TEST_BIN_DIR', str(ROOT / 'target/debug')))
-INSTALLED = Path.home() / '.local/share/simple-stt/instances/installed'
-VOICE_RUNTIME = os.environ.get('SIMPLE_STT_TEST_VOICE_RUNTIME', 'sherpa-cuda')
-STT_RUNTIME = os.environ.get('SIMPLE_STT_TEST_STT_RUNTIME', 'parakeet-cuda')
+BINS = Path(os.environ.get('SMALLTALKAI_TEST_BIN_DIR', str(ROOT / 'target/debug')))
+INSTALLED = Path.home() / '.local/share/smalltalkai/instances/installed'
+VOICE_RUNTIME = os.environ.get('SMALLTALKAI_TEST_VOICE_RUNTIME', 'sherpa-cuda')
+STT_RUNTIME = os.environ.get('SMALLTALKAI_TEST_STT_RUNTIME', 'parakeet-cuda')
 folder = Path(tempfile.mkdtemp(prefix='smalltalkai-openai-e2e-'))
 folder.chmod(0o700)
 token = secrets.token_urlsafe(32)
@@ -65,11 +65,11 @@ def profile(name, reader, app):
     (directory / 'assets').symlink_to(INSTALLED / 'assets', target_is_directory=True)
     private_json(data / 'config.json', reader)
     private_json(directory / 'app.json', app)
-    env = dict(os.environ, SIMPLE_STT_CONFIG=str(directory / 'app.json'),
-        SIMPLE_STT_READER_DATA=str(data), SIMPLE_TTS_CONFIG=str(data / 'config.json'),
-        SIMPLE_STT_RUNTIME_ROOT=str(directory), SIMPLE_STT_EMBEDDED_READER='1',
-        SIMPLE_TTS_SERVER_TOKEN=token, SIMPLE_TTS_SPEECH_API_KEY=token,
-        SIMPLE_TTS_OCR_API_KEY=token, SIMPLE_STT_STT_API_KEY=token)
+    env = dict(os.environ, SMALLTALKAI_CONFIG=str(directory / 'app.json'),
+        SMALLTALKAI_READER_DATA=str(data), SMALLTALKAI_READER_CONFIG=str(data / 'config.json'),
+        SMALLTALKAI_RUNTIME_ROOT=str(directory), SMALLTALKAI_EMBEDDED_READER='1',
+        SMALLTALKAI_SERVER_TOKEN=token, SMALLTALKAI_SPEECH_API_KEY=token,
+        SMALLTALKAI_OCR_API_KEY=token, SMALLTALKAI_STT_API_KEY=token)
     # A real server must work without a graphical desktop session.
     for key in ['DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY']:
         env.pop(key, None)
@@ -161,7 +161,7 @@ def assert_default_logs_redact(*sentinels):
 
 def main():
     reader = json.loads((INSTALLED / 'reader/config.json').read_text())
-    app = json.loads((Path.home() / '.config/simple-stt/instances/installed/config.json').read_text())
+    app = json.loads((Path.home() / '.config/smalltalkai/instances/installed/config.json').read_text())
     # Select known installed local engines, independent of desktop UI choices.
     reader['speech']['provider'] = {'kind': 'local_kokoro'}
     reader['speech']['selection'] = {'mode': 'single_model', 'single': {'device': 'cpu', 'runtime': VOICE_RUNTIME, 'model': 'kokoro'}, 'languages': {}}
@@ -192,7 +192,7 @@ def main():
             return None
     models = wait_for(ready, 15, 'authenticated server discovery')
     assert_no_internal_content(host_data)
-    assert {'kokoro-v1', 'simple-tts-ocr'} <= {model.id for model in models.data}
+    assert {'kokoro-v1', 'smalltalkai-ocr'} <= {model.id for model in models.data}
     try:
         OpenAI(api_key='invalid-test-token', base_url=url, max_retries=0, timeout=3).models.list()
         raise AssertionError('server accepted invalid bearer token')
@@ -229,12 +229,12 @@ def main():
             valid_wav(data)
     assert first_tts == {pid for pid, name in model_workers(server.pid).items() if name == 'smalltalkai-tts'}, 'concurrent speech requests duplicated the worker'
     print('PASS SDK speech: real non-silent WAV and warm worker reuse', flush=True)
-    chat = sdk.chat.completions.create(model='simple-tts-ocr', messages=[{'role': 'user', 'content': [
+    chat = sdk.chat.completions.create(model='smalltalkai-ocr', messages=[{'role': 'user', 'content': [
         {'type': 'text', 'text': 'Transcribe the image without rewriting.'}, {'type': 'image_url', 'image_url': {'url': encoded}}]}])
     recognized = chat.choices[0].message.content
     assert 'courtroom dialogue' in recognized.lower(), recognized
     assert ocr_sentinel.lower() in recognized.lower(), recognized
-    responses = sdk.responses.create(model='simple-tts-ocr', input=[{'role': 'user', 'content': [
+    responses = sdk.responses.create(model='smalltalkai-ocr', input=[{'role': 'user', 'content': [
         {'type': 'input_text', 'text': 'Transcribe the image.'}, {'type': 'input_image', 'image_url': encoded}]}])
     assert 'courtroom dialogue' in responses.output_text.lower(), responses.output_text
     print('PASS SDK OCR: chat completions and Responses API with real Paddle OCR', flush=True)
@@ -251,7 +251,7 @@ def main():
     remote_reader = copy.deepcopy(reader)
     remote_reader['server'] = {'enabled': False}
     remote_reader['speech']['provider'] = {'kind': 'open_ai_compatible', 'base_url': url, 'model': 'kokoro-v1', 'voice': 'af_heart', 'format': 'wav'}
-    remote_reader['ocr']['provider'] = {'kind': 'open_ai_compatible', 'base_url': url, 'model': 'simple-tts-ocr', 'api': 'chat_completions'}
+    remote_reader['ocr']['provider'] = {'kind': 'open_ai_compatible', 'base_url': url, 'model': 'smalltalkai-ocr', 'api': 'chat_completions'}
     remote_reader['speech']['fallback_to_local'] = False
     remote_reader['ocr']['fallback_to_local'] = False
     # Missing local assets make an accidental client-side local fallback fail.
@@ -263,7 +263,7 @@ def main():
     client_dir, client_data, client_env = profile('client', remote_reader, remote_app)
     seed_crash_leftovers(client_data)
     client = launch('client', [str(BINS / 'smalltalkai-reader'), 'daemon', '--no-desktop'], client_env)
-    wait_for((client_data / 'simple-tts.sock').exists, 10, 'headless remote client')
+    wait_for((client_data / 'smalltalkai-reader.sock').exists, 10, 'headless remote client')
     assert_no_internal_content(client_data)
     output = folder / 'client-speech.wav'
     cli(client_env, 'speak', text, '--output', str(output))

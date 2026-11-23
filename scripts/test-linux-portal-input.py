@@ -25,7 +25,7 @@ spec = importlib.util.spec_from_file_location('desktop_fixture', ROOT / 'scripts
 desktop = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(desktop)
 Gtk, GLib = desktop.Gtk, desktop.GLib
-folder = Path(os.environ.get('SIMPLE_STT_PORTAL_TEST_DIR',
+folder = Path(os.environ.get('SMALLTALKAI_PORTAL_TEST_DIR',
     str(Path(tempfile.gettempdir()) / f'smalltalkai-portal-e2e-{os.getuid()}')))
 folder.mkdir(mode=0o700, parents=True, exist_ok=True)
 window = Gtk.Window(title=desktop.TITLE)
@@ -56,7 +56,7 @@ def run():
         config = folder / 'config.json'
         # Deliberately omit output: exercise the shipped defaults, not a forced
         # portal backend or delivery mode hidden in the test configuration.
-        settings = {'schema_version': 9, 'general': {'ui_language': 'en'}}
+        settings = {'schema_version': 10, 'general': {'ui_language': 'en'}}
         if args.typing:
             settings['output'] = {'delivery_mode': 'type'}
         config.write_text(json.dumps(settings))
@@ -99,7 +99,7 @@ def run():
 
         server = threading.Thread(target=serve)
         server.start()
-        env = dict(os.environ, SIMPLE_STT_CONFIG=str(config), SIMPLE_STT_RUNTIME_ROOT=str(runtime), XDG_DATA_HOME=str(data))
+        env = dict(os.environ, SMALLTALKAI_CONFIG=str(config), SMALLTALKAI_RUNTIME_ROOT=str(runtime), XDG_DATA_HOME=str(data))
         def clipboard_snapshot():
             formats = subprocess.check_output(['wl-paste', '--list-types'], timeout=5).decode().splitlines()
             return {mime: subprocess.check_output(['wl-paste', '--no-newline', '--type', mime], timeout=5)
@@ -108,7 +108,7 @@ def run():
         # Two deliveries also exercise persistence and rotation of restore tokens.
         for number in (1, 2):
             assert desktop.query_target(folder)['active'], 'owned editor lost focus before delivery'
-            proc = subprocess.run([str(ROOT / 'target/debug/smalltalkai-linux'), 'retry-delivery'],
+            proc = subprocess.run([str(ROOT / 'target/debug/smalltalkai-linux'), 'repeat'],
                 env=env, capture_output=True, text=True, timeout=75)
             (folder / f'delivery-{number}.log').write_text(proc.stderr)
             assert proc.returncode == 0, proc.stderr

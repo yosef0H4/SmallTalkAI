@@ -37,7 +37,7 @@ def main():
                     env.pop(key, None)
                 runtime = Path(folder) / "desktop-runtime"
                 runtime.mkdir(mode=0o700)
-                env.update(DISPLAY=f":{number}", XDG_SESSION_TYPE="x11", SIMPLE_STT_PASTE_X11_E2E="1",
+                env.update(DISPLAY=f":{number}", XDG_SESSION_TYPE="x11", SMALLTALKAI_PASTE_X11_E2E="1",
                            XDG_RUNTIME_DIR=str(runtime), GDK_BACKEND="x11", QT_QPA_PLATFORM="xcb",
                            DBUS_SESSION_BUS_ADDRESS=f"unix:path={runtime}/no-session-bus")
                 subprocess.run(
@@ -46,7 +46,7 @@ def main():
                 )
                 subprocess.run(
                     ["cargo", "test", "--bin", "smalltalkai-linux", "x11_global_shortcut_end_to_end", "--", "--nocapture"],
-                    cwd=ROOT, env=dict(env, SIMPLE_STT_X11_E2E="1"), check=True, timeout=30,
+                    cwd=ROOT, env=dict(env, SMALLTALKAI_X11_E2E="1"), check=True, timeout=30,
                 )
                 subprocess.run(
                     ["dbus-run-session", "--", "/usr/bin/python3", "scripts/test-linux-clean-clipboard.py"],

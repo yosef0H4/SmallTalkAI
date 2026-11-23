@@ -18,7 +18,7 @@ can still build with Cargo alone, including offline and Windows cross-builds.
 The generator enforces 100 KiB gzip for combined JS/CSS and 300 KiB total assets.
 
 To develop interactively, start an isolated `smalltalkai-settings --no-browser`
-server, then set `SIMPLE_STT_SETTINGS_ORIGIN` to its printed origin and run
+server, then set `SMALLTALKAI_SETTINGS_ORIGIN` to its printed origin and run
 `npm run dev`. Open Vite's loopback URL with the server's `#token=...` fragment.
 The development proxy forwards only `/api` to that server; use a temporary
 configuration when testing writes. Never commit tokens or credentials.

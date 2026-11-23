@@ -1,10 +1,8 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-#[cfg(target_os = "linux")]
-use smalltalkai::config::LinuxDeliveryChoice;
 use smalltalkai::config::{
     replace_file_atomic, unique_atomic_temp_path, AppConfig, AppDeliveryOverride,
-    LinuxAutomationBackend, LinuxHotkeyBackend, TextDeliveryMode,
+    LinuxHotkeyBackend, TextDeliveryMode,
 };
 use smalltalkai::localization::tr;
 #[cfg(target_os = "linux")]
@@ -56,8 +54,7 @@ enum LinuxCommand {
         #[arg(long)]
         shift_insert: bool,
     },
-    #[command(alias = "repeat", alias = "repeat-last-action")]
-    RetryDelivery,
+    Repeat,
     ShowShortcuts,
     ReadSelection,
     ReadRegion,
@@ -86,12 +83,9 @@ enum LinuxCommand {
     Status,
     Launch,
     Settings {
-        /// Open Settings in the default browser.
-        #[arg(long, conflicts_with = "no_browser")]
-        browser: bool,
-        /// Serve Settings and print its URL without opening a window.
-        #[arg(long)]
-        no_browser: bool,
+        /// Serve the local Settings API without opening a window.
+        #[arg(long, hide = true)]
+        headless: bool,
     },
     ConfigureShortcuts,
     CycleDelivery,
@@ -179,7 +173,7 @@ fn main() -> Result<()> {
             timeout,
             shift_insert,
         } => stop(timeout, shift_insert),
-        LinuxCommand::RetryDelivery => retry_delivery(),
+        LinuxCommand::Repeat => retry_delivery(),
         LinuxCommand::ShowShortcuts => show_shortcuts(),
         LinuxCommand::ReadSelection => {
             smalltalkai::reader::action("read_selection", "").map(|_| ())
@@ -198,15 +192,12 @@ fn main() -> Result<()> {
         LinuxCommand::ClipboardTransaction { primary } => clipboard_transaction_owner(primary),
         LinuxCommand::ClipboardCacheDaemon => clipboard_cache_daemon(),
         LinuxCommand::ClipboardCacheStatus => clipboard_cache_status(),
-        LinuxCommand::Cancel => cancel(),
+        LinuxCommand::Cancel => cancel(true),
         LinuxCommand::UnloadModel => unload_model(),
         LinuxCommand::Shutdown => shutdown(),
         LinuxCommand::Status => status(),
         LinuxCommand::Launch => launch(),
-        LinuxCommand::Settings {
-            browser,
-            no_browser,
-        } => settings(browser, no_browser),
+        LinuxCommand::Settings { headless } => settings(headless),
         LinuxCommand::ConfigureShortcuts => configure_shortcuts(),
         LinuxCommand::CycleDelivery => toggle_linux_delivery_mode(),
         LinuxCommand::ToggleCleanup => toggle_linux_cleanup(),
@@ -254,7 +245,7 @@ fn clipboard_cache_status() -> Result<()> {
 
 fn daemon(config: Option<PathBuf>) -> Result<()> {
     if let Some(path) = &config {
-        std::env::set_var("SIMPLE_STT_CONFIG", path);
+        std::env::set_var("SMALLTALKAI_CONFIG", path);
     }
     ensure_dirs()?;
     #[cfg(target_os = "linux")]
@@ -272,7 +263,7 @@ fn daemon(config: Option<PathBuf>) -> Result<()> {
     } else {
         cmd.arg("--config").arg(AppConfig::config_path());
     }
-    cmd.env("SIMPLE_STT_LINUX", "1");
+    cmd.env("SMALLTALKAI_LINUX", "1");
     let child = Arc::new(Mutex::new(Some(
         cmd.spawn().context("starting capture service")?,
     )));
@@ -724,7 +715,7 @@ impl ksni::Tray for LinuxTray {
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
-        if let Err(error) = settings(false, false) {
+        if let Err(error) = settings(false) {
             eprintln!("[{APP}] tray settings action failed: {error:#}");
         }
     }
@@ -793,8 +784,8 @@ fn activate_tray_action(action: &str) -> Result<()> {
         "read_region" | "read_along" | "copy_region" => {
             smalltalkai::reader::action(action, "").map(drop)
         }
-        "abort" => cancel(),
-        "settings" => settings(false, false),
+        "abort" => cancel(false),
+        "settings" => settings(false),
         "unload" => unload_all_models(),
         "exit" => shutdown(),
         _ => bail!("unknown Linux tray action: {action}"),
@@ -1216,13 +1207,31 @@ fn wait_retry_modifiers() -> Result<()> {
     }
 }
 
-fn cancel() -> Result<()> {
+fn cancel(wait_for_reader: bool) -> Result<()> {
+    // Keep dictation cancellation independent of the Reader's IPC timeout.
+    let reader = std::thread::Builder::new()
+        .name("reader-abort".into())
+        .spawn(|| {
+            if let Err(error) = smalltalkai::reader::action("stop", "") {
+                eprintln!("[{APP}] reader stop failed: {error:#}");
+            }
+        });
+    let dictation = cancel_dictation();
+    match reader {
+        Ok(worker) if wait_for_reader => {
+            // The one-shot CLI must keep the worker alive until it reaps its child.
+            let _ = worker.join();
+        }
+        Err(error) => eprintln!("[{APP}] could not start reader stop: {error}"),
+        Ok(_) => {}
+    }
+    dictation
+}
+
+fn cancel_dictation() -> Result<()> {
     let _action = DICTATION_ACTION_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    // Abort covers both dictation and read-along, even while the capture
-    // service is healthy. Stop is safe when no reader job is active.
-    stop_reader_fallback();
     ensure_service()?;
     invalidate_delivery_session()?;
     match run_ctl(["cancel"], Duration::from_secs(5), false) {
@@ -1249,17 +1258,6 @@ fn cancel() -> Result<()> {
     Ok(())
 }
 
-fn stop_reader_fallback() {
-    if let Ok(ctl) = find_exe("smalltalkai-ctl") {
-        let _ = ProcessCommand::new(ctl)
-            .args(["reader-action", "stop"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
-    }
-}
-
 fn unload_model() -> Result<()> {
     ensure_service()?;
     let _ = run_ctl(["unload-model"], Duration::from_secs(5), false)?;
@@ -1269,7 +1267,7 @@ fn unload_model() -> Result<()> {
 
 #[cfg(target_os = "linux")]
 fn unload_all_models() -> Result<()> {
-    let aborted = cancel();
+    let aborted = cancel(false);
     let speech = unload_model();
     let reader = smalltalkai::reader::action("unload", "");
     aborted?;
@@ -1339,7 +1337,7 @@ fn print_shortcut_commands() -> Result<()> {
     Ok(())
 }
 
-fn settings(browser: bool, no_browser: bool) -> Result<()> {
+fn settings(headless: bool) -> Result<()> {
     ensure_dirs()?;
     let executable = find_exe("smalltalkai-settings")?;
     let mut command = ProcessCommand::new(executable);
@@ -1348,14 +1346,14 @@ fn settings(browser: bool, no_browser: bool) -> Result<()> {
         .arg(state_file())
         .arg("--service-token")
         .arg(token()?);
-    if no_browser {
-        let status = command.arg("--no-browser").status()?;
+    if headless {
+        let status = command.arg("--headless").status()?;
         anyhow::ensure!(status.success(), "Settings exited with {status}");
     } else {
-        if browser {
-            command.arg("--browser");
-        }
-        command.spawn().context("starting SmallTalkAI Settings")?;
+        let mut child = command.spawn().context("starting SmallTalkAI Settings")?;
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
     }
     Ok(())
 }
@@ -1371,7 +1369,7 @@ fn launch() -> Result<()> {
         let deadline = Instant::now() + Duration::from_secs(10);
         while Instant::now() < deadline {
             if run_ctl(["ping"], Duration::from_secs(1), false).is_ok() {
-                return settings(false, false);
+                return settings(false);
             }
             std::thread::sleep(Duration::from_millis(150));
         }
@@ -1379,7 +1377,7 @@ fn launch() -> Result<()> {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        settings(false, false)
+        settings(false)
     }
 }
 
@@ -1923,7 +1921,7 @@ fn handle_portal_activation(id: &str) -> Result<()> {
                 toggle_recording(RecordingSource::Hotkey, 90.0, false)
             }
         }
-        "cancel" => cancel(),
+        "cancel" => cancel(false),
         "delivery" => toggle_linux_delivery_mode(),
         "cleanup" => toggle_linux_cleanup(),
         "shortcuts" => show_shortcuts(),
@@ -2051,26 +2049,13 @@ fn handle_portal_deactivation(id: &str) -> Result<()> {
 fn toggle_linux_delivery_mode() -> Result<()> {
     let config_guard = smalltalkai::config::lock_config()?;
     let mut config = AppConfig::load()?;
-    let modes = config
-        .output
-        .linux_delivery_cycle
-        .iter()
-        .copied()
-        .filter(|choice| delivery_mode_supported(choice.backend, choice.mode))
-        .collect::<Vec<_>>();
-    if modes.is_empty() {
-        bail!("No enabled delivery modes are compatible with the selected Linux automation tool");
-    }
+    let modes = &config.output.enabled_delivery_modes;
     let current = modes
         .iter()
-        .position(|choice| choice.mode == config.output.delivery_mode);
+        .position(|mode| *mode == config.output.delivery_mode);
     let next = current.map_or(0, |index| (index + 1) % modes.len());
-    let LinuxDeliveryChoice { backend: _, mode } = modes[next];
-    config.output.linux_automation_backend = LinuxAutomationBackend::Auto;
+    let mode = modes[next];
     config.output.delivery_mode = mode;
-    if !config.output.enabled_delivery_modes.contains(&mode) {
-        config.output.enabled_delivery_modes.push(mode);
-    }
     config.save()?;
     drop(config_guard);
     let _ = run_ctl(["reload-config"], Duration::from_secs(5), false);
@@ -2131,38 +2116,6 @@ fn toggle_linux_delivery_mode() -> Result<()> {
     bail!("delivery cycling is only available on Linux")
 }
 
-#[cfg(test)]
-fn automation_backend_label(backend: LinuxAutomationBackend) -> &'static str {
-    match backend {
-        LinuxAutomationBackend::Auto => "Automatic",
-        LinuxAutomationBackend::Native => "Native paste",
-        LinuxAutomationBackend::Wtype => "wtype",
-        LinuxAutomationBackend::Ydotool => "ydotool",
-        LinuxAutomationBackend::Xdotool => "xdotool",
-        LinuxAutomationBackend::ClipboardOnly => "wl-clipboard",
-    }
-}
-
-#[cfg(test)]
-fn delivery_mode_label(mode: TextDeliveryMode) -> &'static str {
-    match mode {
-        TextDeliveryMode::Type => "Type",
-        TextDeliveryMode::SmartPaste => "Smart Paste",
-        TextDeliveryMode::PasteShiftInsert => "Shift+Insert",
-        TextDeliveryMode::PasteCtrlV => "Ctrl+V",
-        TextDeliveryMode::PasteCtrlShiftV => "Ctrl+Shift+V",
-        TextDeliveryMode::Clipboard => "Clipboard",
-    }
-}
-
-#[cfg(any(target_os = "linux", test))]
-fn delivery_mode_supported(backend: LinuxAutomationBackend, mode: TextDeliveryMode) -> bool {
-    match backend {
-        LinuxAutomationBackend::ClipboardOnly => mode == TextDeliveryMode::Clipboard,
-        _ => true,
-    }
-}
-
 #[cfg(target_os = "linux")]
 fn write_shortcut_state(shortcuts: Vec<(String, String)>) -> Result<()> {
     let value = shortcuts.into_iter().collect::<BTreeMap<_, _>>();
@@ -2212,7 +2165,7 @@ fn install_desktop_entries(exe: &Path) -> Result<()> {
     fs::create_dir_all(&applications)?;
     for (filename, name, command) in [
         (
-            "io.github.yosef0H4.simple_stt.desktop",
+            "io.github.yosef0H4.smalltalkai.desktop",
             "SmallTalkAI",
             "launch",
         ),
@@ -2393,116 +2346,20 @@ fn deliver_text(text: &str, force_shift_insert: bool, session_id: u64) -> Result
             config.output.paced_typing_enabled,
             config.output.typing_speed_wpm,
         );
-        let typed = type_text(
-            text,
-            config.output.linux_automation_backend,
-            delay,
-            &is_current,
-        )
-        .inspect_err(|_| {
+        type_text(text, delay, &is_current).inspect_err(|_| {
             if is_current() {
                 shell_notice("notice.typingStopped", true);
             }
         })?;
-        if typed {
-            return Ok("typed");
-        }
-        shell_notice("notice.typingUnavailable", true);
-        if config.output.preserve_clipboard {
-            bail!("typing unavailable; original clipboard preserved and dictation kept for Retry");
-        }
-        let _clipboard_lock = acquire_clipboard_lock(&is_current)?;
-        publish_clipboard(text, false, &is_current)?.detach();
-        eprintln!("[{APP}] typing failed; transcript is in the clipboard");
-        return Ok("copied");
+        return Ok("typed");
     }
     paste_text(
         text,
         paste_key_for_mode(mode, force_shift_insert, identity.as_deref()),
-        config.output.linux_automation_backend,
         &is_current,
         config.output.preserve_clipboard,
         session_id,
     )
-}
-
-#[cfg(all(test, unix))]
-fn run_clipboard_free_input(
-    mut command: ProcessCommand,
-    text: &str,
-    is_current: &impl Fn() -> bool,
-    preparation_timeout: Duration,
-    submission_timeout: Duration,
-) -> Result<bool> {
-    use std::io::Read;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    if !is_current() {
-        bail!("dictation superseded before direct insertion");
-    }
-    let mut child = command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .context("opening direct insertion input")?;
-    let mut stdout = child
-        .stdout
-        .take()
-        .context("opening insertion acknowledgement")?;
-    let bytes = text.as_bytes().to_vec();
-    let writer = std::thread::spawn(move || stdin.write_all(&bytes));
-    let attempted = Arc::new(AtomicBool::new(false));
-    let signal = Arc::clone(&attempted);
-    let reader = std::thread::spawn(move || {
-        let mut marker = [0_u8; 8];
-        if stdout.read_exact(&mut marker).is_ok() && &marker == b"attempt\n" {
-            signal.store(true, Ordering::SeqCst);
-        }
-        let _ = std::io::copy(&mut stdout.take(4096), &mut std::io::sink());
-    });
-    let start = Instant::now();
-    let mut timed_out = false;
-    let result = loop {
-        if !is_current() {
-            let _ = child.kill();
-            let _ = child.wait();
-            break Err(anyhow::anyhow!(
-                "dictation superseded during direct insertion"
-            ));
-        }
-        let limit = if attempted.load(Ordering::SeqCst) {
-            submission_timeout
-        } else {
-            preparation_timeout
-        };
-        if start.elapsed() >= limit {
-            let _ = child.kill();
-            let _ = child.wait();
-            timed_out = true;
-            break Ok(false);
-        }
-        if let Some(status) = child.try_wait()? {
-            break Ok(status.success());
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
-    let _ = writer.join();
-    let _ = reader.join();
-    // Inspect the drained signal AFTER killing/joining, so a slow parent reader
-    // cannot mistake an already attempted insertion for an eligible fallback.
-    if timed_out && attempted.load(Ordering::SeqCst) {
-        bail!("direct insertion timed out after submission; use Retry last action if needed");
-    }
-    if attempted.load(Ordering::SeqCst) && matches!(result, Ok(false)) {
-        bail!("direct insertion failed after submission; use Retry last action if needed");
-    }
-    if matches!(result, Ok(true)) && !attempted.load(Ordering::SeqCst) {
-        return Ok(false);
-    }
-    result
 }
 
 #[cfg(target_os = "linux")]
@@ -2656,7 +2513,6 @@ impl Drop for ClipboardTransaction {
 fn preserving_wayland_paste(
     text: &str,
     key: PasteKey,
-    backend: LinuxAutomationBackend,
     is_current: &impl Fn() -> bool,
     session_id: u64,
 ) -> Result<&'static str> {
@@ -2685,11 +2541,12 @@ fn preserving_wayland_paste(
         smalltalkai::common::shell_protocol::DeliveryPhase::Pasting,
     );
     eprintln!("[{APP}] paste stage=shortcut-send key={key:?}");
-    if !is_current() || !send_paste_key(key, backend, is_current)? {
+    if !is_current() {
         bail!(
             "paste shortcut unavailable; original clipboard restored and dictation kept for Retry"
         );
     }
+    send_paste_key(key, is_current)?;
     for transaction in &mut transactions {
         writeln!(transaction.input, "sent")?;
     }
@@ -2792,13 +2649,12 @@ fn publish_clipboard(
 fn paste_text(
     text: &str,
     key: PasteKey,
-    backend: LinuxAutomationBackend,
     is_current: &impl Fn() -> bool,
     preserve_clipboard: bool,
     session_id: u64,
 ) -> Result<&'static str> {
     if preserve_clipboard && std::env::var_os("WAYLAND_DISPLAY").is_some() {
-        return preserving_wayland_paste(text, key, backend, is_current, session_id)
+        return preserving_wayland_paste(text, key, is_current, session_id)
             .inspect_err(|_| shell_notice("notice.clipboardPreserveUnavailable", true));
     }
     if preserve_clipboard {
@@ -2829,15 +2685,12 @@ fn paste_text(
     }
     // Key injection has no editor-insertion acknowledgement. Never restore an
     // older payload after a timer: the target may not have read this one yet.
-    let sent = send_paste_key(key, backend, is_current);
+    let sent = send_paste_key(key, is_current);
     clipboard.detach();
     if let Some(primary) = primary {
         primary.detach();
     }
-    if !sent? {
-        eprintln!("[{APP}] paste shortcut failed; transcript is available for manual paste");
-        return Ok("copied");
-    }
+    sent?;
     Ok("paste submitted (transcript retained in clipboard)")
 }
 
@@ -2934,18 +2787,13 @@ fn is_terminal_identity(identity: &str) -> bool {
     TERMINALS.iter().any(|terminal| identity.contains(terminal))
 }
 
-fn send_paste_key(
-    key: PasteKey,
-    _backend: LinuxAutomationBackend,
-    current: &impl Fn() -> bool,
-) -> Result<bool> {
+fn send_paste_key(key: PasteKey, current: &impl Fn() -> bool) -> Result<()> {
     let key = match key {
         PasteKey::ShiftInsert => "Shift+Insert",
         PasteKey::CtrlShiftV => "Ctrl+Shift+V",
         PasteKey::CtrlV => "Ctrl+V",
     };
-    smalltalkai::reader::desktop_input(serde_json::json!({"kind":"key","key":key}), current)?;
-    Ok(true)
+    smalltalkai::reader::desktop_input(serde_json::json!({"kind":"key","key":key}), current)
 }
 
 fn typing_delay_ms(paced: bool, words_per_minute: u64) -> u64 {
@@ -2956,50 +2804,11 @@ fn typing_delay_ms(paced: bool, words_per_minute: u64) -> u64 {
     }
 }
 
-fn type_text(
-    text: &str,
-    _backend: LinuxAutomationBackend,
-    delay_ms: u64,
-    current: &impl Fn() -> bool,
-) -> Result<bool> {
+fn type_text(text: &str, delay_ms: u64, current: &impl Fn() -> bool) -> Result<()> {
     smalltalkai::reader::desktop_input(
         serde_json::json!({"kind":"text","text":text,"delay_ms":delay_ms}),
         current,
-    )?;
-    Ok(true)
-}
-
-/// Once a child starts it may have typed a prefix, so failures and cancellation
-/// must never fall back to another delivery method or replay the full text.
-#[cfg(all(test, unix))]
-fn run_typing_child(command: &mut ProcessCommand, is_current: &impl Fn() -> bool) -> Result<()> {
-    anyhow::ensure!(is_current(), "dictation superseded before typing");
-    let mut child = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .context("starting typing backend")?;
-    loop {
-        if !is_current() {
-            let _ = child.kill();
-            let _ = child.wait();
-            bail!("dictation superseded during typing; text may be partially delivered");
-        }
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => return Ok(()),
-            Ok(Some(status)) => {
-                bail!("typing backend exited with {status}; text may be partially delivered")
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(error)
-                    .context("waiting for typing backend; text may be partially delivered");
-            }
-        }
-    }
+    )
 }
 
 fn find_native_paste_helper() -> Result<PathBuf> {
@@ -3217,7 +3026,7 @@ fn find_exe(name: &str) -> Result<PathBuf> {
             .join(format!("{name}{suffix}")),
         PathBuf::from(format!("{name}{suffix}")),
     ];
-    if let Some(env_dir) = std::env::var_os("SIMPLE_STT_BINDIR") {
+    if let Some(env_dir) = std::env::var_os("SMALLTALKAI_BINDIR") {
         candidates.insert(0, PathBuf::from(env_dir).join(format!("{name}{suffix}")));
     }
     if let Some(hit) = std::env::var_os("PATH").and_then(|_| which_like(name, suffix)) {
@@ -3229,7 +3038,7 @@ fn find_exe(name: &str) -> Result<PathBuf> {
         }
     }
     bail!(
-        "Could not find {name}. Build first with `cargo build --release` or set SIMPLE_STT_BINDIR."
+        "Could not find {name}. Build first with `cargo build --release` or set SMALLTALKAI_BINDIR."
     )
 }
 
@@ -3326,60 +3135,6 @@ mod tests {
     #[test]
     fn read_along_cli_command_is_available() {
         assert!(super::Args::try_parse_from(["smalltalkai-linux", "read-along"]).is_ok());
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn abort_terminates_and_reaps_the_typing_child() {
-        use std::sync::{
-            atomic::{AtomicBool, Ordering},
-            Arc,
-        };
-        use std::time::Duration;
-        let directory = tempfile::tempdir().unwrap();
-        let pid_file = directory.path().join("child.pid");
-        let child_file = pid_file.clone();
-        let current = Arc::new(AtomicBool::new(true));
-        let flag = Arc::clone(&current);
-        let runner = std::thread::spawn(move || {
-            let mut command = std::process::Command::new("sh");
-            command
-                .args(["-c", "printf '%s' \"$$\" > \"$1\"; exec sleep 30", "sh"])
-                .arg(child_file);
-            super::run_typing_child(&mut command, &|| flag.load(Ordering::SeqCst))
-        });
-        let mut pid = None;
-        for _ in 0..300 {
-            pid = std::fs::read_to_string(&pid_file)
-                .ok()
-                .and_then(|value| value.parse::<u32>().ok());
-            if pid.is_some() {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        current.store(false, Ordering::SeqCst);
-        let result = runner.join().unwrap();
-        let pid = pid.expect("child did not start");
-        assert!(result.is_err());
-        assert!(
-            !std::path::Path::new(&format!("/proc/{pid}")).exists(),
-            "child must be reaped"
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn failed_typing_after_partial_output_is_an_error() {
-        let directory = tempfile::tempdir().unwrap();
-        let marker = directory.path().join("attempted");
-        let mut command = std::process::Command::new("sh");
-        command
-            .args(["-c", "printf typed > \"$1\"; exit 7", "sh"])
-            .arg(&marker);
-        let result = super::run_typing_child(&mut command, &|| true);
-        assert!(result.is_err());
-        assert_eq!(std::fs::read_to_string(marker).unwrap(), "typed");
     }
 
     #[cfg(target_os = "linux")]
@@ -3493,7 +3248,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn x11_delayed_paste_end_to_end() {
-        if std::env::var_os("SIMPLE_STT_PASTE_X11_E2E").is_none() {
+        if std::env::var_os("SMALLTALKAI_PASTE_X11_E2E").is_none() {
             return;
         }
         let dir = tempfile::tempdir().unwrap();
@@ -3533,14 +3288,7 @@ root.after(150,ready);root.mainloop()
             }
             assert!(ready.exists(), "test editor did not become ready");
             let text = "hello world مرحبا 🙂";
-            let outcome = paste_text(
-                text,
-                PasteKey::CtrlV,
-                LinuxAutomationBackend::Xdotool,
-                &|| true,
-                false,
-                0,
-            );
+            let outcome = paste_text(text, PasteKey::CtrlV, &|| true, false, 0);
             let deadline = Instant::now() + Duration::from_secs(5);
             while !result.exists() && Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(20));
@@ -3728,40 +3476,6 @@ root.after(150,ready);root.mainloop()
         );
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn clipboard_free_input_never_falls_back_after_submission() {
-        fn run(script: &str, limit: Duration) -> Result<bool> {
-            let mut command = ProcessCommand::new("python3");
-            command.args(["-c", script]);
-            run_clipboard_free_input(command, "مرحبا", &|| true, limit, limit)
-        }
-        let limit = Duration::from_secs(2);
-        assert!(!run("import sys; sys.stdin.read(); sys.exit(1)", limit).unwrap());
-        assert!(!run("import sys; sys.stdin.read()", limit).unwrap());
-        assert!(run(
-            "import sys; sys.stdin.read(); print('attempt',flush=True)",
-            limit
-        )
-        .unwrap());
-        // The parent must drain the marker even if the child has already exited.
-        assert!(run(
-            "import sys; sys.stdin.read(); print('attempt',flush=True); sys.exit(2)",
-            limit
-        )
-        .is_err());
-        assert!(run(
-            "import sys,time; sys.stdin.read(); print('attempt',flush=True); time.sleep(2)",
-            Duration::from_millis(150)
-        )
-        .is_err());
-        assert!(!run(
-            "import sys,time; sys.stdin.read(); time.sleep(2)",
-            Duration::from_millis(150)
-        )
-        .unwrap());
-    }
-
     #[test]
     fn typing_speed_matches_words_per_minute() {
         assert_eq!(typing_delay_ms(true, 60), 200);
@@ -3770,26 +3484,6 @@ root.after(150,ready);root.mainloop()
         assert_eq!(typing_delay_ms(true, 1650), 7);
         assert_eq!(typing_delay_ms(false, 60), 0);
         assert_eq!(typing_delay_ms(false, 850), 0);
-    }
-
-    #[test]
-    fn automation_backend_limits_delivery_modes() {
-        assert!(delivery_mode_supported(
-            LinuxAutomationBackend::Auto,
-            TextDeliveryMode::Type
-        ));
-        assert!(delivery_mode_supported(
-            LinuxAutomationBackend::Native,
-            TextDeliveryMode::Type
-        ));
-        assert!(delivery_mode_supported(
-            LinuxAutomationBackend::Native,
-            TextDeliveryMode::Clipboard
-        ));
-        assert!(!delivery_mode_supported(
-            LinuxAutomationBackend::ClipboardOnly,
-            TextDeliveryMode::PasteCtrlV
-        ));
     }
 
     #[cfg(target_os = "linux")]
@@ -3803,7 +3497,7 @@ root.after(150,ready);root.mainloop()
     #[cfg(target_os = "linux")]
     #[test]
     fn x11_global_shortcut_end_to_end() {
-        if std::env::var_os("SIMPLE_STT_X11_E2E").is_none() {
+        if std::env::var_os("SMALLTALKAI_X11_E2E").is_none() {
             return;
         }
         use x11rb::connection::Connection;
@@ -3848,18 +3542,6 @@ root.after(150,ready);root.mainloop()
         assert_eq!(x11_keysym("Escape"), Some(0xff1b));
         assert_eq!(x11_keysym("F12"), Some(0xffc9));
         assert_eq!(x11_keysym("F36"), None);
-    }
-
-    #[test]
-    fn delivery_notice_names_tool_and_method() {
-        assert_eq!(
-            format!(
-                "{} · {}",
-                automation_backend_label(LinuxAutomationBackend::Wtype),
-                delivery_mode_label(TextDeliveryMode::Type)
-            ),
-            "wtype · Type"
-        );
     }
 
     #[test]

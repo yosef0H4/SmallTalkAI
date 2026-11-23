@@ -183,7 +183,7 @@ def run_block(protocol, device, number, runtime, model, binary, cases, scratch, 
     env = dict(os.environ, XDG_DATA_HOME=str(scratch), XDG_CACHE_HOME=str(scratch),
                XDG_CONFIG_HOME=str(scratch), XDG_RUNTIME_DIR=str(scratch),
                CUDA_CACHE_PATH=str(scratch / 'cuda-cache'),
-               SIMPLE_TTS_CAPTURE_DIR=str(scratch), SIMPLE_TTS_NO_DESKTOP='1',
+               SMALLTALKAI_READER_CAPTURE_DIR=str(scratch), SMALLTALKAI_READER_NO_DESKTOP='1',
                DISPLAY='', WAYLAND_DISPLAY='', DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-test-bus')
     lib = runtime / 'lib' if (runtime / 'lib').is_dir() else runtime
     env['LD_LIBRARY_PATH'] = str(lib) + os.pathsep + env.get('LD_LIBRARY_PATH', '')
@@ -253,8 +253,8 @@ def summarize(results):
         current = normalize(runs[0]['text'])
         fixture = cases[case]
         expected = fixture.get('expected_fragments',
-                    ['مرحبابالعالم', 'simplesttreadsarabicandenglish'] if case.startswith(('arabic-', 'verified-arabic'))
-                    else ['simplettsreadsthisscreenshot'])
+                    ['مرحبابالعالم', 'smalltalkaireadsarabicandenglish'] if case.startswith(('arabic-', 'verified-arabic'))
+                    else ['smalltalkaireaderreadsthisscreenshot'])
         truth = normalize(fixture.get('truth', ''))
         summaries.append({'case': case, 'device': device, 'runs': len(runs),
                           'median_ms': (times[(len(times)-1)//2] + times[len(times)//2]) / 2,
@@ -301,7 +301,7 @@ def main():
                         help='directory containing optimized smalltalkai-ocr (default: target/release)')
     parser.add_argument('--model', type=Path, default=ROOT / 'artifacts/combined-app/downloads/model-paddle')
     parser.add_argument('--cpu-runtime', type=Path, default=ROOT / 'artifacts/combined-app/memory/cpu-runtime')
-    parser.add_argument('--gpu-runtime', type=Path, default=Path.home() / '.local/share/simple-tts/runtime')
+    parser.add_argument('--gpu-runtime', type=Path, default=Path.home() / '.local/share/smalltalkai-reader/runtime')
     args = parser.parse_args()
     OUTPUT = args.output_dir.resolve()
     binary = args.bin_dir / 'smalltalkai-ocr'

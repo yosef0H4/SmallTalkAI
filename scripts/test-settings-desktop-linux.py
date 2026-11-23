@@ -24,8 +24,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix='smalltalkai-native-profile-') as temp:
         root = Path(temp)
         env = os.environ.copy()
-        for key in ('SIMPLE_STT_CONFIG', 'SIMPLE_STT_SETTINGS_DEV_ORIGIN',
-                    'SIMPLE_STT_RUNTIME_ROOT', 'WAYLAND_DISPLAY'):
+        for key in ('SMALLTALKAI_CONFIG', 'SMALLTALKAI_SETTINGS_DEV_ORIGIN',
+                    'SMALLTALKAI_RUNTIME_ROOT', 'WAYLAND_DISPLAY'):
             env.pop(key, None)
         for key, directory in [('HOME', 'home'), ('XDG_DATA_HOME', 'data'),
                                ('XDG_CONFIG_HOME', 'config'), ('XDG_CACHE_HOME', 'cache'),
@@ -66,7 +66,7 @@ def main():
             try:
                 request = urllib.request.Request(info['origin'] + '/api/health', headers={
                     'Origin': info['origin'],
-                    'X-Simple-STT-Token': info['token'],
+                    'X-SmallTalkAI-Token': info['token'],
                 })
                 with urllib.request.urlopen(request, timeout=0.5) as response:
                     return json.load(response)

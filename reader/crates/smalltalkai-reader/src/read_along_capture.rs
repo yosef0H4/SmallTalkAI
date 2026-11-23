@@ -351,7 +351,10 @@ mod windows_backend {
     }
 
     impl WindowsBackend {
-        fn advance_legacy(args: &[(&str, String)], current: &dyn Fn() -> bool) -> Result<Output> {
+        fn advance_key_or_click(
+            args: &[(&str, String)],
+            current: &dyn Fn() -> bool,
+        ) -> Result<Output> {
             let helper = crate::privacy::TemporaryFile(std::env::temp_dir().join(format!(
                 "smalltalkai-read-along-{}.ps1",
                 uuid::Uuid::new_v4()
@@ -595,7 +598,7 @@ mod windows_backend {
                     ("Y", y.to_string()),
                 ]),
             }
-            let output = Self::advance_legacy(&args, current)?;
+            let output = Self::advance_key_or_click(&args, current)?;
             if output.status.code() == Some(3) {
                 return Err(FocusChanged.into());
             }

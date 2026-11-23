@@ -12,12 +12,12 @@ const { chromium } = require("playwright");
     "target/debug/smalltalkai-settings" +
       (process.platform === "win32" ? ".exe" : ""),
   );
-  const child = spawn(binary, ["--no-browser"], {
+  const child = spawn(binary, ["--headless"], {
     cwd: temp,
     env: {
       ...process.env,
-      SIMPLE_STT_CONFIG: path.join(temp, "config.json"),
-      SIMPLE_STT_RUNTIME_ROOT: path.join(temp, "runtime"),
+      SMALLTALKAI_CONFIG: path.join(temp, "config.json"),
+      SMALLTALKAI_RUNTIME_ROOT: path.join(temp, "runtime"),
       XDG_DATA_HOME: path.join(temp, "data"),
     },
   });
@@ -31,7 +31,7 @@ const { chromium } = require("playwright");
     });
     const parsed = new URL(url);
     const headers = {
-      "X-Simple-STT-Token": new URLSearchParams(parsed.hash.slice(1)).get(
+      "X-SmallTalkAI-Token": new URLSearchParams(parsed.hash.slice(1)).get(
         "token",
       ),
     };
@@ -47,7 +47,7 @@ const { chromium } = require("playwright");
       await fetch(parsed.origin + "/api/normalize", {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ schema_version: 9 }),
+        body: JSON.stringify({ schema_version: 10 }),
       })
     ).json();
     assertConfig(normalized.config);
@@ -96,7 +96,7 @@ const { chromium } = require("playwright");
     assert.equal(
       JSON.parse(fs.readFileSync(path.join(temp, "config.json")))
         .schema_version,
-      9,
+      10,
     );
     assertConfig(
       (await (await fetch(parsed.origin + "/api/state", { headers })).json())

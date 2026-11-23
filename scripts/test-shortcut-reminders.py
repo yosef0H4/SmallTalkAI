@@ -36,11 +36,11 @@ def main():
         folder = Path(temporary)
         state = folder / 'capture.json'
         state.write_text(json.dumps({'protocol': 3, 'pid': os.getpid(), 'address': f'127.0.0.1:{fixture.server_address[1]}', 'started_unix_ms': 0}))
-        env = dict(os.environ, SIMPLE_STT_CONFIG=str(folder / 'config.json'), SIMPLE_STT_RUNTIME_ROOT=str(folder / 'runtime'), XDG_DATA_HOME=str(folder / 'data'), XDG_CONFIG_HOME=str(folder / 'config'), DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-test-bus', WAYLAND_DISPLAY='unavailable-test-display')
+        env = dict(os.environ, SMALLTALKAI_CONFIG=str(folder / 'config.json'), SMALLTALKAI_RUNTIME_ROOT=str(folder / 'runtime'), XDG_DATA_HOME=str(folder / 'data'), XDG_CONFIG_HOME=str(folder / 'config'), DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-test-bus', WAYLAND_DISPLAY='unavailable-test-display')
         runtime = folder / 'runtime'
         runtime.mkdir()
         (runtime / 'linux-installation').touch()
-        data = folder / 'data/simple-stt/instances/installed'
+        data = folder / 'data/smalltalkai/instances/installed'
         (data / 'state').mkdir(parents=True)
         (data / 'state/linux-capture-state.json').write_bytes(state.read_bytes())
         (data / 'linux-token').write_text(TOKEN)
@@ -48,11 +48,11 @@ def main():
         for command in ['show-shortcuts', 'refresh-shortcuts']:
             result = subprocess.run([str(binary / 'smalltalkai-ctl'), '--state-file', str(state), '--token', TOKEN, command], env=env, capture_output=True, text=True, check=True)
             assert 'status\tok' in result.stdout, result.stdout
-        settings = subprocess.Popen([str(binary / 'smalltalkai-settings'), '--no-browser', '--state-file', str(state), '--service-token', TOKEN], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        settings = subprocess.Popen([str(binary / 'smalltalkai-settings'), '--headless', '--state-file', str(state), '--service-token', TOKEN], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
             url = urlparse(settings.stdout.readline().strip())
             token = parse_qs(url.fragment)['token'][0]
-            headers = {'Origin': f'{url.scheme}://{url.netloc}', 'X-Simple-STT-Token': token, 'Content-Type': 'application/json'}
+            headers = {'Origin': f'{url.scheme}://{url.netloc}', 'X-SmallTalkAI-Token': token, 'Content-Type': 'application/json'}
             request = Request(f'{url.scheme}://{url.netloc}/api/platform-action', data=json.dumps({'action': 'show_shortcuts'}).encode(), headers=headers)
             with urlopen(request, timeout=5) as response:
                 assert response.status == 200

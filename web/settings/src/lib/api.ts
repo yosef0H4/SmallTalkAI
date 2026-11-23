@@ -1,6 +1,4 @@
-let token = new URLSearchParams(location.hash.slice(1)).get("token") || "";
-export const hasToken = () => Boolean(token);
-export function setToken(value: string) { token = value.trim(); }
+const token = new URLSearchParams(location.hash.slice(1)).get("token") || "";
 export class ApiError extends Error {
   message_id?: string;
   message_args?: Record<string, string | number>;
@@ -25,7 +23,7 @@ export async function api<T>(
   const response = await fetch(path, {
     method: body === undefined ? "GET" : "POST",
     headers: {
-      "X-Simple-STT-Token": token,
+      "X-SmallTalkAI-Token": token,
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -41,7 +39,7 @@ export async function events(
   pid?: number,
 ): Promise<{ events: import("./types").ServiceEvent[]; pid?: number }> {
   const response = await fetch(`/api/events?after=${after}${pid === undefined ? "" : `&pid=${pid}`}`, {
-    headers: { "X-Simple-STT-Token": token },
+    headers: { "X-SmallTalkAI-Token": token },
     signal,
   });
   if (!response.ok) throw Error("Event connection failed");

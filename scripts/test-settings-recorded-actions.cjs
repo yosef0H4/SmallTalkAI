@@ -26,7 +26,7 @@ const f=require('./settings-fixture.cjs');
   await page.reload();await page.locator('nav button[data-page=reading]').click();
   assert.equal(await page.locator('#recorded-action').inputValue(),'Space → Space');
   for(const width of [360,768,1280]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);}
-  if(process.env.SIMPLE_STT_TEST_SCREENSHOT)await page.screenshot({path:process.env.SIMPLE_STT_TEST_SCREENSHOT,fullPage:true});
+  if(process.env.SMALLTALKAI_TEST_SCREENSHOT)await page.screenshot({path:process.env.SMALLTALKAI_TEST_SCREENSHOT,fullPage:true});
   await page.getByRole('button',{name:'Reset',exact:true}).click();assert.equal(await page.locator('#recorded-action').inputValue(),'Space');
   console.log('PASS timing trim, release pairing, focused recording, Escape stop, blur/empty cancellation, save/reload and responsive controls');
  }finally{await browser?.close();await new Promise(resolve=>f.server.close(resolve));}

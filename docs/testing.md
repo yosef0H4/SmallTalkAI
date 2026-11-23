@@ -12,7 +12,6 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --all-targets
 cargo build --bin smalltalkai-settings
 python scripts/test-settings-single-instance.py
-python scripts/test-settings-upgrade.py
 python scripts/test-settings-selection-api.py
 python scripts/test-cleanup-settings-e2e.py
 python scripts/verify-static.py
@@ -29,7 +28,7 @@ binaries are allowed only in isolated tests. During targeted
 development, run `cd web/settings && npm ci && npm run build`. The build writes
 `dist/index.html`, `dist/app.js`, `dist/styles.css`, and a deterministic
 `dist/manifest.json`. `python scripts/verify-settings-frontend.py` checks source
-and output hashes plus the 100 KiB gzipped JS/CSS and 354 KiB total asset budgets.
+and output hashes plus the 100 KiB gzipped JS/CSS and 350 KiB total asset budgets.
 The Rust build script independently rejects missing or stale frontend output.
 
 On Linux, also run `python scripts/test-linux-static.py`. Run the browser model
@@ -59,7 +58,7 @@ scripts\test-ahk-full.cmd
 ```
 
 The AutoHotkey portion rebuilds current release binaries first, so runtime smoke tests cannot accidentally validate stale executables.
-Set `SIMPLE_STT_SKIP_MODEL_SMOKE=1` to skip only the AHK smoke that loads real speech models. The other Windows checks still run.
+Set `SMALLTALKAI_SKIP_MODEL_SMOKE=1` to skip only the AHK smoke that loads real speech models. The other Windows checks still run.
 
 If a Windows host is unavailable, report native Windows runtime checks as
 unvalidated. They do not block committing changes validated on Linux.
@@ -77,7 +76,7 @@ The combined validation suite covers:
 ```text
 Rust unit tests
 real-child-process worker lifecycle integration tests
-nested schema-v9 normalization and malformed-file preservation
+nested schema-v10 normalization and malformed-file preservation
 AI cleanup provider response parsing, Unicode preservation, and raw-text fallback
 AI credential separation from portable configuration
 install-relative runtime path behavior
@@ -115,7 +114,7 @@ For experimental memory and latency comparisons across 50 alternating switches:
 python scripts/benchmark-language-switch.py --switches 50
 ```
 
-On Linux, run `python scripts/test-linux-static.py` alongside the normal Rust tests. Follow-keyboard selection supports KDE Plasma Wayland and X11. Fixed English and Arabic modes work on all supported Linux desktops. Install the Linux Vulkan runtime and both models with `bash scripts/bootstrap-linux-vulkan.sh`, then run `python scripts/test-inference-devices.py --mode both --language both`. To check a live layout, run `SIMPLE_STT_TEST_KEYBOARD_LANGUAGE=english cargo test --lib live_keyboard_language` (or `arabic` after switching layouts).
+On Linux, run `python scripts/test-linux-static.py` alongside the normal Rust tests. Follow-keyboard selection supports KDE Plasma Wayland and X11. Fixed English and Arabic modes work on all supported Linux desktops. Install the Linux Vulkan runtime and both models with `bash scripts/bootstrap-linux-vulkan.sh`, then run `python scripts/test-inference-devices.py --mode both --language both`. To check a live layout, run `SMALLTALKAI_TEST_KEYBOARD_LANGUAGE=english cargo test --lib live_keyboard_language` (or `arabic` after switching layouts).
 
 ## Run Rust tests only
 
@@ -132,7 +131,7 @@ shell JSON Unicode and malformed JSON
 escaped helper protocol Unicode/control-character round trip
 worker framed protocol PCM and Unicode transcript framing
 protocol-version and malformed-size rejection
-schema-v9 normalization, unknown-field removal, and malformed-file preservation
+schema-v10 normalization, unknown-field removal, and malformed-file preservation
 AI cleanup defaults, nested invalid-value recovery, OAuth PKCE, and Codex SSE parsing
 approved model-name restriction
 lazy launch / warm reuse / model replacement / idle policy
@@ -209,9 +208,9 @@ Set `SETTINGS_LAYOUT_BROWSER=webkit` to run the same checks with Playwright
 WebKit installed. Set `SETTINGS_LAYOUT_SCREENSHOTS` to a directory to capture
 the shortcut row and the first distinct failures.
 
-For Tauri frontend hot reload, point Vite's `SIMPLE_STT_SETTINGS_ORIGIN` at
+For Tauri frontend hot reload, point Vite's `SMALLTALKAI_SETTINGS_ORIGIN` at
 the native Settings server's loopback address. Launch the debug Settings window
-with the same explicit `--listen` address and set `SIMPLE_STT_SETTINGS_DEV_ORIGIN`
+with the same explicit `--listen` address and set `SMALLTALKAI_SETTINGS_DEV_ORIGIN`
 to Vite's HTTP loopback origin. Use a temporary config and data directory for previews.
 
 On Windows, build the desktop targets with
@@ -244,12 +243,11 @@ reopened session, immediate reopen during shutdown, crash/stale-session recovery
 and independent installation isolation. On Linux it also suspends the server to
 verify a slow/unresponsive instance never starts a duplicate. The OS lock remains
 held throughout the server lifetime; its persistent lock file is intentionally
-not deleted. Closing a browser tab alone does not close the server: use the
-Settings Close action to shut it down for all tabs.
+not deleted. The native Settings window closes its local server when it exits.
 
 Browser automation covers Settings pages, including AI Cleanup, narrow and wide layouts, accessible labels, explicit Save, Reset/Import previews, security headers, offline editing, device/model controls, provider model search/manual IDs, credential-state controls, and download progress. Release validation additionally starts the capture service, downloads a real catalog model through the UI, waits for completion, selects and saves it, and runs the real smoke-audio model test. The routine CI download uses a deterministic local fixture server; the release pass uses the production catalog and model URL.
 
-Provider tests use deterministic loopback fixtures and must never use a developer's saved API key. A real provider test is manual, requires a freshly issued credential supplied through the OS vault or `SIMPLE_STT_AI_API_KEY`, and must verify that a failed or timed-out request delivers the original transcript. Screenshot testing must also verify the visible capture notice, denylist behavior, active-window targeting, and that no image or history survives capture-process exit. Wayland's compositor-owned picker remains a manual desktop check.
+Provider tests use deterministic loopback fixtures and must never use a developer's saved API key. A real provider test is manual, requires a freshly issued credential supplied through the OS vault or `SMALLTALKAI_AI_API_KEY`, and must verify that a failed or timed-out request delivers the original transcript. Screenshot testing must also verify the visible capture notice, denylist behavior, active-window targeting, and that no image or history survives capture-process exit. Wayland's compositor-owned picker remains a manual desktop check.
 
 For an opt-in quality check against the provider configured in the ignored local `.env`, run:
 
@@ -260,6 +258,14 @@ python scripts\benchmark-cleanup-live.py
 The benchmark uses the real debug Settings process and scores several unrelated ASR-error patterns plus a preservation control. It prints provider output for review and is intentionally excluded from deterministic validation because model output and external service availability can vary.
 
 ## Linux X11 shortcut E2E
+
+Run `python3 scripts/test-linux-abort.py` after building `smalltalkai-linux`,
+`smalltalkai-ctl`, and `smalltalkai-readerctl`. The test uses a private D-Bus
+session and Xvfb with `busctl` and `xdotool`. It exercises tray Abort and the
+Cancel shortcut against the same daemon PID, checks that dictation stops while
+the Reader is slow, and verifies that Abort reaps its children and leaves an
+absent Reader stopped. With the Fedora RPM installed, use
+`--bin-dir /usr/lib/smalltalkai` to test the packaged binaries.
 
 Clipboard delivery regression: `python scripts/test-linux-paste.py` creates a
 disposable Xvfb server and controlled Tk editor, runs the production Linux paste
@@ -275,10 +281,10 @@ The native X11 shortcut listener has an opt-in end-to-end test. It needs `Xvfb`,
 
 ```bash
 Xvfb :99 -screen 0 1024x768x24 -nolisten tcp
-DISPLAY=:99 SIMPLE_STT_X11_E2E=1 cargo test --bin smalltalkai-linux x11_global_shortcut_end_to_end -- --nocapture
+DISPLAY=:99 SMALLTALKAI_X11_E2E=1 cargo test --bin smalltalkai-linux x11_global_shortcut_end_to_end -- --nocapture
 ```
 
-The test registers `Meta+Z` through the production X11 parser and passive-grab path, synthesizes the chord with `xdotool`, and requires the corresponding X11 key event. The ordinary test suite skips external X-server interaction unless `SIMPLE_STT_X11_E2E` is set.
+The test registers `Meta+Z` through the production X11 parser and passive-grab path, synthesizes the chord with `xdotool`, and requires the corresponding X11 key event. The ordinary test suite skips external X-server interaction unless `SMALLTALKAI_X11_E2E` is set.
 
 ## Run AutoHotkey validation and runtime smoke only
 
@@ -410,7 +416,7 @@ Historical X11 direct-insertion coverage (retired with portal-only injection): `
 
 The retry fixture holds Meta/Ctrl on that private display and requires the CLI to wait, then insert exactly once after release. It asserts progress, submission, empty-cache and failure notices. Rust tests also cover arming on press, quick release, duplicate press/release events, and accepting the next deliberate retry. The wrapper removes inherited Wayland/accessibility connections and uses a private runtime directory and D-Bus session. Render the English/Arabic retry notices with `overlay-e2e --offscreen`; live KDE portal timing still requires a user desktop pass.
 
-Rust tests exercise bounded cache replacement, stale/cancelled/empty writes, and schema-9 defaults/explicit option-off. Settings browser regressions exercise shortcut capture and Save/reload of the clean option. Windows full smoke checks delayed Edit consumption, full-format restoration, single-character Unicode publication, marker DWORD values and option-off retention. Native Windows AHK checks require Windows; cross-builds do not replace them.
+Rust tests exercise bounded cache replacement, stale/cancelled/empty writes, and schema-10 defaults/explicit option-off. Settings browser regressions exercise shortcut capture and Save/reload of the clean option. Windows full smoke checks delayed Edit consumption, full-format restoration, single-character Unicode publication, marker DWORD values and option-off retention. Native Windows AHK checks require Windows; cross-builds do not replace them.
 
 ### UI localization
 
@@ -429,9 +435,6 @@ The harness creates a private D-Bus session, XDG home/runtime and virtual KWin c
 The Wayland harness also offers 37 image MIME types and three serialized slow
 image conversions. It verifies paste completion and byte-exact restoration of
 every format, plus failure before selection replacement for a stalled source.
-For an isolated old/new regression comparison, supply the previous installed
-Linux binary via `SIMPLE_STT_OLD_SHELL=/usr/lib/smalltalkai/smalltalkai-linux`;
-that binary is launched only inside the private compositor.
 
 ### Resident current clipboard buffer
 
@@ -508,7 +511,6 @@ also capture the four assigned shortcut example at native tooltip dimensions.
 
 Run `python3 scripts/test-tts-pronunciation.py` for file-only GPU pronunciation probes when the documented local models are available. It never plays audio; recognizer output is diagnostic, especially for Arabic. The private live-reader harness also exercises capture/control Cancel against active reading and verifies Cancel does not start an absent reader. Rust coverage includes one shared tray Abort action and rejection of late OCR clipboard commits.
 
-Settings single-instance reuse is scoped to the executable build, not just the installation. `python scripts/test-settings-upgrade.py` atomically replaces an isolated running executable, verifies that the new build opens a new server, that repeated launches reuse that new server, and that closing it preserves the older page and saved configuration. An older open page may contain unsaved work and is never killed automatically by an upgrade.
 
 ## RemoteDesktop default delivery
 
@@ -605,6 +607,6 @@ Portal session ownership: after `cargo build -p smalltalkai-reader`, run
 Ten setup attempts cover denied starts, granted sessions with failed EIS setup,
 canceled consent and cancellation while CreateSession is pending. Require ten
 explicit closes and zero live sessions. The unchanged installed binary provides
-a differential baseline via `SIMPLE_STT_TEST_READERD=/usr/lib/smalltalkai/smalltalkai-reader`.
+a differential baseline via `SMALLTALKAI_TEST_READERD=/usr/lib/smalltalkai/smalltalkai-reader`.
 Run the existing `scripts/test-portal-input-e2e.py` private KWin pass to check
 normal Unicode input, cancellation, macros, pointer use and clipboard recovery.

@@ -96,11 +96,11 @@ def main():
         audio_runtime = root / 'audio-runtime'
         audio_runtime.mkdir(mode=0o700)
         (runtime / 'linux-installation').touch()
-        desktop_reader.bind(str(reader / 'simple-tts.sock'))
+        desktop_reader.bind(str(reader / 'smalltalkai-reader.sock'))
         desktop_reader.listen()
         desktop_capture.bind(('127.0.0.1', 0))
         desktop_capture.listen()
-        state = root / 'data/simple-stt/instances/installed/state'
+        state = root / 'data/smalltalkai/instances/installed/state'
         state.mkdir(parents=True)
         (state / 'capture-state.json').write_text(json.dumps({
             'protocol': 3, 'pid': os.getpid(), 'started_unix_ms': 1,
@@ -121,11 +121,11 @@ def main():
             'remote_openai_compatible': {'base_url': base, 'model': 'saved-stt', 'fallback_to_local': False},
         }}))
         env = dict(os.environ, HOME=str(root), XDG_CONFIG_HOME=str(root / 'config'),
-                   XDG_DATA_HOME=str(root / 'data'), SIMPLE_STT_READER_DATA=str(reader),
-                   SIMPLE_STT_CONFIG=str(config), SIMPLE_STT_RUNTIME_ROOT=str(runtime),
-                   SIMPLE_TTS_SPEECH_API_KEY='fixture', SIMPLE_TTS_OCR_API_KEY='fixture',
-                   SIMPLE_STT_STT_API_KEY='fixture', RUST_LOG='error')
-        env.pop('SIMPLE_STT_CLI_WORKSPACE', None)
+                   XDG_DATA_HOME=str(root / 'data'), SMALLTALKAI_READER_DATA=str(reader),
+                   SMALLTALKAI_CONFIG=str(config), SMALLTALKAI_RUNTIME_ROOT=str(runtime),
+                   SMALLTALKAI_SPEECH_API_KEY='fixture', SMALLTALKAI_OCR_API_KEY='fixture',
+                   SMALLTALKAI_STT_API_KEY='fixture', RUST_LOG='error')
+        env.pop('SMALLTALKAI_CLI_WORKSPACE', None)
         played = root / 'played.pcm'
         default_audio = root / 'default.pcm'
         alsa = root / 'alsa.conf'
@@ -211,7 +211,7 @@ pcm.fixture_headphones {{
         brief.write_text('The checks passed.', encoding='utf-8')
         submitted = subprocess.run(
             [str(bins / 'smalltalkai-ctl'), 'media', 'speak', '--file', str(brief), '--background'],
-            env=dict(env, SIMPLE_STT_READER_DATA=str(root / 'closed-reader')),
+            env=dict(env, SMALLTALKAI_READER_DATA=str(root / 'closed-reader')),
             capture_output=True, text=True, timeout=5)
         assert submitted.returncode != 0 and 'running SmallTalkAI Reader' in submitted.stderr, submitted.stderr
         assert incoming.empty() and not list(profile.glob('.media-*'))

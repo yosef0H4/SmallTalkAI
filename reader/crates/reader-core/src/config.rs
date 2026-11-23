@@ -215,7 +215,7 @@ impl Default for OcrSettings {
 pub struct PlaybackSettings {
     /// Seconds the TTS worker may remain ready after a job.
     pub keep_warm_seconds: u16,
-    /// Saved playback endpoint ID (or a legacy device name). None follows the system default.
+    /// Saved playback endpoint ID. None follows the system default.
     pub output_device: Option<String>,
     pub max_buffer_seconds: u8,
     pub sentence_gap_ms: u16,
@@ -517,21 +517,21 @@ fn validate_remote(base_url: &str, model: &str) -> Result<()> {
 }
 
 pub fn data_dir() -> PathBuf {
-    if let Some(path) = std::env::var_os("SIMPLE_STT_READER_DATA") {
+    if let Some(path) = std::env::var_os("SMALLTALKAI_READER_DATA") {
         return PathBuf::from(path);
     }
     dirs::data_local_dir()
         .unwrap_or_else(std::env::temp_dir)
-        .join("simple-stt/reader")
+        .join("smalltalkai/reader")
 }
 
 pub fn config_path() -> PathBuf {
-    std::env::var_os("SIMPLE_TTS_CONFIG")
+    std::env::var_os("SMALLTALKAI_READER_CONFIG")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             dirs::config_dir()
                 .unwrap_or_else(std::env::temp_dir)
-                .join("simple-stt/reader/config.json")
+                .join("smalltalkai/reader/config.json")
         })
 }
 
@@ -618,13 +618,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn old_key_assignments_do_not_turn_into_the_default_recording() {
+    fn read_along_accepts_an_explicit_key_without_a_recorded_sequence() {
         let mut value = serde_json::to_value(AppConfig::default()).unwrap();
         value["read_along"]["advance_key"] = "Ctrl+PageDown".into();
-        value["read_along"]
-            .as_object_mut()
-            .unwrap()
-            .remove("sequence");
+        value["read_along"]["sequence"] = serde_json::Value::Null;
         let config: AppConfig = serde_json::from_value(value).unwrap();
         assert_eq!(config.read_along.advance_key, "Ctrl+PageDown");
         assert!(config.read_along.sequence.is_none());
@@ -675,19 +672,6 @@ mod tests {
         config.read_along.retry_count = 5;
         config.read_along.delay_ms = 10_001;
         assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn older_reader_config_gets_default_read_along_settings_and_shortcut() {
-        let mut old = serde_json::to_value(AppConfig::default()).unwrap();
-        old.as_object_mut().unwrap().remove("read_along");
-        old["shortcuts"]
-            .as_object_mut()
-            .unwrap()
-            .remove("read_along");
-        let migrated: AppConfig = serde_json::from_value(old).unwrap();
-        assert_eq!(migrated.read_along, ReadAlongSettings::default());
-        assert_eq!(migrated.shortcuts.read_along, "None");
     }
 
     #[test]
@@ -760,13 +744,6 @@ mod tests {
             },
         ];
         assert!(config.validate().is_err());
-        let mut legacy = serde_json::to_value(AppConfig::default()).unwrap();
-        legacy
-            .as_object_mut()
-            .unwrap()
-            .remove("selection_copy_overrides");
-        let migrated: AppConfig = serde_json::from_value(legacy).unwrap();
-        assert!(migrated.selection_copy_overrides.is_empty());
     }
 
     #[test]
@@ -843,30 +820,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_playback_shortcuts_are_ignored_and_removed_on_save() {
-        let mut legacy = serde_json::to_value(AppConfig::default()).unwrap();
-        legacy["shortcuts"]["read_selection"] = serde_json::json!("Ctrl+Alt+R");
-        legacy["shortcuts"]["read_region"] = serde_json::json!("Ctrl+Alt+O");
-        legacy["shortcuts"]["pause_resume"] = serde_json::json!("Ctrl+Alt+P");
-        legacy["shortcuts"]["replay_sentence"] = serde_json::json!("Ctrl+Alt+Left");
-        legacy["shortcuts"]["next_sentence"] = serde_json::json!("Ctrl+Alt+Right");
-        legacy["shortcuts"]["previous_sentence"] = serde_json::json!("Ctrl+Alt+Up");
-        legacy["shortcuts"]["stop"] = serde_json::json!("Ctrl+Alt+Escape");
-        legacy["shortcuts"]
-            .as_object_mut()
-            .unwrap()
-            .remove("listen_clipboard");
-        legacy["shortcuts"]["read_clipboard"] = serde_json::json!("Ctrl+Alt+C");
-
-        let migrated: AppConfig = serde_json::from_value(legacy).unwrap();
-        let shortcuts = serde_json::to_value(migrated.shortcuts).unwrap();
-        assert_eq!(shortcuts.as_object().unwrap().len(), 5);
-        assert!(shortcuts.get("stop").is_none());
-        assert_eq!(shortcuts["read_selection"], "Ctrl+Alt+R");
-        assert_eq!(shortcuts["read_region"], "Ctrl+Alt+O");
-        assert_eq!(shortcuts["read_along"], "None");
-        assert_eq!(shortcuts["copy_region"], "None");
-        assert_eq!(shortcuts["listen_clipboard"], "None");
+    fn current_reader_shortcuts_deserialize() {
         let custom: ShortcutSettings = serde_json::from_value(serde_json::json!({
             "read_selection": "Meta+R", "read_region": "Meta+O",
             "read_along": "Meta+A", "listen_clipboard": "Meta+C", "copy_region": "Meta+Shift+O"

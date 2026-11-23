@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-const APP_ID: &str = "io.github.yosef0H4.simple_stt";
-const DESKTOP_FILE: &str = "io.github.yosef0H4.simple_stt.desktop";
+const APP_ID: &str = "io.github.yosef0H4.smalltalkai";
+const DESKTOP_FILE: &str = "io.github.yosef0H4.smalltalkai.desktop";
 
 pub async fn register() -> Result<()> {
     ensure_host_desktop_entry()?;

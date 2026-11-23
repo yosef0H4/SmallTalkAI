@@ -87,7 +87,7 @@ def main():
         scratch.mkdir(mode=0o700)
         for theme in ['light', 'dark', 'arabic']:
             shutil.copyfile(ROOT / f'scripts/fixtures/reader/ocr-{theme}.png', scratch / f'{theme}.png')
-        env = dict(os.environ, XDG_DATA_HOME=temporary, XDG_CACHE_HOME=temporary, SIMPLE_TTS_CAPTURE_DIR=str(scratch),
+        env = dict(os.environ, XDG_DATA_HOME=temporary, XDG_CACHE_HOME=temporary, SMALLTALKAI_READER_CAPTURE_DIR=str(scratch),
                    WAYLAND_DISPLAY='unavailable-test-display', DISPLAY='',
                    DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-test-bus')
         runtime_lib = args.ocr_runtime / 'lib' if (args.ocr_runtime / 'lib').is_dir() else args.ocr_runtime
@@ -109,9 +109,9 @@ def main():
                         import difflib
                         assert arabic.startswith('مرحبابالعالم'), recognized
                         assert difflib.SequenceMatcher(None, 'مرحبابالعالمهذااختبارباللغةالعربية', arabic).ratio() >= .95, recognized
-                        assert 'SimpleSTTreadsArabicandEnglish' in compact, recognized
+                        assert 'SmallTalkAIreadsArabicandEnglish' in compact, recognized
                     else:
-                        assert 'Simple TTS reads this screenshot.' in recognized['text'], recognized
+                        assert 'SmallTalkAI Reader reads this screenshot.' in recognized['text'], recognized
                     assert output.get(timeout=5)[1]['type'] == 'finished'
             finally:
                 finish(child)

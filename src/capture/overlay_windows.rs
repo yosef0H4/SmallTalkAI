@@ -105,7 +105,7 @@ impl OverlayHandle {
 
     fn spawn_for(reader: bool) -> Result<Self> {
         let (tx, rx) = unbounded::<WindowsCommand>();
-        let name = profile_name("Local\\SimpleSttShortcutWake-");
+        let name = profile_name("Local\\SmallTalkAIShortcutWake-");
         let event = unsafe {
             CreateEventW(
                 std::ptr::null(),
@@ -180,7 +180,7 @@ fn overlay_thread(
 ) {
     let mut state = TooltipState::new();
     state.reader = reader;
-    let hint_window = profile_name("SimpleSttShortcutHold-");
+    let hint_window = profile_name("SmallTalkAIShortcutHold-");
     loop {
         while let Ok(command) = rx.try_recv() {
             if matches!(command, WindowsCommand::Stop) {
@@ -191,7 +191,8 @@ fn overlay_thread(
         pump_messages();
         let publisher = unsafe { FindWindowW(std::ptr::null(), hint_window.as_ptr()) };
         state.shortcuts_held = !publisher.is_null()
-            && !unsafe { GetPropW(publisher, windows_sys::w!("SimpleSttShortcutHold")) }.is_null();
+            && !unsafe { GetPropW(publisher, windows_sys::w!("SmallTalkAIShortcutHold")) }
+                .is_null();
         state.set_level(f32::from_bits(latest_level.load(Ordering::Relaxed)));
         state.tick();
         let timeout = if state.should_render() || (!reader && state.shortcuts_held) {
@@ -245,7 +246,7 @@ impl TooltipState {
             content: OverlayContent::default(),
             shortcuts_held: false,
             reader: false,
-            reader_marker: profile_name("SimpleSttReaderOverlay-"),
+            reader_marker: profile_name("SmallTalkAIReaderOverlay-"),
             target_level: 0.0,
             display_level: 0.0,
             visualizer_levels: empty_visualizer_levels(),
@@ -399,7 +400,7 @@ impl TooltipState {
             CreateWindowExW(
                 0,
                 windows_sys::w!("STATIC"),
-                windows_sys::w!("SimpleSttTooltipOwner"),
+                windows_sys::w!("SmallTalkAITooltipOwner"),
                 WS_POPUP,
                 0,
                 0,

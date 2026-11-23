@@ -15,11 +15,11 @@
 #Include lib\Typist.ahk
 #Include lib\Tray.ahk
 
-class SimpleSttShell {
+class SmallTalkAIShell {
     __New() {
-        this.ctlExe := SimpleSttResolveExe("smalltalkai-ctl")
-        this.captureExe := SimpleSttResolveExe("smalltalkai-capture")
-        this.settingsExe := SimpleSttResolveExe("smalltalkai-settings")
+        this.ctlExe := SmallTalkAIResolveExe("smalltalkai-ctl")
+        this.captureExe := SmallTalkAIResolveExe("smalltalkai-capture")
+        this.settingsExe := SmallTalkAIResolveExe("smalltalkai-settings")
         if !FileExist(this.ctlExe)
             throw Error(UiText("error.missingBinary", Map("binary", "smalltalkai-ctl.exe")))
         if !FileExist(this.captureExe)
@@ -87,7 +87,7 @@ class SimpleSttShell {
     }
 
     ReaderAction(action, *) {
-        try Run(SimpleSttQuote(this.ctlExe) . " reader-action " . action, A_ScriptDir, "Hide")
+        try Run(SmallTalkAIQuote(this.ctlExe) . " reader-action " . action, A_ScriptDir, "Hide")
         catch Error as err
             this.logger.Write("error", "reading action failed: " . err.Message)
     }
@@ -210,7 +210,7 @@ class SimpleSttShell {
                 target := this.sessions[session]
                 this.sessions.Delete(session)
                 text := this.TransformTranscript(event["text"])
-                text := SimpleSttFinalDeliveryPayload(text, this.config.Bool("trailing_space", true))
+                text := SmallTalkAIFinalDeliveryPayload(text, this.config.Bool("trailing_space", true))
                 if text != "" && StrPut(text, "UTF-8") - 1 <= 1048576 {
                     this.lastDeliveryText := text
                     clock := Buffer(8, 0)
@@ -222,7 +222,7 @@ class SimpleSttShell {
                 this.typist.Begin(session, target, text, this.config.Bool("paced_typing_enabled", true), this.config.Int("typing_speed_wpm", 450), false, mode, this.config.Bool("preserve_clipboard", true))
             case "notice":
                 this.Notice(event["text"], event["level"])
-                if session && this.sessions.Has(session) && SimpleSttNoticeEndsSession(event)
+                if session && this.sessions.Has(session) && SmallTalkAINoticeEndsSession(event)
                     this.sessions.Delete(session)
             case "configuration_reloaded":
                 this.ApplyReloadedConfig()
@@ -259,7 +259,7 @@ class SimpleSttShell {
     }
 
     TransformTranscript(text) {
-        return SimpleSttTransformTranscript(text, this.config.Bool("remove_punctuation"), this.config.Bool("lowercase_output"))
+        return SmallTalkAITransformTranscript(text, this.config.Bool("remove_punctuation"), this.config.Bool("lowercase_output"))
     }
 
     Notice(text, level := "info") {
@@ -268,7 +268,7 @@ class SimpleSttShell {
 
     OpenSettings(*) {
         this.logger.Write("info", "settings requested executable=" . this.settingsExe)
-        command := SimpleSttQuote(this.settingsExe) . " --state-file " . SimpleSttQuote(this.supervisor.stateFile) . " --service-token " . SimpleSttQuote(this.supervisor.token)
+        command := SmallTalkAIQuote(this.settingsExe) . " --state-file " . SmallTalkAIQuote(this.supervisor.stateFile) . " --service-token " . SmallTalkAIQuote(this.supervisor.token)
         try {
             Run(command, A_ScriptDir, "Hide", &settingsPid)
             this.logger.Write("info", "settings process launched pid=" . settingsPid)
@@ -369,7 +369,7 @@ class SimpleSttShell {
 
     ToggleDeliveryModeHotkey() {
         current := this.config.Get("text_delivery_mode", "smart_paste")
-        next := SimpleSttNextDeliveryMode(current, this.config.Get("enabled_delivery_modes", "smart_paste,type"))
+        next := SmallTalkAINextDeliveryMode(current, this.config.Get("enabled_delivery_modes", "smart_paste,type"))
         this.config.Set("text_delivery_mode", next)
         try {
             this.config.SaveSync()
@@ -392,18 +392,18 @@ class SimpleSttShell {
             "paste_ctrl_v", UiText("delivery.paste_ctrl_v")
         )
         message := UiText("notice.delivery", Map("mode", labels.Has(mode) ? labels[mode] : mode))
-        this.ipc.CallService("notice --level info --text " . SimpleSttQuote(message))
+        this.ipc.CallService("notice --level info --text " . SmallTalkAIQuote(message))
     }
 
     ToggleHotkey(*) {
         enabled := !this.config.Bool("hotkey_enabled", true)
-        this.config.Set("hotkey_enabled", SimpleSttBoolText(enabled))
+        this.config.Set("hotkey_enabled", SmallTalkAIBoolText(enabled))
         try {
             this.config.SaveSync()
             this.PublishRuntimeConfigChange()
             this.hotkeys.SetEnabled(enabled)
             this.tray.Rebuild()
-            this.logger.Write("info", "hotkey enabled=" . SimpleSttBoolText(enabled))
+            this.logger.Write("info", "hotkey enabled=" . SmallTalkAIBoolText(enabled))
             this.Notice(enabled ? UiText("notice.hotkeyOn") : UiText("notice.hotkeyOff"))
         } catch Error as err {
             MsgBox(err.Message, UiText("error.settings"), "Iconx")
@@ -412,12 +412,12 @@ class SimpleSttShell {
 
     ToggleCleanupHotkey() {
         enabled := !this.config.Bool("cleanup_enabled", false)
-        this.config.Set("cleanup_enabled", SimpleSttBoolText(enabled))
+        this.config.Set("cleanup_enabled", SmallTalkAIBoolText(enabled))
         try {
             this.config.SaveSync()
             this.PublishRuntimeConfigChange()
-            this.ipc.CallService("notice --level info --text " . SimpleSttQuote(UiText(enabled ? "notice.cleanupOn" : "notice.cleanupOff")))
-            this.logger.Write("info", "AI cleanup toggled enabled=" . SimpleSttBoolText(enabled))
+            this.ipc.CallService("notice --level info --text " . SmallTalkAIQuote(UiText(enabled ? "notice.cleanupOn" : "notice.cleanupOff")))
+            this.logger.Write("info", "AI cleanup toggled enabled=" . SmallTalkAIBoolText(enabled))
         } catch Error as err {
             this.logger.Write("error", "AI cleanup toggle failed: " . err.Message)
             this.Notice(UiText("notice.cleanupToggleFailed"), "error")
@@ -477,7 +477,7 @@ class SimpleSttShell {
             this.logger.Write("error", "service config reload failed: " . response["message"])
             return
         }
-        if response["values"].Has("restart_audio_service") && SimpleSttBool(response["values"]["restart_audio_service"])
+        if response["values"].Has("restart_audio_service") && SmallTalkAIBool(response["values"]["restart_audio_service"])
             this.RestartAudioService()
     }
 
@@ -520,28 +520,21 @@ class SimpleSttShell {
 
     ApplyStartupRegistration() {
         shortcut := A_Startup . "\SmallTalkAI.lnk"
-        legacyShortcut := A_Startup . "\SimpleStt.lnk"
-        if FileExist(legacyShortcut)
-            try FileDelete(legacyShortcut)
         enabled := this.config.Bool("start_with_windows")
         if enabled {
             try {
-                if A_IsCompiled
-                    FileCreateShortcut(A_ScriptFullPath, shortcut, A_ScriptDir,,, TrayController.IconDirectory . "\smalltalkai.ico")
-                else {
-                    packagedLauncher := A_ScriptDir . "\..\SmallTalkAI.exe"
-                    if FileExist(packagedLauncher)
-                        FileCreateShortcut(packagedLauncher, shortcut, A_ScriptDir . "\..",,, TrayController.IconDirectory . "\smalltalkai.ico")
-                    else
-                        FileCreateShortcut(A_AhkPath, shortcut, A_ScriptDir, SimpleSttQuote(A_ScriptFullPath),, TrayController.IconDirectory . "\smalltalkai.ico")
-                }
+                packagedLauncher := A_ScriptDir . "\..\SmallTalkAI.exe"
+                if FileExist(packagedLauncher)
+                    FileCreateShortcut(packagedLauncher, shortcut, A_ScriptDir . "\..",,, TrayController.IconDirectory . "\smalltalkai.ico")
+                else
+                    FileCreateShortcut(A_AhkPath, shortcut, A_ScriptDir, SmallTalkAIQuote(A_ScriptFullPath),, TrayController.IconDirectory . "\smalltalkai.ico")
             }
             catch Error as err
                 this.logger.Write("warning", "startup shortcut create failed: " . err.Message)
         } else if FileExist(shortcut) {
             try FileDelete(shortcut)
         }
-        this.logger.Write("info", "startup registration enabled=" . SimpleSttBoolText(enabled))
+        this.logger.Write("info", "startup registration enabled=" . SmallTalkAIBoolText(enabled))
     }
 
     OnExit(reason, code) {
@@ -568,9 +561,9 @@ class SimpleSttShell {
 }
 
 try {
-    global SimpleStt := SimpleSttShell()
-    OnExit(ObjBindMethod(SimpleStt, "OnExit"))
-    OnError(ObjBindMethod(SimpleStt, "OnError"))
+    global SmallTalkAI := SmallTalkAIShell()
+    OnExit(ObjBindMethod(SmallTalkAI, "OnExit"))
+    OnError(ObjBindMethod(SmallTalkAI, "OnError"))
     Persistent
 } catch Error as err {
     MsgBox(err.Message, UiText("error.startup"), "Iconx")

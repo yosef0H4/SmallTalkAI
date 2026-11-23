@@ -154,8 +154,8 @@ class CapsLockTapController {
         this.HideHint()
         if enabled && !IsObject(this.hintWindow) {
             ; This hidden window owns the hold state, so it is cleared even if the shell exits unexpectedly.
-            this.hintWindow := Gui("+ToolWindow", "SimpleSttShortcutHold-" . instanceId)
-            this.hintWake := "Local\SimpleSttShortcutWake-" . instanceId
+            this.hintWindow := Gui("+ToolWindow", "SmallTalkAIShortcutHold-" . instanceId)
+            this.hintWake := "Local\SmallTalkAIShortcutWake-" . instanceId
         } else if !enabled && IsObject(this.hintWindow) {
             this.hintWindow.Destroy()
             this.hintWindow := ""
@@ -171,7 +171,7 @@ class CapsLockTapController {
 
     ShowHint() {
         if IsObject(this.hintWindow) && (!this.hintOnCaps || this.capsPending) {
-            DllCall("SetPropW", "ptr", this.hintWindow.Hwnd, "str", "SimpleSttShortcutHold", "ptr", 1)
+            DllCall("SetPropW", "ptr", this.hintWindow.Hwnd, "str", "SmallTalkAIShortcutHold", "ptr", 1)
             this.WakeOverlay()
         }
     }
@@ -179,7 +179,7 @@ class CapsLockTapController {
     HideHint() {
         SetTimer(this.hintTimer, 0)
         if IsObject(this.hintWindow) {
-            DllCall("RemovePropW", "ptr", this.hintWindow.Hwnd, "str", "SimpleSttShortcutHold", "ptr")
+            DllCall("RemovePropW", "ptr", this.hintWindow.Hwnd, "str", "SmallTalkAIShortcutHold", "ptr")
             this.WakeOverlay()
         }
     }
@@ -248,7 +248,7 @@ class HotkeyManager {
         if this.enabled
             this.EnableBindings()
         configuredLabel := IsObject(this.spec) ? this.spec["label"] : "None"
-        this.logger.Write("info", "hotkey configured label=" . configuredLabel . " enabled=" . SimpleSttBoolText(this.enabled))
+        this.logger.Write("info", "hotkey configured label=" . configuredLabel . " enabled=" . SmallTalkAIBoolText(this.enabled))
     }
 
     EnableBindings() {

@@ -109,8 +109,8 @@ for relative, expected in assets.items():
     if relative in ("app.js", "styles.css"):
         gzip_bytes += len(compress(content, mtime=0))
 
-if asset_bytes > 354 * 1024:
-    ERRORS.append(f"frontend assets total {asset_bytes} bytes; budget is {354 * 1024} bytes")
+if asset_bytes > 350 * 1024:
+    ERRORS.append(f"frontend assets total {asset_bytes} bytes; budget is {350 * 1024} bytes")
 if gzip_bytes > 100 * 1024:
     ERRORS.append(f"app.js + styles.css gzip to {gzip_bytes} bytes; budget is 102400 bytes")
 

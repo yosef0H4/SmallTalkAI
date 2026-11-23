@@ -12,10 +12,10 @@ Svelte, strict TypeScript, and Vite for browser Settings; Rust serves embedded s
 Lightweight desktop dictation. Users install speech models, select one model or assign models to configured keyboard languages, and dictate into their current application.
 
 ## Operating Context
-Windows and Linux. Settings is an occasional task in the user's existing browser, served by a disposable authenticated loopback process. Dictation and inference remain separate processes.
+Windows and Linux. Settings is an occasional task in the native Settings window, served by a disposable authenticated loopback process. Dictation and inference remain separate processes.
 
 ## Capabilities and Constraints
-Explicit Save drafts; schema 9; nullable None assignments; separate installer; physical Vulkan GPU selection; optional AI cleanup and screen context. Preserve model routing, worker isolation, clipboard safety, platform shortcuts, and existing assignments.
+Explicit Save drafts; schema 10; nullable None assignments; separate installer; physical Vulkan GPU selection; optional AI cleanup and screen context. Preserve model routing, worker isolation, clipboard safety, platform shortcuts, and existing assignments.
 
 ## Product Principles
 Keep resident RAM and idle work low. Make common settings visible and fast to change. Use minimal text and clear icons without losing accessible names. Preserve behavior during the visual overhaul.

@@ -40,7 +40,7 @@ const freePort = () =>
         cwd: path.resolve("web/settings"),
         env: {
           ...process.env,
-          SIMPLE_STT_SETTINGS_ORIGIN: `http://127.0.0.1:${f.server.address().port}`,
+          SMALLTALKAI_SETTINGS_ORIGIN: `http://127.0.0.1:${f.server.address().port}`,
         },
         stdio: ["ignore", "pipe", "pipe"],
       },

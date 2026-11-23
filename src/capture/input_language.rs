@@ -556,7 +556,7 @@ mod tests {
     }
     #[test]
     fn live_keyboard_language() {
-        let Ok(expected) = std::env::var("SIMPLE_STT_TEST_KEYBOARD_LANGUAGE") else {
+        let Ok(expected) = std::env::var("SMALLTALKAI_TEST_KEYBOARD_LANGUAGE") else {
             return;
         };
         assert_eq!(active_keyboard_language().unwrap(), expected);

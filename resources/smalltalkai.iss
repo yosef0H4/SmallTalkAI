@@ -1,16 +1,16 @@
-#ifndef SimpleSttVersion
-  #error "Pass /DSimpleSttVersion from Cargo.toml through the distribution builder"
+#ifndef SmallTalkAIVersion
+  #error "Pass /DSmallTalkAIVersion from Cargo.toml through the distribution builder"
 #endif
 [Setup]
-AppId={{D638F724-8CC9-4D12-9E63-BEC9FA0D29E4}
+AppId={{E0408A3D-8B8B-42ED-B9E2-65D5C1F4282C}
 AppName=SmallTalkAI
-AppVersion={#SimpleSttVersion}
+AppVersion={#SmallTalkAIVersion}
 AppPublisher=SmallTalkAI
 DefaultDirName={localappdata}\Programs\SmallTalkAI
 DefaultGroupName=SmallTalkAI
 DisableProgramGroupPage=yes
 DisableDirPage=no
-UsePreviousAppDir=yes
+UsePreviousAppDir=no
 UsePreviousGroup=no
 OutputDir=dist
 OutputBaseFilename=smalltalkai-setup
@@ -26,11 +26,6 @@ LicenseFile=smalltalkai-portable\LICENSE
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 Name: "startup"; Description: "Launch SmallTalkAI when I sign in"; GroupDescription: "Startup options:"; Flags: unchecked
-
-[InstallDelete]
-Type: filesandordirs; Name: "{app}\ahk"
-Type: files; Name: "{app}\runtime\simple-stt.exe"
-Type: files; Name: "{app}\runtime\simple-stt.ahk"
 
 [Files]
 Source: "smalltalkai-portable\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

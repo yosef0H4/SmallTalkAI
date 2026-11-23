@@ -81,8 +81,8 @@ def inside(root):
     data.mkdir()
     env = {**os.environ, 'HOME': str(root), 'XDG_CONFIG_HOME': str(root / 'config'),
            'XDG_DATA_HOME': str(root / 'share'), 'XDG_CACHE_HOME': str(root / 'cache'),
-           'SIMPLE_STT_READER_DATA': str(data), 'SIMPLE_TTS_CONFIG': str(root / 'config.json')}
-    for key in ['REIS_DEBUG', 'DISPLAY', 'WAYLAND_DISPLAY', 'SIMPLE_STT_TEST_PORTAL_EIS_SOCKET']:
+           'SMALLTALKAI_READER_DATA': str(data), 'SMALLTALKAI_READER_CONFIG': str(root / 'config.json')}
+    for key in ['REIS_DEBUG', 'DISPLAY', 'WAYLAND_DISPLAY', 'SMALLTALKAI_TEST_PORTAL_EIS_SOCKET']:
         env.pop(key, None)
     daemon = None
     daemon_log = None

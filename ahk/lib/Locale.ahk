@@ -1,13 +1,13 @@
 ; Generated from desktop catalogs and tray menu. Run node web/settings/tools/locales.mjs.
 ; catalog-sha256: 75ffee600911d6220a7e8921a8180cd51d7a573c705d548bc9824751c82d74c2
 UiSetLanguage(language := "auto") {
-    global SimpleSttUiLocale
+    global SmallTalkAIUiLocale
     if language = "auto"
         language := (DllCall("GetUserDefaultUILanguage", "UShort") & 0x3ff) = 1 ? "ar" : "en"
-    SimpleSttUiLocale := language = "ar" ? "ar" : "en"
+    SmallTalkAIUiLocale := language = "ar" ? "ar" : "en"
 }
 UiText(id, args := unset) {
-    global SimpleSttUiLocale
+    global SmallTalkAIUiLocale
     static english := Map(
         "overlay.screenContext", "Screen",
         "overlay.transcribing", "🎙 Transcribing...",
@@ -450,9 +450,9 @@ UiText(id, args := unset) {
         "reader.next.ready", "الصفحة التالية · جاهزة",
         "reader.next.preparing", "الصفحة التالية · التحضير"
     )
-    if !IsSet(SimpleSttUiLocale)
+    if !IsSet(SmallTalkAIUiLocale)
         UiSetLanguage()
-    catalog := SimpleSttUiLocale = "ar" ? arabic : english
+    catalog := SmallTalkAIUiLocale = "ar" ? arabic : english
     text := catalog.Has(id) ? catalog[id] : (english.Has(id) ? english[id] : id)
     output := ""
     offset := 1

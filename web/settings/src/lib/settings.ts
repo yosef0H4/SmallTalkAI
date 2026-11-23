@@ -307,11 +307,6 @@ export const searchEntries: {path: string; label: string; page: Page; help?: str
     page: "audio" as Page,
   },
   {
-    path: "output.linux_delivery_cycle",
-    label: "ui.delivery_tools_paste.b60d4c",
-    page: "audio" as Page,
-  },
-  {
     path: "cleanup.screenshot.excluded_apps",
     label: "ui.never_capture.91a15d",
     page: "cleanup" as Page,

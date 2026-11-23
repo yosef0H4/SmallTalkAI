@@ -19,7 +19,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--infer', type=Path, default=ROOT / 'target/debug/smalltalkai-infer')
     parser.add_argument('--runtime-dir', type=Path, default=Path('/usr/lib/smalltalkai/runtime'))
-    parser.add_argument('--model-path', type=Path, default=Path.home() / '.local/share/simple-stt/models/realtime_eou_120m-v1-q8_0.gguf')
+    parser.add_argument('--model-path', type=Path, default=Path.home() / '.local/share/smalltalkai/models/realtime_eou_120m-v1-q8_0.gguf')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     fixtures = ROOT / 'fixtures/asr/end-context'

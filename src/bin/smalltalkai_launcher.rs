@@ -36,15 +36,6 @@ fn launch() -> std::io::Result<()> {
         .parent()
         .ok_or_else(|| Error::other("Could not locate the launcher directory"))?;
     let runtime = folder.join("runtime");
-    // Older shortcuts point at the compatibility copy inside the runtime folder.
-    let in_runtime = folder
-        .file_name()
-        .is_some_and(|name| name.eq_ignore_ascii_case("runtime"));
-    let runtime = if in_runtime && !runtime.is_dir() {
-        folder
-    } else {
-        runtime.as_path()
-    };
     let interpreter = runtime.join("AutoHotkey64.exe");
     let script = runtime.join("smalltalkai.ahk");
     for path in [&interpreter, &script] {
@@ -58,7 +49,7 @@ fn launch() -> std::io::Result<()> {
     Command::new(interpreter)
         .arg(script)
         .args(std::env::args_os().skip(1))
-        .current_dir(runtime)
+        .current_dir(&runtime)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()?;
     Ok(())

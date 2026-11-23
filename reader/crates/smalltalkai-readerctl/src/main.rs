@@ -13,7 +13,7 @@ use uuid::Uuid;
 #[derive(Parser)]
 #[command(
     name = "smalltalkai-readerctl",
-    about = "Control Simple TTS from the desktop or a terminal"
+    about = "Control SmallTalkAI Reader from the desktop or a terminal"
 )]
 struct Args {
     #[command(subcommand)]
@@ -99,7 +99,7 @@ fn ensure_daemon() -> Result<()> {
     let executable = readerd_path()?;
     let mut command = Command::new(executable);
     command.arg("daemon");
-    if std::env::var_os("SIMPLE_TTS_NO_DESKTOP").is_some() {
+    if std::env::var_os("SMALLTALKAI_READER_NO_DESKTOP").is_some() {
         command.arg("--no-desktop");
     }
     let logs = reader_core::config::data_dir().join("logs");
@@ -128,7 +128,7 @@ fn ensure_daemon() -> Result<()> {
         .stdout(Stdio::from(log.try_clone()?))
         .stderr(Stdio::from(log))
         .spawn()
-        .context("starting resident Simple TTS controller")?;
+        .context("starting resident SmallTalkAI Reader controller")?;
     for _ in 0..100 {
         if reader_core::local_ipc::connect(&data_dir()).is_ok() {
             return Ok(());
@@ -149,7 +149,20 @@ fn send(request: &LocalRequest, start_daemon: bool) -> Result<LocalReply> {
     if start_daemon {
         ensure_daemon()?
     }
-    let mut stream = reader_core::local_ipc::connect(&data_dir()).context(match request {
+    let connection = reader_core::local_ipc::connect(&data_dir());
+    if let Err(error) = &connection {
+        use std::io::ErrorKind::{ConnectionRefused, NotFound};
+        if matches!(request, LocalRequest::Action { action } if action == "stop")
+            && matches!(error.kind(), ConnectionRefused | NotFound)
+        {
+            return Ok(LocalReply {
+                ok: true,
+                message: "Stopped".into(),
+                state: None,
+            });
+        }
+    }
+    let mut stream = connection.context(match request {
         LocalRequest::ReadStart { .. } if !start_daemon => {
             "background playback needs a running SmallTalkAI Reader; use Read aloud in the app first, or omit --background for terminal playback"
         }
@@ -268,9 +281,9 @@ fn install_user_service() -> Result<()> {
             .unwrap_or_else(std::env::temp_dir)
             .join("systemd/user");
         std::fs::create_dir_all(&dir)?;
-        let unit = dir.join("simple-tts.service");
+        let unit = dir.join("smalltalkai-reader.service");
         let content = format!(
-            "[Unit]\nDescription=Simple TTS desktop controller\nAfter=graphical-session.target\n\n[Service]\nType=simple\nExecStart={} daemon --foreground\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n",
+            "[Unit]\nDescription=SmallTalkAI Reader desktop controller\nAfter=graphical-session.target\n\n[Service]\nType=simple\nExecStart={} daemon --foreground\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n",
             exe.display()
         );
         std::fs::write(&unit, content)?;
@@ -282,10 +295,10 @@ fn install_user_service() -> Result<()> {
             bail!("systemd user manager is unavailable")
         };
         let status = Command::new("systemctl")
-            .args(["--user", "enable", "--now", "simple-tts.service"])
+            .args(["--user", "enable", "--now", "smalltalkai-reader.service"])
             .status()?;
         if !status.success() {
-            bail!("could not enable Simple TTS user service")
+            bail!("could not enable SmallTalkAI Reader user service")
         };
         println!("Installed {}", unit.display());
         Ok(())
@@ -301,7 +314,12 @@ fn restart_controller() -> Result<()> {
     #[cfg(target_os = "linux")]
     {
         let enabled = Command::new("systemctl")
-            .args(["--user", "is-enabled", "--quiet", "simple-tts.service"])
+            .args([
+                "--user",
+                "is-enabled",
+                "--quiet",
+                "smalltalkai-reader.service",
+            ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -309,12 +327,12 @@ fn restart_controller() -> Result<()> {
             .is_ok_and(|status| status.success());
         if enabled {
             let status = Command::new("systemctl")
-                .args(["--user", "restart", "simple-tts.service"])
+                .args(["--user", "restart", "smalltalkai-reader.service"])
                 .status()
-                .context("restarting the Simple TTS user service")?;
+                .context("restarting the SmallTalkAI Reader user service")?;
             anyhow::ensure!(
                 status.success(),
-                "could not restart the Simple TTS user service"
+                "could not restart the SmallTalkAI Reader user service"
             );
             return Ok(());
         }
@@ -488,7 +506,7 @@ fn run_utility(command: CommandKind) -> Result<()> {
         }
         CommandKind::TestSpeech => read_text(
             "test",
-            "Simple TTS is ready. This is a short local voice check.",
+            "SmallTalkAI Reader is ready. This is a short local voice check.",
             true,
         ),
         CommandKind::TestOcr { image } => {

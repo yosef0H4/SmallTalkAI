@@ -577,7 +577,7 @@ fn remote_stream(
         .model
         .as_deref()
         .context("remote speech needs --model")?;
-    let key = std::env::var("SIMPLE_TTS_SPEECH_API_KEY").unwrap_or_default();
+    let key = std::env::var("SMALLTALKAI_SPEECH_API_KEY").unwrap_or_default();
     let instructions = std::env::var(reader_core::provider_prompts::SPEECH_ENV).unwrap_or_default();
     reader_core::provider_prompts::validate(&instructions)?;
     let mut body = serde_json::json!({

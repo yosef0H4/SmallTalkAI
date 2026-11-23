@@ -11,7 +11,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
 use std::process::Command;
@@ -36,21 +36,9 @@ pub struct Args {
     state_file: Option<PathBuf>,
     #[arg(long)]
     service_token: Option<String>,
-    /// Open Settings in your browser instead of the desktop window.
-    #[arg(long, conflicts_with = "no_browser")]
-    browser: bool,
-    /// Print the Settings URL and serve it without opening a window.
-    #[arg(long)]
-    no_browser: bool,
-    /// Explicitly expose browser administration. The default remains loopback only.
-    #[arg(long, default_value = "127.0.0.1:0")]
-    listen: SocketAddr,
-    /// Browser origin, e.g. http://server:8765. Required for non-loopback listeners.
-    #[arg(long)]
-    public_url: Option<String>,
-    /// Read the administration token from a file instead of generating a session token.
-    #[arg(long)]
-    token_file: Option<PathBuf>,
+    /// Run the authenticated local Settings API without opening a window.
+    #[arg(long, hide = true)]
+    headless: bool,
 }
 
 #[derive(Clone)]
@@ -60,8 +48,6 @@ struct CaptureConnection {
 }
 
 struct AppState {
-    local_agent_skills: bool,
-    build_id: String,
     assets: crate::assets::Manager,
     web_token: String,
     origin: String,
@@ -102,11 +88,9 @@ struct CleanupActionRequest {
 #[derive(Serialize, Deserialize)]
 struct SettingsSession {
     instance_id: String,
-    build_id: String,
     pid: u32,
     origin: String,
     token: String,
-    remote_admin: bool,
 }
 
 // Keep this file in place: unlinking a locked file would let another launcher
@@ -139,12 +123,8 @@ enum SettingsLaunch {
 }
 
 impl Args {
-    fn remote(&self) -> bool {
-        !self.listen.ip().is_loopback() || self.public_url.is_some() || self.token_file.is_some()
-    }
-
     pub fn desktop(&self) -> bool {
-        !self.remote() && !self.browser && !self.no_browser
+        !self.headless
     }
 }
 
@@ -157,7 +137,7 @@ pub struct DesktopSettings {
 impl DesktopSettings {
     pub fn serve(self, focus: impl Fn() + Send + 'static, close: impl FnOnce() + Send + 'static) {
         std::thread::spawn(move || {
-            if let Err(error) = serve_settings(&self.server, &self.state, Some(&focus), false) {
+            if let Err(error) = serve_settings(&self.server, &self.state, Some(&focus)) {
                 eprintln!("smalltalkai-settings: {error:#}");
             }
             close();
@@ -166,72 +146,23 @@ impl DesktopSettings {
 }
 
 pub fn run(args: Args, window: Option<fn(DesktopSettings) -> Result<()>>) -> Result<()> {
-    let remote = args.remote();
     let desktop = window.is_some();
     anyhow::ensure!(desktop == args.desktop(), "invalid Settings launch mode");
-    anyhow::ensure!(
-        args.public_url.is_some() == args.token_file.is_some(),
-        "--public-url and --token-file must be provided together"
-    );
-    anyhow::ensure!(
-        args.listen.ip().is_loopback() || args.public_url.is_some(),
-        "remote administration requires --public-url and --token-file"
-    );
-    anyhow::ensure!(
-        !remote || args.listen.port() != 0,
-        "remote administration requires an explicit --listen port"
-    );
-    let public_origin = args
-        .public_url
-        .as_deref()
-        .map(validate_public_origin)
-        .transpose()?;
-    let web_token = if let Some(path) = &args.token_file {
-        let value = fs::read_to_string(path).context("reading administration token file")?;
-        let value = value.trim();
-        anyhow::ensure!(
-            (32..=512).contains(&value.len()) && !value.chars().any(char::is_whitespace),
-            "administration token must contain 32 to 512 non-whitespace bytes"
-        );
-        value.to_owned()
-    } else {
-        random_token()
-    };
-    let build_id = if desktop {
-        // The desktop lock spans app versions. Only browser sessions are keyed by image hash.
-        env!("CARGO_PKG_VERSION").to_owned()
-    } else {
-        executable_build_id()?
-    };
-    let instance_id = if remote {
-        format!(
-            "{build_id}-remote-{}",
-            hash_bytes(
-                format!("{}|{}", args.listen, public_origin.as_deref().unwrap_or("")).as_bytes()
-            )
-        )
-    } else if desktop {
-        "desktop".to_owned()
-    } else {
-        build_id.clone()
-    };
-    let mut instance = match settings_launch(&instance_id)? {
+    let web_token = random_token();
+    let instance_id = if desktop { "desktop" } else { "headless" };
+    let mut instance = match settings_launch(instance_id)? {
         SettingsLaunch::Start(instance) => instance,
         SettingsLaunch::Reuse(url) => {
             if desktop {
                 focus_desktop(&url)?;
-                return Ok(());
+            } else {
+                println!("{url}");
             }
-            if args.browser {
-                open_url(&url)?;
-            }
-            println!("{url}");
             return Ok(());
         }
     };
-    let listener = TcpListener::bind(args.listen)?;
-    let address = listener.local_addr()?;
-    let origin = public_origin.unwrap_or_else(|| format!("http://{address}"));
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let origin = format!("http://{}", listener.local_addr()?);
     let server = Server::from_listener(listener, None)
         .map_err(|error| anyhow::anyhow!("starting settings server: {error}"))?;
     let capture = args
@@ -242,8 +173,6 @@ pub fn run(args: Args, window: Option<fn(DesktopSettings) -> Result<()>>) -> Res
             token: args.service_token,
         });
     let state = Arc::new(AppState {
-        local_agent_skills: !remote,
-        build_id: build_id.clone(),
         assets: crate::assets::Manager::default(),
         web_token: web_token.clone(),
         origin: origin.clone(),
@@ -271,18 +200,12 @@ pub fn run(args: Args, window: Option<fn(DesktopSettings) -> Result<()>>) -> Res
             }
         },
     ));
-    let url = if remote || args.token_file.is_some() {
-        format!("{origin}/")
-    } else {
-        format!("{origin}/#token={web_token}")
-    };
+    let url = format!("{origin}/#token={web_token}");
     let session = SettingsSession {
-        instance_id: instance_id.clone(),
-        build_id,
+        instance_id: instance_id.to_owned(),
         pid: std::process::id(),
-        origin: origin.clone(),
-        token: web_token.clone(),
-        remote_admin: remote,
+        origin,
+        token: web_token,
     };
     write_session(&session)?;
     instance.session = Some(session);
@@ -294,10 +217,7 @@ pub fn run(args: Args, window: Option<fn(DesktopSettings) -> Result<()>>) -> Res
         });
     }
     println!("{url}");
-    if args.browser {
-        open_url(&url)?;
-    }
-    serve_settings(&server, &state, None, remote)
+    serve_settings(&server, &state, None)
 }
 
 fn focus_desktop(url: &str) -> Result<()> {
@@ -315,18 +235,13 @@ fn focus_desktop(url: &str) -> Result<()> {
         .redirect(reqwest::redirect::Policy::none())
         .build()?
         .post(url)
-        .header("X-Simple-STT-Token", token)
+        .header("X-SmallTalkAI-Token", token)
         .send()?
         .error_for_status()?;
     Ok(())
 }
 
-fn serve_settings(
-    server: &Server,
-    state: &Arc<AppState>,
-    focus: Option<&dyn Fn()>,
-    remote: bool,
-) -> Result<()> {
+fn serve_settings(server: &Server, state: &Arc<AppState>, focus: Option<&dyn Fn()>) -> Result<()> {
     let tick = if focus.is_some() { 100 } else { 500 };
     while !state.closing.load(Ordering::Relaxed) {
         if let Some(focus) = focus {
@@ -337,9 +252,7 @@ fn serve_settings(
             {
                 focus();
             }
-        } else if !remote
-            && state.last_activity.lock().expect("activity lock").elapsed() > IDLE_TIMEOUT
-        {
+        } else if state.last_activity.lock().expect("activity lock").elapsed() > IDLE_TIMEOUT {
             break;
         }
         if let Some(request) = server.recv_timeout(Duration::from_millis(tick))? {
@@ -424,11 +337,7 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
     match (request.method(), path) {
         (&Method::Get, "/api/state") => state_response(state),
         (&Method::Get, "/api/agent-skills") => {
-            let agents = if state.local_agent_skills {
-                crate::agent_skills::list()?
-            } else {
-                Vec::new()
-            };
+            let agents = crate::agent_skills::list()?;
             Ok(json_response(
                 StatusCode(200),
                 &serde_json::to_value(agents)?,
@@ -436,10 +345,6 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
             ))
         }
         (&Method::Post, "/api/agent-skills") => {
-            anyhow::ensure!(
-                state.local_agent_skills,
-                "agent skills must be installed from local Settings"
-            );
             let agent = serde_json::from_slice(&read_body(request)?)?;
             let installed = crate::agent_skills::install(agent, false)?;
             Ok(json_response(
@@ -449,10 +354,6 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
             ))
         }
         (method @ (&Method::Get | &Method::Post), "/api/agent-skills/export") => {
-            anyhow::ensure!(
-                state.local_agent_skills,
-                "agent skills must be exported from local Settings"
-            );
             let result = if method == &Method::Get {
                 json!(crate::agent_skills::markdown()?)
             } else {
@@ -611,7 +512,7 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
         )),
         (&Method::Get, "/api/health") => Ok(json_response(
             StatusCode(200),
-            &json!({"ok": !state.closing.load(Ordering::Relaxed), "pid":std::process::id(), "build_id":state.build_id}),
+            &json!({"ok": !state.closing.load(Ordering::Relaxed), "pid":std::process::id()}),
             state,
         )),
         (&Method::Get, "/api/defaults") => Ok(json_response(
@@ -1363,7 +1264,7 @@ fn read_body(request: &mut Request) -> Result<Vec<u8>> {
 fn authenticate(request: &Request, state: &AppState) -> Result<()> {
     let token = header(request, "Authorization")
         .and_then(|value| value.strip_prefix("Bearer "))
-        .or_else(|| header(request, "X-Simple-STT-Token"))
+        .or_else(|| header(request, "X-SmallTalkAI-Token"))
         .unwrap_or_default();
     anyhow::ensure!(
         constant_time_eq(token.as_bytes(), state.web_token.as_bytes()),
@@ -1404,20 +1305,6 @@ fn validate_origin(request: &Request, state: &AppState) -> Result<()> {
     Ok(())
 }
 
-fn validate_public_origin(value: &str) -> Result<String> {
-    let url = url::Url::parse(value).context("invalid --public-url")?;
-    anyhow::ensure!(
-        matches!(url.scheme(), "http" | "https")
-            && url.host_str().is_some()
-            && url.username().is_empty()
-            && url.password().is_none()
-            && url.path() == "/"
-            && url.query().is_none()
-            && url.fragment().is_none(),
-        "--public-url must be an HTTP(S) origin without credentials, path, query or fragment"
-    );
-    Ok(url.origin().ascii_serialization())
-}
 fn header<'a>(request: &'a Request, name: &'static str) -> Option<&'a str> {
     request
         .headers()
@@ -1475,27 +1362,6 @@ fn random_token() -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-// The running image may have been replaced by the package manager. On Linux,
-// /proc/self/exe identifies the image actually loaded, even after unlink/rename.
-fn executable_build_id() -> Result<String> {
-    use sha2::{Digest, Sha256};
-    #[cfg(target_os = "linux")]
-    let path = PathBuf::from("/proc/self/exe");
-    #[cfg(not(target_os = "linux"))]
-    let path = std::env::current_exe()?;
-    let mut file = fs::File::open(path).context("reading Settings build identity")?;
-    let mut digest = Sha256::new();
-    let mut buffer = [0u8; 32 * 1024];
-    loop {
-        let count = file.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        digest.update(&buffer[..count]);
-    }
-    Ok(format!("{:x}", digest.finalize()))
-}
-
 fn settings_session_path(instance_id: &str) -> PathBuf {
     AppConfig::state_dir().join(format!("settings-session-{instance_id}.json"))
 }
@@ -1522,10 +1388,6 @@ fn settings_launch(instance_id: &str) -> Result<SettingsLaunch> {
     loop {
         match lock.try_lock() {
             Ok(()) => {
-                // Keep older browser sessions alive across a package upgrade.
-                if let Some(url) = reusable_session_url(instance_id) {
-                    return Ok(SettingsLaunch::Reuse(url));
-                }
                 return Ok(SettingsLaunch::Start(SettingsInstance {
                     _lock: lock,
                     session: None,
@@ -1554,8 +1416,8 @@ fn reusable_session_url(instance_id: &str) -> Option<String> {
     }
     let origin = reqwest::Url::parse(&session.origin).ok()?;
     if origin.scheme() != "http"
-        || (!session.remote_admin && origin.host_str() != Some("127.0.0.1"))
-        || (!session.remote_admin && origin.port().is_none())
+        || origin.host_str() != Some("127.0.0.1")
+        || origin.port().is_none()
         || origin.path() != "/"
         || !origin.username().is_empty()
         || origin.password().is_some()
@@ -1571,22 +1433,15 @@ fn reusable_session_url(instance_id: &str) -> Option<String> {
         .build()
         .ok()?
         .get(format!("{}/api/health", session.origin))
-        .header("X-Simple-STT-Token", &session.token)
+        .header("X-SmallTalkAI-Token", &session.token)
         .send()
         .ok()?;
     if !response.status().is_success() {
         return None;
     }
     let health: Value = response.json().ok()?;
-    if health["ok"] == true
-        && health["pid"].as_u64() == Some(u64::from(session.pid))
-        && health["build_id"].as_str() == Some(session.build_id.as_str())
-    {
-        if session.remote_admin {
-            Some(format!("{}/", session.origin))
-        } else {
-            Some(format!("{}/#token={}", session.origin, session.token))
-        }
+    if health["ok"] == true && health["pid"].as_u64() == Some(u64::from(session.pid)) {
+        Some(format!("{}/#token={}", session.origin, session.token))
     } else {
         None
     }
@@ -1628,11 +1483,13 @@ fn read_json<T: serde::de::DeserializeOwned>(reader: &mut impl BufRead) -> Resul
 }
 
 #[cfg(windows)]
-fn open_url(url: &str) -> Result<()> {
+fn open_path(path: &Path) -> Result<()> {
     use windows_sys::Win32::UI::Shell::ShellExecuteW;
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     let operation = "open\0".encode_utf16().collect::<Vec<_>>();
-    let target = url
+    let target = path
+        .to_str()
+        .context("path is not Unicode")?
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect::<Vec<_>>();
@@ -1648,23 +1505,22 @@ fn open_url(url: &str) -> Result<()> {
     };
     anyhow::ensure!(
         result as isize > 32,
-        "Windows failed to open the default browser (ShellExecuteW code {})",
+        "Windows failed to open the path (ShellExecuteW code {})",
         result as isize
     );
     Ok(())
 }
 #[cfg(target_os = "linux")]
-fn open_url(url: &str) -> Result<()> {
-    Command::new("xdg-open").arg(url).spawn()?;
+fn open_path(path: &Path) -> Result<()> {
+    let mut child = Command::new("xdg-open").arg(path).spawn()?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
     Ok(())
 }
 #[cfg(not(any(windows, target_os = "linux")))]
-fn open_url(_url: &str) -> Result<()> {
-    anyhow::bail!("opening a browser is unsupported")
-}
-
-fn open_path(path: &Path) -> Result<()> {
-    open_url(path.to_str().context("path is not Unicode")?)
+fn open_path(_path: &Path) -> Result<()> {
+    anyhow::bail!("opening a path is unsupported")
 }
 
 #[cfg(target_os = "linux")]

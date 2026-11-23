@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { loadEnv } from "vite";
-const origin = loadEnv("development", ".", "").SIMPLE_STT_SETTINGS_ORIGIN;
+const origin = loadEnv("development", ".", "").SMALLTALKAI_SETTINGS_ORIGIN;
 export default defineConfig({
   plugins: [svelte()],
   server: {

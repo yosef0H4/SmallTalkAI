@@ -1,4 +1,4 @@
-SimpleSttTransformTranscript(text, removePunctuation := false, lowercaseOutput := false) {
+SmallTalkAITransformTranscript(text, removePunctuation := false, lowercaseOutput := false) {
     if removePunctuation
         text := RegExReplace(text, "\p{P}", "")
     if lowercaseOutput
@@ -6,6 +6,6 @@ SimpleSttTransformTranscript(text, removePunctuation := false, lowercaseOutput :
     return text
 }
 
-SimpleSttFinalDeliveryPayload(text, trailingSpace) {
+SmallTalkAIFinalDeliveryPayload(text, trailingSpace) {
     return text != "" && trailingSpace ? text . " " : text
 }

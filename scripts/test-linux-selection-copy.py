@@ -60,7 +60,7 @@ def statistics_ms(values):
 
 
 def session(folder):
-    assert os.environ.get('SIMPLE_STT_SELECTION_PRIVATE') == '1'
+    assert os.environ.get('SMALLTALKAI_SELECTION_PRIVATE') == '1'
     root = Path(folder)
     env = dict(os.environ, NO_AT_BRIDGE='0', GTK_A11Y='always')
     launcher = registry = target = owner = daemon = None
@@ -151,8 +151,8 @@ def session(folder):
         reader.mkdir(parents=True)
         config_file = reader / 'config.json'
         daemon_env = dict(env, XDG_DATA_HOME=str(data), XDG_CONFIG_HOME=str(root / 'config'),
-                          XDG_CACHE_HOME=str(root / 'cache'), SIMPLE_STT_READER_DATA=str(reader),
-                          SIMPLE_TTS_CONFIG=str(config_file), SIMPLE_TTS_NO_DESKTOP='1')
+                          XDG_CACHE_HOME=str(root / 'cache'), SMALLTALKAI_READER_DATA=str(reader),
+                          SMALLTALKAI_READER_CONFIG=str(config_file), SMALLTALKAI_READER_NO_DESKTOP='1')
         def config(backend, allow=True, overrides=None):
             config_file.write_text(json.dumps({
                 'selection_copy': {'backend': backend, 'shortcut': 'ctrl_insert',
@@ -165,7 +165,7 @@ def session(folder):
         daemon = subprocess.Popen([str(READERD), 'daemon', '--foreground', '--no-desktop'],
                                   env=daemon_env, stdin=subprocess.DEVNULL,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        sockpath = reader / 'simple-tts.sock'
+        sockpath = reader / 'smalltalkai-reader.sock'
         wait_for(lambda: sockpath.exists() or daemon.poll() is not None, 'private reader controller')
         assert daemon.poll() is None, 'private reader controller exited'
 
@@ -301,7 +301,7 @@ def main():
                 for name in ('WAYLAND_DISPLAY', 'WAYLAND_SOCKET', 'AT_SPI_BUS_ADDRESS', 'DBUS_SESSION_BUS_ADDRESS'):
                     env.pop(name, None)
                 env.update(DISPLAY=':' + display_file.read_text().strip(), XDG_RUNTIME_DIR=str(runtime),
-                           XDG_SESSION_TYPE='x11', GDK_BACKEND='x11', SIMPLE_STT_SELECTION_PRIVATE='1')
+                           XDG_SESSION_TYPE='x11', GDK_BACKEND='x11', SMALLTALKAI_SELECTION_PRIVATE='1')
                 result = subprocess.run(['dbus-run-session', '--', sys.executable, str(Path(__file__).resolve()),
                                          '--session', folder], env=env, capture_output=True, text=True, timeout=100)
                 if result.returncode:

@@ -2,8 +2,8 @@
 #SingleInstance Force
 #Include ..\lib\Utils.ahk
 
-eventsFile := SimpleSttTempFile("recorded-action")
-cancelFile := SimpleSttTempFile("recorded-action-cancel")
+eventsFile := SmallTalkAITempFile("recorded-action")
+cancelFile := SmallTalkAITempFile("recorded-action-cancel")
 window := Gui("+AlwaysOnTop", "Recorded action smoke")
 targetEdit := window.AddEdit("w320")
 trace := []
@@ -20,7 +20,7 @@ try {
     if !WinWaitActive("ahk_id " window.Hwnd, , 3)
         throw Error("Test target did not become active")
     targetEdit.Focus()
-    command := SimpleSttQuote(A_AhkPath) " /ErrorStdOut=UTF-8 " SimpleSttQuote(A_ScriptDir "\..\action-replay.ahk") " " window.Hwnd " " DllCall("GetCurrentProcessId", "UInt") " " SimpleSttQuote(eventsFile) " " SimpleSttQuote(cancelFile)
+    command := SmallTalkAIQuote(A_AhkPath) " /ErrorStdOut=UTF-8 " SmallTalkAIQuote(A_ScriptDir "\..\action-replay.ahk") " " window.Hwnd " " DllCall("GetCurrentProcessId", "UInt") " " SmallTalkAIQuote(eventsFile) " " SmallTalkAIQuote(cancelFile)
     if RunWait(command) != 0 || trace.Length != 4
         throw Error("Expected two paired key presses")
     if trace[3].at - trace[1].at < 80
@@ -50,9 +50,9 @@ try {
             throw Error("Replay sent input to competing window")
         try FileDelete(cancelFile)
     }
-    SimpleSttConsoleLine("PASS: recorded action timing, modifiers, cancellation, focus safety and held-key release")
+    SmallTalkAIConsoleLine("PASS: recorded action timing, modifiers, cancellation, focus safety and held-key release")
 } catch as caughtError {
-    SimpleSttConsoleError("FAIL: " caughtError.Message)
+    SmallTalkAIConsoleError("FAIL: " caughtError.Message)
     ExitApp(1)
 } finally {
     competitor.Destroy()

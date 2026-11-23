@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real Settings HTTP regression for schema 9, discovery, and draft-only refresh."""
+"""Real Settings HTTP regression for schema 10, discovery, and draft-only refresh."""
 import copy
 import json
 import os
@@ -14,12 +14,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def start_settings_server(binary, config, runtime_root, data_home):
-    env = dict(os.environ, SIMPLE_STT_CONFIG=str(config),
-               SIMPLE_STT_RUNTIME_ROOT=str(runtime_root), XDG_DATA_HOME=str(data_home))
+    env = dict(os.environ, SMALLTALKAI_CONFIG=str(config),
+               SMALLTALKAI_RUNTIME_ROOT=str(runtime_root), XDG_DATA_HOME=str(data_home))
     if os.name != 'nt':
         env.update(XDG_SESSION_TYPE='wayland', WAYLAND_DISPLAY='unavailable-test-display',
                    DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-test-bus')
-    process = subprocess.Popen([str(binary), '--no-browser'], cwd=ROOT, env=env,
+    process = subprocess.Popen([str(binary), '--headless'], cwd=ROOT, env=env,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     line = process.stdout.readline().strip()
     if not line:
@@ -33,7 +33,7 @@ def start_settings_server(binary, config, runtime_root, data_home):
         request = Request(origin + path, data=None if body is None else json.dumps(body).encode())
         request.add_header('Origin', origin)
         if auth:
-            request.add_header('X-Simple-STT-Token', token)
+            request.add_header('X-SmallTalkAI-Token', token)
         if body is not None:
             request.add_header('Content-Type', 'application/json')
         with urlopen(request, timeout=10) as response:
@@ -51,14 +51,14 @@ def main():
     binary = ROOT / 'target/debug' / ('smalltalkai-settings.exe' if os.name == 'nt' else 'smalltalkai-settings')
     with tempfile.TemporaryDirectory(prefix='smalltalkai-selection-api-') as temporary:
         config = Path(temporary) / 'config.json'
-        env = dict(os.environ, SIMPLE_STT_CONFIG=str(config),
-                   SIMPLE_STT_RUNTIME_ROOT=str(Path(temporary) / "runtime"),
+        env = dict(os.environ, SMALLTALKAI_CONFIG=str(config),
+                   SMALLTALKAI_RUNTIME_ROOT=str(Path(temporary) / "runtime"),
                    XDG_DATA_HOME=str(Path(temporary) / "data"))
         if os.name != 'nt':
             # Unsupported Wayland cannot inherit the real session's XWayland language.
             env.update(XDG_SESSION_TYPE='wayland', WAYLAND_DISPLAY='unavailable-test-display',
                        DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-test-bus')
-        process = subprocess.Popen([str(binary), '--no-browser'], cwd=ROOT, env=env,
+        process = subprocess.Popen([str(binary), '--headless'], cwd=ROOT, env=env,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
             parsed = urlparse(process.stdout.readline().strip())
@@ -69,7 +69,7 @@ def main():
                 request = Request(origin + path, data=None if body is None else json.dumps(body).encode())
                 request.add_header('Origin', origin)
                 if auth:
-                    request.add_header('X-Simple-STT-Token', token)
+                    request.add_header('X-SmallTalkAI-Token', token)
                 if body is not None:
                     request.add_header('Content-Type', 'application/json')
                 with urlopen(request, timeout=10) as response:
@@ -78,14 +78,14 @@ def main():
             state = api('/api/state')
             assert state['config']['general']['ui_language'] == 'auto'
             assert state['ui_localization']['system_locale'] in ('en', 'ar')
-            assert api('/api/normalize', {'schema_version': 9, 'general': {'ui_language': 'invalid'}})['config']['general']['ui_language'] == 'auto'
+            assert api('/api/normalize', {'schema_version': 10, 'general': {'ui_language': 'invalid'}})['config']['general']['ui_language'] == 'auto'
             assert 'model_setup' not in state
             reader_config = api('/api/reader')['config']
             for section in ['speech', 'ocr']:
                 assert 'fallback' not in reader_config[section]['selection']
                 assert 'uncertain_language' not in reader_config[section]['selection']
             speech = state['config']['speech']
-            assert state['config']['schema_version'] == 9
+            assert state['config']['schema_version'] == 10
             assert speech['selection_mode'] == 'follow_keyboard'
             assert speech['runtime_dir'] == '' and speech['language_runtimes'] == {}
             assert speech['single_model_filename'] is None and speech['language_models'] == {}
@@ -109,7 +109,7 @@ def main():
                 assert languages['available'] is False and languages['languages'] == [], languages
                 assert 'unavailable' in languages['message'].lower()
             print('PASS authenticated read-only discovery; unsupported Wayland does not use XWayland')
-            for version in [7, 8, 10]:
+            for version in [7, 8, 9, 11]:
                 try:
                     api('/api/normalize', {'schema_version': version})
                     raise AssertionError('unsupported schema accepted')
@@ -117,7 +117,7 @@ def main():
                     assert error.code == 400
                     assert 'unsupported config schema_version' in error.read().decode()
             assert config.read_bytes() == before, 'unsupported schema changed saved configuration'
-            normalized_obsolete = api('/api/normalize', {'schema_version': 9, 'speech': {
+            normalized_obsolete = api('/api/normalize', {'schema_version': 10, 'speech': {
                 'language_mode': 'arabic', 'english_model_filename': 'old-en.gguf',
                 'arabic_model_filename': 'old-ar.gguf'}})['config']['speech']
             assert normalized_obsolete['single_model_filename'] is None

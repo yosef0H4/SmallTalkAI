@@ -22,7 +22,7 @@ const keyboardDiscovery = {
   ],
 };
 const makeConfig = () => ({
-  schema_version: 9,
+  schema_version: 10,
   general: {
     enabled: true,
     recording_mode: "hold",
@@ -63,8 +63,6 @@ const makeConfig = () => ({
   output: {
     delivery_mode: "smart_paste",
     enabled_delivery_modes: ["smart_paste", "type"],
-    linux_automation_backend: "auto",
-    linux_delivery_cycle: [],
     app_overrides: [],
     paced_typing_enabled: true,
     typing_speed_wpm: 450,
@@ -218,8 +216,8 @@ let readerConfig = {
   revision:1,
   read_along:{prefetch:true,advance_key:"Space",action:"key",delay_ms:900,retry_count:5},
   request_budgets:{connect_timeout_secs:3,queue_timeout_secs:30,cold_model_load_timeout_secs:180,warm_model_load_timeout_secs:30,warm_inference_timeout_secs:60,stream_inactivity_timeout_secs:60,total_timeout_secs:300},
-  speech:{selection:{mode:"auto_detect",single:{runtime:null,model:null,device:"auto"},languages:{}},provider:{kind:"local_kokoro"},voice:"af_heart",language:"en-us",speed:1,device:"auto",model_dir:"/assets/kokoro",runtime_dir:"/assets/sherpa-cpu",worker_library:null},
-  ocr:{selection:{mode:"single_model",single:{runtime:null,model:null,device:"auto"},languages:{}},provider:{kind:"local_paddle"},language:"en",model_dir:"/assets/paddle-ar-en",runtime_dir:"/assets/sherpa-cpu",device:"auto",idle_timeout_secs:300,worker_library:null},
+  speech:{fallback_to_local:false,selection:{mode:"auto_detect",single:{runtime:null,model:null,device:"auto"},languages:{}},provider:{kind:"local_kokoro"},voice:"af_heart",language:"en-us",speed:1,device:"auto",model_dir:"/assets/kokoro",runtime_dir:"/assets/sherpa-cpu",worker_library:null},
+  ocr:{fallback_to_local:false,selection:{mode:"single_model",single:{runtime:null,model:null,device:"auto"},languages:{}},provider:{kind:"local_paddle"},language:"en",model_dir:"/assets/paddle-ar-en",runtime_dir:"/assets/sherpa-cpu",device:"auto",idle_timeout_secs:300,worker_library:null},
   playback:{keep_warm_seconds:300,output_device:null,max_buffer_seconds:8,sentence_gap_ms:120,auto_dismiss_seconds:2},
   shortcuts:{read_along:"None",read_selection:"Ctrl+Alt+R",read_region:"Ctrl+Alt+O",copy_region:"None",listen_clipboard:"Ctrl+Alt+C"},
   selection_copy:{backend:"auto",shortcut:"ctrl_insert",allow_clipboard_copy:true,show_clipboard_notice:true},selection_copy_overrides:[],privacy:{hide_text_in_notifications:true},server:{enabled:false,listen:"127.0.0.1:8765",allow_remote:false,max_clients:4,max_text_bytes:1048576,max_image_pixels:20000000},
@@ -274,7 +272,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (
     url.pathname.startsWith("/api/") &&
-    req.headers["x-simple-stt-token"] !== token
+    req.headers["x-smalltalkai-token"] !== token
   )
     return sendJson(res, 401, { error: "Missing test token" });
   try {

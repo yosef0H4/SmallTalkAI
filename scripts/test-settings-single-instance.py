@@ -19,15 +19,15 @@ def main():
     processes = []
     with tempfile.TemporaryDirectory(prefix='smalltalkai-settings-singleton-') as temporary:
         directory = Path(temporary)
-        env = dict(os.environ, SIMPLE_STT_CONFIG=str(directory / 'config.json'),
-                   SIMPLE_STT_RUNTIME_ROOT=str(directory / 'runtime'),
+        env = dict(os.environ, SMALLTALKAI_CONFIG=str(directory / 'config.json'),
+                   SMALLTALKAI_RUNTIME_ROOT=str(directory / 'runtime'),
                    XDG_DATA_HOME=str(directory / 'data'), LOCALAPPDATA=str(directory / 'data'))
 
         def launch(environment=env):
             output = directory / f'output-{len(processes)}.txt'
             errors = directory / f'errors-{len(processes)}.txt'
             with output.open('w') as stdout, errors.open('w') as stderr:
-                process = subprocess.Popen([str(BINARY), '--no-browser'], cwd=ROOT,
+                process = subprocess.Popen([str(BINARY), '--headless'], cwd=ROOT,
                                            env=environment, stdout=stdout, stderr=stderr)
             processes.append(process)
             return process, output, errors
@@ -50,7 +50,7 @@ def main():
             request = Request(origin + path, data=None if body is None else json.dumps(body).encode())
             request.add_header('Origin', origin)
             if authenticated:
-                request.add_header('X-Simple-STT-Token', parse_qs(parsed.fragment)['token'][0])
+                request.add_header('X-SmallTalkAI-Token', parse_qs(parsed.fragment)['token'][0])
             if body is not None:
                 request.add_header('Content-Type', 'application/json')
             with urlopen(request, timeout=3) as response:
@@ -98,7 +98,7 @@ def main():
             assert owner_for(recovered_url) is recovered[0]
             print('PASS: crashed server releases its lock; stale session recovers')
 
-            independent = launch(dict(env, SIMPLE_STT_RUNTIME_ROOT=str(directory / 'other-runtime')))
+            independent = launch(dict(env, SMALLTALKAI_RUNTIME_ROOT=str(directory / 'other-runtime')))
             independent_url = url_for(independent)
             assert independent_url != recovered_url
             assert owner_for(independent_url) is independent[0]

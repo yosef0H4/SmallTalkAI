@@ -37,7 +37,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, default=ROOT / 'target/debug/smalltalkai-ocr')
     parser.add_argument('--model', type=Path, default=ROOT / 'artifacts/combined-app/downloads/model-paddle')
-    parser.add_argument('--runtime', type=Path, default=Path.home() / '.local/share/simple-tts/runtime')
+    parser.add_argument('--runtime', type=Path, default=Path.home() / '.local/share/smalltalkai-reader/runtime')
     parser.add_argument('--device', choices=['gpu', 'cpu'], default='gpu')
     parser.add_argument('--screenshot', type=Path, help='Optional user-supplied Wikipedia screenshot; never uploaded')
     parser.add_argument('--artifacts', type=Path, default=ROOT / 'artifacts/arabic-ocr-regression')
@@ -55,7 +55,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='smalltalkai-arabic-ocr-') as temporary:
         scratch = Path(temporary)
         env = dict(os.environ, XDG_DATA_HOME=temporary, XDG_CACHE_HOME=temporary,
-                   SIMPLE_TTS_CAPTURE_DIR=temporary, WAYLAND_DISPLAY='unavailable-test-display',
+                   SMALLTALKAI_READER_CAPTURE_DIR=temporary, WAYLAND_DISPLAY='unavailable-test-display',
                    DISPLAY='', DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-test-bus',
                    LD_LIBRARY_PATH=str(args.runtime / 'lib') + ':' + os.environ.get('LD_LIBRARY_PATH', ''))
         fixtures = []

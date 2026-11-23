@@ -21,11 +21,11 @@ global DelayedClipboardMarkers := ""
 global PasteFeedback := ""
 
 Info(message) {
-    SimpleSttConsoleLine("INFO: " . message)
+    SmallTalkAIConsoleLine("INFO: " . message)
 }
 
 Fail(message, exitCode := 1) {
-    SimpleSttConsoleError("FAIL: " . message)
+    SmallTalkAIConsoleError("FAIL: " . message)
     ExitApp(exitCode)
 }
 
@@ -35,9 +35,9 @@ Assert(condition, message) {
 }
 
 GlobalErrorHandler(err, mode) {
-    SimpleSttConsoleError("FAIL: unhandled AHK error: " . err.Message . " mode=" . mode)
-    SimpleSttConsoleError("FILE: " . err.File . " LINE: " . err.Line)
-    SimpleSttConsoleError("STACK: " . err.Stack)
+    SmallTalkAIConsoleError("FAIL: unhandled AHK error: " . err.Message . " mode=" . mode)
+    SmallTalkAIConsoleError("FILE: " . err.File . " LINE: " . err.Line)
+    SmallTalkAIConsoleError("STACK: " . err.Stack)
     ExitApp(2)
     return true
 }
@@ -47,8 +47,8 @@ NoopNotice(*) {
 
 CallCtl(arguments) {
     global SmokeCtl, SmokeState, SmokeToken
-    output := SimpleSttTempFile("full-smoke")
-    command := SimpleSttQuote(SmokeCtl) . " --state-file " . SimpleSttQuote(SmokeState) . " --token " . SimpleSttQuote(SmokeToken) . " --output " . SimpleSttQuote(output) . " " . arguments
+    output := SmallTalkAITempFile("full-smoke")
+    command := SmallTalkAIQuote(SmokeCtl) . " --state-file " . SmallTalkAIQuote(SmokeState) . " --token " . SmallTalkAIQuote(SmokeToken) . " --output " . SmallTalkAIQuote(output) . " " . arguments
     try exitCode := RunWait(command, A_ScriptDir, "Hide")
     catch Error as err
         return TabProtocol.ErrorResponse("unable to run smalltalkai-ctl: " . err.Message)
@@ -73,8 +73,8 @@ WaitForState(timeoutMs := 5000) {
 StartCapture() {
     global SmokeCapture, SmokeConfig, SmokeState, SmokeToken, SmokePid, SmokeLatestSeq
     try FileDelete(SmokeState)
-    SmokeToken := SimpleSttRandomToken()
-    command := SimpleSttQuote(SmokeCapture) . " --token " . SimpleSttQuote(SmokeToken) . " --state-file " . SimpleSttQuote(SmokeState) . " --config " . SimpleSttQuote(SmokeConfig)
+    SmokeToken := SmallTalkAIRandomToken()
+    command := SmallTalkAIQuote(SmokeCapture) . " --token " . SmallTalkAIQuote(SmokeToken) . " --state-file " . SmallTalkAIQuote(SmokeState) . " --config " . SmallTalkAIQuote(SmokeConfig)
     Run(command, A_ScriptDir, "Hide", &pid)
     SmokePid := pid
     SmokeLatestSeq := 0
@@ -96,7 +96,7 @@ StopCapture() {
         return
     response := CallCtl("shutdown")
     if !response["ok"]
-        SimpleSttConsoleError("WARN: graceful capture shutdown failed: " . response["message"])
+        SmallTalkAIConsoleError("WARN: graceful capture shutdown failed: " . response["message"])
     try ProcessWaitClose(SmokePid, 3)
     if ProcessExist(SmokePid)
         try ProcessClose(SmokePid)
@@ -157,7 +157,7 @@ KeyboardLanguageSmoke() {
     settings.SaveSync()
     response := CallCtl("reload-config")
     Assert(response["ok"], "language-mode reload failed")
-    window := Gui("+AlwaysOnTop", "SimpleStt Language Smoke")
+    window := Gui("+AlwaysOnTop", "SmallTalkAI Language Smoke")
     edit := window.AddEdit("w360 h80")
     window.Show("w390 h120")
     SmokeTypingGui := window
@@ -205,7 +205,7 @@ KeyboardLanguageSmoke() {
 TypingSmoke() {
     global SmokeTypingGui
     logger := ShellLog(A_Temp . "\smalltalkai-full-smoke-typing.log")
-    window := Gui("+AlwaysOnTop", "SimpleStt Full Smoke Typing")
+    window := Gui("+AlwaysOnTop", "SmallTalkAI Full Smoke Typing")
     edit := window.AddEdit("w360 h80")
     window.Show("w390 h120")
     SmokeTypingGui := window
@@ -224,7 +224,7 @@ TypingSmoke() {
 }
 
 SetClipboardMarker() {
-    format := DllCall("user32\RegisterClipboardFormatW", "Str", "SimpleSttSmokeObject", "UInt")
+    format := DllCall("user32\RegisterClipboardFormatW", "Str", "SmallTalkAISmokeObject", "UInt")
     clipboardOpened := false
     Loop 30 {
         if DllCall("user32\OpenClipboard", "Ptr", A_ScriptHwnd, "Int") {
@@ -315,7 +315,7 @@ ReadClipboardHistoryMarkers() {
 DelayedPasteSmoke(logger, concurrentCopy, cleanClipboard := true, payload := "hello world  ") {
     global SmokeTypingGui, DelayedPasteCallback, DelayedPasteHwnd, DelayedPasteText, DelayedPasteReadAtTimer, DelayedClipboardMarkers
     format := SetClipboardMarker()
-    window := Gui("+AlwaysOnTop", "SimpleStt Delayed Paste Smoke")
+    window := Gui("+AlwaysOnTop", "SmallTalkAI Delayed Paste Smoke")
     edit := window.AddEdit("w360 h80")
     window.Show("w390 h120")
     SmokeTypingGui := window
@@ -369,7 +369,7 @@ PasteSmoke() {
     Assert(relayPid && ProcessExist(relayPid), "persistent desktop feedback relay did not start")
     for item in [["smart_paste", 9100], ["paste_ctrl_v", 9101], ["paste_ctrl_shift_v", 9102], ["paste_shift_insert", 9103]] {
         format := SetClipboardMarker()
-        window := Gui("+AlwaysOnTop", "SimpleStt Full Smoke Paste")
+        window := Gui("+AlwaysOnTop", "SmallTalkAI Full Smoke Paste")
         edit := window.AddEdit("w360 h80")
         window.Show("w390 h120")
         SmokeTypingGui := window
@@ -408,7 +408,7 @@ PasteSmoke() {
     while ProcessExist(relayPid) && A_TickCount < deadline
         Sleep(10)
     Assert(!ProcessExist(relayPid), "feedback relay did not exit after shell cleanup")
-    window := Gui("+AlwaysOnTop", "SimpleStt Unknown Paste Target")
+    window := Gui("+AlwaysOnTop", "SmallTalkAI Unknown Paste Target")
     button := window.AddButton("w180 h40", "No Edit Control")
     window.Show("w220 h80")
     SmokeTypingGui := window
@@ -438,9 +438,9 @@ FinishPasteFeedback(sessionId) {
 }
 
 DeliveryCachePayloadSmoke() {
-    Assert(SimpleSttFinalDeliveryPayload("你好🙂", true) = "你好🙂 ", "delivery cache payload did not retain one configured trailing space")
-    Assert(SimpleSttFinalDeliveryPayload("你好🙂 ", false) = "你好🙂 ", "retry payload gained or lost trailing whitespace")
-    Assert(SimpleSttFinalDeliveryPayload("", true) = "", "empty transcript produced a retry payload")
+    Assert(SmallTalkAIFinalDeliveryPayload("你好🙂", true) = "你好🙂 ", "delivery cache payload did not retain one configured trailing space")
+    Assert(SmallTalkAIFinalDeliveryPayload("你好🙂 ", false) = "你好🙂 ", "retry payload gained or lost trailing whitespace")
+    Assert(SmallTalkAIFinalDeliveryPayload("", true) = "", "empty transcript produced a retry payload")
 }
 
 Cleanup(*) {
@@ -457,15 +457,15 @@ OnError(GlobalErrorHandler)
 OnExit(Cleanup)
 
 try {
-    SmokeCtl := SimpleSttResolveExe("smalltalkai-ctl")
-    SmokeCapture := SimpleSttResolveExe("smalltalkai-capture")
+    SmokeCtl := SmallTalkAIResolveExe("smalltalkai-ctl")
+    SmokeCapture := SmallTalkAIResolveExe("smalltalkai-capture")
     Assert(FileExist(SmokeCtl), "missing smalltalkai-ctl.exe")
     Assert(FileExist(SmokeCapture), "missing smalltalkai-capture.exe")
     tempDir := A_Temp . "\smalltalkai-full-smoke-" . A_TickCount
     DirCreate(tempDir)
     SmokeConfig := tempDir . "\config.json"
     SmokeState := tempDir . "\capture-state.json"
-    EnvSet("SIMPLE_STT_CONFIG", SmokeConfig)
+    EnvSet("SMALLTALKAI_CONFIG", SmokeConfig)
     settings := ConfigStore(SmokeCtl)
     Info("starting isolated capture service")
     StartCapture()
@@ -534,11 +534,11 @@ try {
     Info("pasting hello world once and restoring clipboard")
     PasteSmoke()
     StopCapture()
-    SimpleSttConsoleLine("PASS: full AHK runtime smoke")
+    SmallTalkAIConsoleLine("PASS: full AHK runtime smoke")
     ExitApp(0)
 } catch Error as err {
-    SimpleSttConsoleError("FAIL: " . err.Message)
-    SimpleSttConsoleError("FILE: " . err.File . " LINE: " . err.Line)
-    SimpleSttConsoleError("STACK: " . err.Stack)
+    SmallTalkAIConsoleError("FAIL: " . err.Message)
+    SmallTalkAIConsoleError("FILE: " . err.File . " LINE: " . err.Line)
+    SmallTalkAIConsoleError("STACK: " . err.Stack)
     ExitApp(1)
 }

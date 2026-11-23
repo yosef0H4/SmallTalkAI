@@ -24,7 +24,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "scripts/fixtures/linux-unicode"
 PORTAL = FIXTURES / "portal_mock.py"
-READERD = Path(os.environ.get("SIMPLE_STT_TEST_READERD", ROOT / "target/debug/smalltalkai-reader")).resolve()
+READERD = Path(os.environ.get("SMALLTALKAI_TEST_READERD", ROOT / "target/debug/smalltalkai-reader")).resolve()
 OLD_TEST = ROOT / "scripts/test-linux-unicode-input.py"
 
 _spec = importlib.util.spec_from_file_location("linux_unicode_e2e_helpers", OLD_TEST)
@@ -72,7 +72,7 @@ def ipc(data_dir, request, timeout=30):
     frame = struct.pack("<I", len(payload) + 1) + b"\0" + payload
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stream:
         stream.settimeout(timeout)
-        stream.connect(str(data_dir / "simple-tts.sock"))
+        stream.connect(str(data_dir / "smalltalkai-reader.sock"))
         stream.sendall(frame)
         length = struct.unpack("<I", read_exact(stream, 4))[0]
         if not 2 <= length <= 64 * 1024:
@@ -102,7 +102,7 @@ def start_daemon(env, config_path, data_dir, log_path):
         env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
         start_new_session=True,
     )
-    wait_for(lambda: (data_dir / "simple-tts.sock").exists() or proc.poll() is not None,
+    wait_for(lambda: (data_dir / "smalltalkai-reader.sock").exists() or proc.poll() is not None,
              "smalltalkai-reader local IPC socket")
     if proc.poll() is not None:
         log.close()
@@ -212,9 +212,9 @@ def private_session(root):
     data_dir.chmod(0o700)
     config_path = root / "config" / "reader-config.json"
     env.update({
-        "SIMPLE_STT_READER_DATA": str(data_dir),
-        "SIMPLE_TTS_CONFIG": str(config_path),
-        "SIMPLE_STT_CONFIG": str(root / "config" / "app-config.json"),
+        "SMALLTALKAI_READER_DATA": str(data_dir),
+        "SMALLTALKAI_READER_CONFIG": str(config_path),
+        "SMALLTALKAI_CONFIG": str(root / "config" / "app-config.json"),
         "NO_AT_BRIDGE": "1",
         "KWIN_WAYLAND_NO_PERMISSION_CHECKS": "1",
     })
@@ -362,7 +362,7 @@ def private_session(root):
             raise RuntimeError("portal restore token was not reused after cancellation and daemon restart")
         print("PASS portal restore-token reuse across daemon restart")
 
-        # Exercise the existing authenticated retry-delivery CLI against the
+        # Exercise the existing authenticated repeat CLI against the
         # same private GTK target and compositor; verify every offered MIME
         # format survives its real clipboard transaction.
         # Keep a real Wayland data source alive across focus changes using the
@@ -407,7 +407,7 @@ def private_session(root):
                 f"before={{{', '.join(f'{mime!r}: {digest(data)!r}' for mime, data in before_clipboard.items())}}}; "
                 f"after={{{', '.join(f'{mime!r}: {digest(data)!r}' for mime, data in actual.items())}}}"
             ) from exc
-        print("PASS retry-delivery CLI restores every original clipboard MIME payload")
+        print("PASS repeat CLI restores every original clipboard MIME payload")
     finally:
         stop_process(kitty)
         stop_process(clipboard_owner)

@@ -565,27 +565,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn legacy_secondary_endpoints_are_ignored_without_changing_local_fallback() {
-        let mut json = serde_json::to_value(crate::AppConfig::default()).unwrap();
-        json["speech"]["remote_fallback"] = serde_json::json!({"base_url":"invalid"});
-        json["speech"]["selection"]["languages"]["ar"] = serde_json::json!({
-            "remote": {
-                "enabled": true,
-                "primary": {"base_url":"https://primary.example/v1", "model":"speech"},
-                "fallback": {"base_url":"invalid"},
-                "fallback_to_local": true
-            }
-        });
-        let config: crate::AppConfig = serde_json::from_value(json).unwrap();
-        config.validate().unwrap();
-        let canonical = serde_json::to_value(config).unwrap();
-        assert!(canonical["speech"].get("remote_fallback").is_none());
-        let route = &canonical["speech"]["selection"]["languages"]["ar"]["remote"];
-        assert!(route.get("fallback").is_none());
-        assert_eq!(route["primary"]["base_url"], "https://primary.example/v1");
-        assert_eq!(route["fallback_to_local"], true);
-    }
-    #[test]
     fn local_language_routing_selects_independent_remote_models_voices_and_keys() {
         let mut config = crate::AppConfig::default();
         config.speech.selection.mode = SelectionMode::AutoDetect;
@@ -639,8 +618,6 @@ mod tests {
         let selection: Selection = serde_json::from_value(serde_json::json!({
             "mode":"auto_detect",
             "single":{"runtime":"sherpa-cpu","model":"kokoro"},
-            "fallback":{"runtime":"sherpa-cpu","model":"supertonic3"},
-            "uncertain_language":"ar",
             "languages":{"en":{"runtime":"sherpa-cpu","model":"kokoro","speed_percent":130}}
         }))
         .unwrap();
@@ -650,9 +627,6 @@ mod tests {
             selection.binding(Some("en-US")).model.as_deref(),
             Some("kokoro")
         );
-        let saved = serde_json::to_value(selection).unwrap();
-        assert!(saved.get("fallback").is_none());
-        assert!(saved.get("uncertain_language").is_none());
     }
     #[test]
     fn ocr_auto_prefers_cpu_and_gpu_remains_explicit() {

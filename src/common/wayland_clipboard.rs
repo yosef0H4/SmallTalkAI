@@ -450,7 +450,7 @@ pub fn set_cache_enabled(socket_path: &Path, enabled: bool) -> Result<bool> {
 
 /// Proxy the existing child stdio protocol to the resident Wayland owner.
 /// `false` means the socket was unavailable before any request was submitted,
-/// so the caller may safely use the legacy cold path.
+/// so the caller may safely read directly from the clipboard on a cold start.
 pub fn proxy_stdio(primary: bool, socket_path: &Path) -> Result<bool> {
     let mut socket = match UnixStream::connect(socket_path) {
         Ok(socket) => socket,

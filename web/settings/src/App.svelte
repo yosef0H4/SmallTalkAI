@@ -2,7 +2,7 @@
   import { onMount, tick } from "svelte";
   import { ui, load, eventLoop, save, run, dispose, refreshAutomaticSelections } from "./lib/state.svelte";
   import {catalogView,refreshModules,onAutomaticSelection} from "./lib/modules.svelte";
-  import { api, hasToken, setToken } from "./lib/api";
+  import { api } from "./lib/api";
   import { pages, searchEntries, fuzzyScore } from "./lib/settings";
   import Icon from "./components/Icon.svelte";
   import IconButton from "./components/IconButton.svelte";
@@ -14,7 +14,7 @@
   import Advanced from "./pages/Advanced.svelte";
   import type { Page } from "./lib/types";
   import { direction, locale, t, tEnglish } from "./lib/i18n";
-  const desktop = "__SIMPLE_STT_DESKTOP__" in window;
+  const desktop = "__SMALLTALKAI_DESKTOP__" in window;
   let maximized = $state(document.documentElement.dataset.maximized === "true");
   function updateFrameState() {
     maximized = document.documentElement.dataset.maximized === "true";
@@ -29,11 +29,6 @@
   }
   let query = $state(""),
     searchIndex = $state(0);
-  let authenticated = $state(hasToken());
-  let signInToken = $state("");
-  let signInError = $state("");
-  let signingIn = $state(false);
-  let stopSession: (() => void) | undefined;
   const minSidebarWidth = 160;
   let sidebarWidth = $state<number>();
   let viewportWidth = $state(window.innerWidth);
@@ -89,7 +84,7 @@
       : [],
   );
   const current = $derived(pages.find((p) => p.id === ui.page) || pages[0]);
-  function startSession() {
+  onMount(() => {
     onAutomaticSelection(refreshAutomaticSelections);
     const refreshTimer=setInterval(()=>{void refreshModules().catch(()=>{});},2000);
     void refreshModules().catch(()=>{});
@@ -99,39 +94,18 @@
       if (!controller.signal.aborted)
         void eventLoop(controller.signal);
     });
+    updateFrameState();
+    window.addEventListener("settings-close-request", close);
+    window.addEventListener("settings-window-state", updateFrameState);
     return () => {
       onAutomaticSelection();
       clearInterval(refreshTimer);
       controller.abort();
       dispose();
-    };
-  }
-  onMount(() => {
-    if (authenticated) stopSession = startSession();
-    updateFrameState();
-    window.addEventListener("settings-close-request", close);
-    window.addEventListener("settings-window-state", updateFrameState);
-    return () => {
       window.removeEventListener("settings-close-request", close);
       window.removeEventListener("settings-window-state", updateFrameState);
-      stopSession?.();
     };
   });
-  async function signIn(event: SubmitEvent) {
-    event.preventDefault();
-    signingIn = true;
-    signInError = "";
-    setToken(signInToken);
-    try {
-      await api("/api/state");
-      signInToken = "";
-      authenticated = true;
-      stopSession = startSession();
-    } catch {
-      setToken("");
-      signInError = t("admin.sign_in_failed");
-    } finally { signingIn = false; }
-  }
   $effect(() => {
     document.documentElement.dataset.theme =
       ui.config?.general.ui_theme || "dark";
@@ -209,18 +183,6 @@
     </button>
   </header>
 {/if}
-{#if !authenticated}
-  <main class="admin-sign-in">
-    <h1>SmallTalkAI</h1>
-    <p>{t("admin.sign_in_help")}</p>
-    <form onsubmit={signIn}>
-      <label for="admin-token">{t("admin.token")}</label>
-      <input id="admin-token" type="password" autocomplete="current-password" bind:value={signInToken} required disabled={signingIn} />
-      <button type="submit" disabled={signingIn || !signInToken.trim()}>{t("admin.sign_in")}</button>
-      {#if signInError}<p role="alert">{signInError}</p>{/if}
-    </form>
-  </main>
-{:else}
 <div class="app-shell" style:--sidebar-width={visibleSidebarWidth + "px"}>
   <aside id="settings-sidebar" class="rail">
     <div class="brand">
@@ -338,4 +300,3 @@
   </footer>{/if}
 </div>{/if}
 </div>
-{/if}

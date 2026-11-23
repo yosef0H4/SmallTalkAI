@@ -15,15 +15,15 @@ def measure(binary):
     results=[]
     for _ in range(5):
         with tempfile.TemporaryDirectory(prefix='smalltalkai-settings-memory-') as temp:
-            env=dict(os.environ,SIMPLE_STT_CONFIG=str(Path(temp)/'config.json'),
-                     SIMPLE_STT_RUNTIME_ROOT=str(Path(temp)/'runtime'),XDG_DATA_HOME=str(Path(temp)/'data'))
-            process=subprocess.Popen([str(binary.resolve()),'--no-browser'],env=env,cwd=temp,
+            env=dict(os.environ,SMALLTALKAI_CONFIG=str(Path(temp)/'config.json'),
+                     SMALLTALKAI_RUNTIME_ROOT=str(Path(temp)/'runtime'),XDG_DATA_HOME=str(Path(temp)/'data'))
+            process=subprocess.Popen([str(binary.resolve()),'--headless'],env=env,cwd=temp,
                                      stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
             try:
                 parsed=urlparse(process.stdout.readline().strip());origin=f'{parsed.scheme}://{parsed.netloc}'
                 token=parse_qs(parsed.fragment)['token'][0]
                 def request(path,body=None):
-                    req=Request(origin+path,data=body,headers={'X-Simple-STT-Token':token,'Origin':origin})
+                    req=Request(origin+path,data=body,headers={'X-SmallTalkAI-Token':token,'Origin':origin})
                     with urlopen(req,timeout=10) as response:return response.read()
                 for _ in range(5):
                     for path in ['/','/app.js','/styles.css','/api/state','/api/defaults']:

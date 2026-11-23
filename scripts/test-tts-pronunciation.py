@@ -18,7 +18,7 @@ spec = importlib.util.spec_from_file_location('workers', ROOT / 'scripts/test-re
 workers = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(workers)
 BIN = ROOT / 'target/debug'
-RUNTIME = Path.home() / '.local/share/simple-tts/runtime'
+RUNTIME = Path.home() / '.local/share/smalltalkai-reader/runtime'
 OUT = ROOT / 'artifacts/combined-app/pronunciation'
 CASES = [
     ('kokoro', 'en', 'slash-original', 'Shared in one process: code, heap/data, open files.'),
@@ -37,11 +37,11 @@ def main():
     with tempfile.TemporaryDirectory(prefix='smalltalkai-pronunciation-') as tmp:
         private = Path(tmp)
         env = dict(os.environ, XDG_DATA_HOME=tmp, XDG_CONFIG_HOME=tmp, XDG_CACHE_HOME=tmp,
-                   XDG_RUNTIME_DIR=tmp, SIMPLE_STT_RUNTIME_ROOT=str(private / 'runtime'),
+                   XDG_RUNTIME_DIR=tmp, SMALLTALKAI_RUNTIME_ROOT=str(private / 'runtime'),
                    DISPLAY='', WAYLAND_DISPLAY='', DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-pronunciation-bus',
                    LD_LIBRARY_PATH=str(RUNTIME / 'lib') + os.pathsep + os.environ.get('LD_LIBRARY_PATH', ''))
         models = {
-            'kokoro': Path.home() / '.local/share/simple-tts/models/kokoro-multi-lang-v1_0',
+            'kokoro': Path.home() / '.local/share/smalltalkai-reader/models/kokoro-multi-lang-v1_0',
             'supertonic3': ROOT / 'artifacts/combined-app/downloads/sherpa-onnx-supertonic-3-tts-int8-2026-05-11',
         }
         for model, path in models.items():
@@ -84,10 +84,10 @@ def main():
             model = 'lemura-arabic-asr-lite-q8_0.gguf' if language == 'ar' else 'realtime_eou_120m-v1-q8_0.gguf'
             config = private / 'stt-config.json'
             config.write_text(json.dumps({'speech':{'selection_mode':'single_model','single_model_filename':model,
-                'model_dir':str(Path.home()/'.local/share/simple-stt/models'),
+                'model_dir':str(Path.home()/'.local/share/smalltalkai/models'),
                 'runtime_dir':str(ROOT/'external/parakeet-runtime/parakeet-linux-vulkan'), 'inference_device':'gpu'}}))
             result = subprocess.run([str(BIN/'smalltalkai-linux'),'media','transcribe',observation['wav']],
-                env={**env,'SIMPLE_STT_CONFIG':str(config)},capture_output=True,text=True,timeout=90)
+                env={**env,'SMALLTALKAI_CONFIG':str(config)},capture_output=True,text=True,timeout=90)
             assert result.returncode == 0, result.stderr
             observation['asr_observation'] = result.stdout.strip()
         (OUT/'report.json').write_text(json.dumps(observations,ensure_ascii=False,indent=2))

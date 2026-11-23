@@ -75,8 +75,6 @@ Copy-Item -LiteralPath (Join-Path $Root 'ahk\icons') -Destination (Join-Path $Ru
 Copy-Item -LiteralPath $AhkBase -Destination (Join-Path $Runtime 'AutoHotkey64.exe') -Force
 $DesktopExe = Join-Path $Portable 'SmallTalkAI.exe'
 Copy-Item -LiteralPath (Join-Path $ResolvedTargetDir 'release\smalltalkai-launcher.exe') -Destination $DesktopExe -Force
-# Replace the old compiled script at the path used by existing shortcuts.
-Copy-Item -LiteralPath $DesktopExe -Destination (Join-Path $Runtime 'SmallTalkAI.exe') -Force
 Require-File $DesktopExe
 if ((Get-Item -LiteralPath $DesktopExe).VersionInfo.FileDescription -ne 'SmallTalkAI') {
     throw 'SmallTalkAI.exe has incorrect process metadata'
@@ -95,8 +93,6 @@ Copy-Item -LiteralPath (Join-Path $Root 'web\settings\public\settings-sans-licen
 Copy-Item -LiteralPath (Join-Path $Root 'assets\fonts\LICENSE-JetBrainsMono.txt') -Destination (Join-Path $Portable 'licenses') -Force
 Copy-Item -LiteralPath (Join-Path $Root 'THIRD_PARTY_NOTICES.md') -Destination $Portable -Force
 Copy-Item -LiteralPath (Join-Path $Root 'START_HERE.txt') -Destination $Portable -Force
-Set-Content -LiteralPath (Join-Path $Portable 'smalltalkai.cmd') -Encoding ASCII -Value '@echo off','start "" "%~dp0SmallTalkAI.exe"'
-Set-Content -LiteralPath (Join-Path $Portable 'simple-stt.cmd') -Encoding ASCII -Value '@echo off','call "%~dp0smalltalkai.cmd"'
 New-Item -ItemType Directory -Path (Join-Path $Runtime 'fixtures') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $Root 'fixtures\parakeet-smoke.wav') -Destination (Join-Path $Runtime 'fixtures') -Force
 Copy-Item -LiteralPath (Join-Path $Root 'fixtures\asr') -Destination (Join-Path $Runtime 'fixtures\asr') -Recurse -Force
@@ -113,7 +109,6 @@ $Required = @(
     'runtime\icons\LICENSE-NOTO-EMOJI.txt',
     'runtime\AutoHotkey64.exe',
     'SmallTalkAI.exe',
-    'runtime\SmallTalkAI.exe',
     'runtime\smalltalkai-capture.exe',
     'runtime\smalltalkai-infer.exe',
     'runtime\smalltalkai-ctl.exe',
@@ -136,7 +131,7 @@ Copy-Item -LiteralPath (Join-Path $Root 'resources\smalltalkai.iss') -Destinatio
 foreach ($Output in @($Setup, $Zip)) {
     if (Test-Path -LiteralPath $Output) { Remove-Item -LiteralPath $Output -Force }
 }
-& $Iscc "/DSimpleSttVersion=$PackageVersion" $InnoScript
+& $Iscc "/DSmallTalkAIVersion=$PackageVersion" $InnoScript
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
 Require-File $Setup
 Get-ChildItem -LiteralPath $Portable | Compress-Archive -DestinationPath $Zip -CompressionLevel Optimal

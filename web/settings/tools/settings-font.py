@@ -25,9 +25,9 @@ def main(source, destination):
         renamed = {
             1: "SmallTalkAI Paper Sans",
             4: "SmallTalkAI Paper Sans",
-            6: "SimpleSTTPaperSans-Regular",
+            6: "SmallTalkAIPaperSans-Regular",
             16: "SmallTalkAI Paper Sans",
-            25: "SimpleSTTPaperSans",
+            25: "SmallTalkAIPaperSans",
         }
         for record in font["name"].names:
             if record.nameID in renamed:

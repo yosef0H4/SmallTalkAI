@@ -6,9 +6,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 9;
+pub const CONFIG_SCHEMA_VERSION: u32 = 10;
 #[cfg(target_os = "linux")]
-pub const LINUX_DESKTOP_ID: &str = "io.github.yosef0H4.simple_stt";
+pub const LINUX_DESKTOP_ID: &str = "io.github.yosef0H4.smalltalkai";
 static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Cross-process lock for read-modify-write configuration operations.
@@ -87,30 +87,12 @@ pub enum TextDeliveryMode {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum LinuxAutomationBackend {
-    #[default]
-    Auto,
-    Native,
-    Wtype,
-    Ydotool,
-    Xdotool,
-    ClipboardOnly,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
 pub enum LinuxHotkeyBackend {
     #[default]
     Auto,
     Portal,
     X11,
     Desktop,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub struct LinuxDeliveryChoice {
-    pub backend: LinuxAutomationBackend,
-    pub mode: TextDeliveryMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -450,8 +432,6 @@ impl SpeechConfig {
 pub struct OutputConfig {
     pub delivery_mode: TextDeliveryMode,
     pub enabled_delivery_modes: Vec<TextDeliveryMode>,
-    pub linux_automation_backend: LinuxAutomationBackend,
-    pub linux_delivery_cycle: Vec<LinuxDeliveryChoice>,
     pub app_overrides: Vec<AppDeliveryOverride>,
     pub paced_typing_enabled: bool,
     pub typing_speed_wpm: u64,
@@ -574,17 +554,6 @@ impl Default for AppConfig {
             output: OutputConfig {
                 delivery_mode: TextDeliveryMode::SmartPaste,
                 enabled_delivery_modes: vec![TextDeliveryMode::SmartPaste, TextDeliveryMode::Type],
-                linux_automation_backend: LinuxAutomationBackend::Auto,
-                linux_delivery_cycle: vec![
-                    LinuxDeliveryChoice {
-                        backend: LinuxAutomationBackend::Auto,
-                        mode: TextDeliveryMode::SmartPaste,
-                    },
-                    LinuxDeliveryChoice {
-                        backend: LinuxAutomationBackend::Auto,
-                        mode: TextDeliveryMode::Type,
-                    },
-                ],
                 app_overrides: Vec::new(),
                 paced_typing_enabled: true,
                 typing_speed_wpm: 450,
@@ -734,10 +703,6 @@ impl AppConfig {
             !self.output.enabled_delivery_modes.is_empty(),
             "enabled_delivery_modes must not be empty"
         );
-        anyhow::ensure!(
-            !self.output.linux_delivery_cycle.is_empty(),
-            "linux_delivery_cycle must not be empty"
-        );
         for app_override in &self.output.app_overrides {
             anyhow::ensure!(
                 !app_override.app_id.trim().is_empty() && app_override.app_id.len() <= 160,
@@ -832,7 +797,7 @@ impl AppConfig {
     }
 
     pub fn config_path() -> PathBuf {
-        if let Some(path) = std::env::var_os("SIMPLE_STT_CONFIG") {
+        if let Some(path) = std::env::var_os("SMALLTALKAI_CONFIG") {
             return PathBuf::from(path);
         }
         instance_config_dir().join("config.json")
@@ -994,25 +959,16 @@ impl AppConfig {
         if !(50..=1650).contains(&normalized.output.typing_speed_wpm) {
             normalized.output.typing_speed_wpm = defaults.output.typing_speed_wpm;
         }
-        normalized.output.enabled_delivery_modes.dedup();
+        let mut delivery_modes = Vec::new();
+        normalized.output.enabled_delivery_modes.retain(|mode| {
+            if delivery_modes.contains(mode) {
+                return false;
+            }
+            delivery_modes.push(*mode);
+            true
+        });
         if normalized.output.enabled_delivery_modes.is_empty() {
             normalized.output.enabled_delivery_modes = defaults.output.enabled_delivery_modes;
-        }
-        // Legacy backend values remain readable, but all desktop injection now
-        // uses the RemoteDesktop portal. Collapse old per-tool cycle duplicates.
-        normalized.output.linux_automation_backend = LinuxAutomationBackend::Auto;
-        let mut modes = Vec::new();
-        normalized.output.linux_delivery_cycle.retain_mut(|choice| {
-            choice.backend = LinuxAutomationBackend::Auto;
-            if modes.contains(&choice.mode) {
-                false
-            } else {
-                modes.push(choice.mode);
-                true
-            }
-        });
-        if normalized.output.linux_delivery_cycle.is_empty() {
-            normalized.output.linux_delivery_cycle = defaults.output.linux_delivery_cycle;
         }
         normalized
             .output
@@ -1342,7 +1298,7 @@ pub fn validate_model_filename(filename: &str) -> Result<()> {
 /// `target\release`, so walk back to the checkout root. A staged distribution
 /// places binaries directly beside the shell, so use the executable directory.
 pub fn runtime_root() -> PathBuf {
-    if let Some(path) = std::env::var_os("SIMPLE_STT_RUNTIME_ROOT") {
+    if let Some(path) = std::env::var_os("SMALLTALKAI_RUNTIME_ROOT") {
         return PathBuf::from(path);
     }
     if let Ok(executable) = std::env::current_exe() {
@@ -1371,7 +1327,7 @@ fn is_linux_installation(root: &Path) -> bool {
 #[cfg(target_os = "linux")]
 fn linux_model_dir(root: &Path, data_home: &Path) -> PathBuf {
     if is_linux_installation(root) {
-        data_home.join("simple-stt").join("models")
+        data_home.join("smalltalkai").join("models")
     } else {
         PathBuf::from("external/parakeet-runtime/models")
     }
@@ -1418,7 +1374,7 @@ fn instance_id_for_root(root: &Path) -> String {
 fn instance_config_dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("simple-stt")
+        .join("smalltalkai")
         .join("instances")
         .join(app_instance_id())
 }
@@ -1426,7 +1382,7 @@ fn instance_config_dir() -> PathBuf {
 fn instance_local_data_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("simple-stt")
+        .join("smalltalkai")
         .join("instances")
         .join(app_instance_id())
 }
@@ -1536,22 +1492,18 @@ mod tests {
         config.validate().unwrap();
     }
     #[test]
-    fn legacy_linux_input_backends_migrate_to_one_portal_action_cycle() {
-        let config = AppConfig::normalize_json(&serde_json::json!({"schema_version":9,"output":{
-            "delivery_mode":"paste_ctrl_v", "linux_automation_backend":"ydotool",
-            "linux_delivery_cycle":[{"backend":"ydotool","mode":"type"},{"backend":"xdotool","mode":"type"},{"backend":"native","mode":"paste_ctrl_v"}]
-        }}));
-        assert_eq!(
-            config.output.linux_automation_backend,
-            LinuxAutomationBackend::Auto
+    fn delivery_cycle_preserves_order_and_removes_duplicates() {
+        let config = AppConfig::normalize_json(
+            &serde_json::json!({"schema_version": CONFIG_SCHEMA_VERSION, "output":{
+                "delivery_mode":"paste_ctrl_v",
+                "enabled_delivery_modes":["type", "paste_ctrl_v", "type"]
+            }}),
         );
         assert_eq!(config.output.delivery_mode, TextDeliveryMode::PasteCtrlV);
-        assert_eq!(config.output.linux_delivery_cycle.len(), 2);
-        assert!(config
-            .output
-            .linux_delivery_cycle
-            .iter()
-            .all(|entry| entry.backend == LinuxAutomationBackend::Auto));
+        assert_eq!(
+            config.output.enabled_delivery_modes,
+            [TextDeliveryMode::Type, TextDeliveryMode::PasteCtrlV]
+        );
     }
     #[test]
     fn stop_grace_defaults_and_values_are_normalized() {
@@ -1559,12 +1511,6 @@ mod tests {
         use serde_json::json;
         assert_eq!(
             AppConfig::normalize_json(&json!({})).audio.stop_grace_ms,
-            250
-        );
-        assert_eq!(
-            AppConfig::normalize_json(&json!({"audio":{"stop_grace_secs": 3}}))
-                .audio
-                .stop_grace_ms,
             250
         );
         assert_eq!(
@@ -1602,15 +1548,14 @@ mod tests {
             assert_eq!(instance_id_for_root(root), "installed");
             assert_eq!(
                 linux_model_dir(root, data.path()),
-                data.path().join("simple-stt/models")
+                data.path().join("smalltalkai/models")
             );
         }
     }
 
     #[test]
     fn missing_fields_receive_defaults_without_overwriting_existing_choices() {
-        let partial =
-            serde_json::json!({"schema_version":9,"output":{"delivery_mode":"paste_ctrl_v"}});
+        let partial = serde_json::json!({"schema_version": CONFIG_SCHEMA_VERSION, "output":{"delivery_mode":"paste_ctrl_v"}});
         let normalized = AppConfig::normalize_json(&partial);
         assert!(normalized.output.preserve_clipboard);
         assert_eq!(
@@ -1666,12 +1611,8 @@ mod tests {
         assert_eq!(config.output.typing_speed_wpm, 450);
         assert!(config.output.paced_typing_enabled);
         assert_eq!(
-            config.output.linux_delivery_cycle[0].mode,
-            TextDeliveryMode::SmartPaste
-        );
-        assert_eq!(
-            config.output.linux_delivery_cycle[1].mode,
-            TextDeliveryMode::Type
+            config.output.enabled_delivery_modes,
+            [TextDeliveryMode::SmartPaste, TextDeliveryMode::Type]
         );
         assert_eq!(
             config.general.recording_mode,
@@ -1841,10 +1782,8 @@ mod tests {
     fn empty_delivery_cycles_restore_defaults_during_normalization() {
         let mut value = serde_json::to_value(AppConfig::default()).unwrap();
         value["output"]["enabled_delivery_modes"] = serde_json::json!([]);
-        value["output"]["linux_delivery_cycle"] = serde_json::json!([]);
         let config = AppConfig::normalize_json(&value);
         assert!(!config.output.enabled_delivery_modes.is_empty());
-        assert!(!config.output.linux_delivery_cycle.is_empty());
         config.validate().unwrap();
     }
 
@@ -1883,7 +1822,7 @@ mod tests {
     fn unsupported_schema_is_rejected_without_rewriting_the_file() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("config.json");
-        for version in [7, 8, 10] {
+        for version in [7, 8, 9, 11] {
             let raw = serde_json::json!({"schema_version": version, "speech": {
                 "single_model_filename": "keep.gguf"
             }})
@@ -1900,7 +1839,7 @@ mod tests {
         let path = temp.path().join("config.json");
         fs::write(
             &path,
-            serde_json::json!({"schema_version": 9, "speech": {
+            serde_json::json!({"schema_version": CONFIG_SCHEMA_VERSION, "speech": {
                 "selected_model_filename": "old.gguf", "english_model_filename": "old-en.gguf",
                 "arabic_model_filename": "old-ar.gguf", "language_mode": "arabic",
                 "inference_device": "nvidia_gpu", "runtime_dir": "/custom/runtime"
@@ -1933,10 +1872,12 @@ mod tests {
 
     #[test]
     fn schema_nine_preserves_none_missing_and_other_languages() {
-        let config = AppConfig::normalize_json(&serde_json::json!({"schema_version":9,"speech":{
-            "selection_mode":"follow_keyboard", "single_model_filename":null,
-            "language_models":{"ar":null,"fr":"missing.gguf","en":"../bad.gguf"}
-        }}));
+        let config = AppConfig::normalize_json(
+            &serde_json::json!({"schema_version": CONFIG_SCHEMA_VERSION,"speech":{
+                "selection_mode":"follow_keyboard", "single_model_filename":null,
+                "language_models":{"ar":null,"fr":"missing.gguf","en":"../bad.gguf"}
+            }}),
+        );
         assert_eq!(config.speech.language_models.get("ar"), Some(&None));
         assert_eq!(
             config.speech.language_models.get("fr"),
@@ -1995,18 +1936,18 @@ mod tests {
 
     #[test]
     fn instance_paths_are_scoped_by_runtime_root() {
-        let original = std::env::var_os("SIMPLE_STT_RUNTIME_ROOT");
+        let original = std::env::var_os("SMALLTALKAI_RUNTIME_ROOT");
         let temp_a = tempfile::tempdir().unwrap();
         let temp_b = tempfile::tempdir().unwrap();
-        std::env::set_var("SIMPLE_STT_RUNTIME_ROOT", temp_a.path());
+        std::env::set_var("SMALLTALKAI_RUNTIME_ROOT", temp_a.path());
         let config_a = AppConfig::config_path();
         let data_a = AppConfig::local_data_dir();
-        std::env::set_var("SIMPLE_STT_RUNTIME_ROOT", temp_b.path());
+        std::env::set_var("SMALLTALKAI_RUNTIME_ROOT", temp_b.path());
         let config_b = AppConfig::config_path();
         let data_b = AppConfig::local_data_dir();
         match original {
-            Some(value) => std::env::set_var("SIMPLE_STT_RUNTIME_ROOT", value),
-            None => std::env::remove_var("SIMPLE_STT_RUNTIME_ROOT"),
+            Some(value) => std::env::set_var("SMALLTALKAI_RUNTIME_ROOT", value),
+            None => std::env::remove_var("SMALLTALKAI_RUNTIME_ROOT"),
         }
         assert_ne!(config_a, config_b);
         assert_ne!(data_a, data_b);

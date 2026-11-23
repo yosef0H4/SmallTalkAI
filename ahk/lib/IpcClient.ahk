@@ -61,8 +61,8 @@ class IpcClient {
     }
 
     CallService(arguments, callback := "", kind := "command") {
-        output := SimpleSttTempFile("ctl")
-        command := SimpleSttQuote(this.ctlExe) . " --state-file " . SimpleSttQuote(this.stateFile) . " --token " . SimpleSttQuote(this.token) . " --output " . SimpleSttQuote(output) . " " . arguments
+        output := SmallTalkAITempFile("ctl")
+        command := SmallTalkAIQuote(this.ctlExe) . " --state-file " . SmallTalkAIQuote(this.stateFile) . " --token " . SmallTalkAIQuote(this.token) . " --output " . SmallTalkAIQuote(output) . " " . arguments
         try {
             Run(command, A_ScriptDir, "Hide", &pid)
             this.jobs[pid] := Map("path", output, "callback", callback, "kind", kind, "started", A_TickCount, "missing_since", 0)
@@ -80,10 +80,10 @@ class IpcClient {
     }
 
     StartStatusRelay() {
-        this.statusPath := SimpleSttTempFile("desktop-status")
+        this.statusPath := SmallTalkAITempFile("desktop-status")
         try {
             FileOpen(this.statusPath, "w", "UTF-8-RAW").Close()
-            command := SimpleSttQuote(this.ctlExe) . " --state-file " . SimpleSttQuote(this.stateFile) . " --token " . SimpleSttQuote(this.token) . " status-relay --input " . SimpleSttQuote(this.statusPath) . " --parent-pid " . ProcessExist()
+            command := SmallTalkAIQuote(this.ctlExe) . " --state-file " . SmallTalkAIQuote(this.stateFile) . " --token " . SmallTalkAIQuote(this.token) . " status-relay --input " . SmallTalkAIQuote(this.statusPath) . " --parent-pid " . ProcessExist()
             Run(command, A_ScriptDir, "Hide", &relayPid)
             this.statusPid := relayPid
         } catch Error as err {

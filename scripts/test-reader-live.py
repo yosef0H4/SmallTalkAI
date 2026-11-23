@@ -27,8 +27,8 @@ spec.loader.exec_module(service)
 BIN = ROOT / 'target/debug'
 SUPER = ROOT / 'artifacts/combined-app/downloads/sherpa-onnx-supertonic-3-tts-int8-2026-05-11'
 OCR = ROOT / 'artifacts/combined-app/downloads/model-paddle'
-RUNTIME = Path.home() / '.local/share/simple-tts/runtime'
-KOKORO = Path.home() / '.local/share/simple-tts/models/kokoro-multi-lang-v1_0'
+RUNTIME = Path.home() / '.local/share/smalltalkai-reader/runtime'
+KOKORO = Path.home() / '.local/share/smalltalkai-reader/models/kokoro-multi-lang-v1_0'
 
 # Explicit module allowlist: no ALSA, UDev, Bluetooth or device monitor.
 PW_CONFIG = '''
@@ -86,7 +86,7 @@ def local_request(path, data):
 
 def run_private(folder, runtime, kokoro, supertonic, ocr, stt_runtime=None, stt_model=None):
     root = Path(folder)
-    assert os.environ.get('SIMPLE_STT_PRIVATE_AUDIO') == '1'
+    assert os.environ.get('SMALLTALKAI_PRIVATE_AUDIO') == '1'
     env = os.environ.copy()
     config_dir = root / 'pipewire-conf'
     config_dir.mkdir()
@@ -94,12 +94,12 @@ def run_private(folder, runtime, kokoro, supertonic, ocr, stt_runtime=None, stt_
     (root / 'asound.conf').write_text('pcm.!default { type null }\nctl.!default { type hw card -1 }\n')
     env.pop('PIPEWIRE_CONFIG_DIR', None)
     env.update(PIPEWIRE_REMOTE='pipewire-0',
-               ALSA_CONFIG_PATH=str(root / 'asound.conf'), SIMPLE_TTS_NO_DESKTOP='1',
-               SIMPLE_STT_READER_DATA=str(root / 'reader'), SIMPLE_TTS_CONFIG=str(root / 'reader/config.json'),
-               SIMPLE_STT_RUNTIME_ROOT=str(root / 'runtime'), XDG_DATA_HOME=str(root / 'data'),
+               ALSA_CONFIG_PATH=str(root / 'asound.conf'), SMALLTALKAI_READER_NO_DESKTOP='1',
+               SMALLTALKAI_READER_DATA=str(root / 'reader'), SMALLTALKAI_READER_CONFIG=str(root / 'reader/config.json'),
+               SMALLTALKAI_RUNTIME_ROOT=str(root / 'runtime'), XDG_DATA_HOME=str(root / 'data'),
                XDG_CONFIG_HOME=str(root / 'config'), XDG_CACHE_HOME=str(root / 'cache'),
-               XDG_STATE_HOME=str(root / 'state'), SIMPLE_STT_NO_DESKTOP='1',
-               SIMPLE_STT_CONFIG=str(root / 'stt-config.json'))
+               XDG_STATE_HOME=str(root / 'state'), SMALLTALKAI_NO_DESKTOP='1',
+               SMALLTALKAI_CONFIG=str(root / 'stt-config.json'))
     stt_config = {} if stt_runtime is None else {'diagnostics': {'log_level': 'normal'}, 'speech': {
         'runtime_dir': str(stt_runtime), 'model_dir': str(stt_model.parent),
         'inference_device': 'gpu', 'idle_worker_timeout_secs': 3,
@@ -145,7 +145,7 @@ def run_private(folder, runtime, kokoro, supertonic, ocr, stt_runtime=None, stt_
         capture_state = root / 'capture-state.json'
         capture_token = uuid.uuid4().hex
         capture = subprocess.Popen([str(BIN / 'smalltalkai-capture'), '--token', capture_token,
-                                    '--state-file', str(capture_state), '--config', env['SIMPLE_STT_CONFIG']],
+                                    '--state-file', str(capture_state), '--config', env['SMALLTALKAI_CONFIG']],
                                    env=env, stdin=subprocess.DEVNULL,
                                    stdout=handles['capture'], stderr=handles['capture'])
         service.wait_for(lambda: capture_state.exists() or capture.poll() is not None, 10, 'private capture control')
@@ -157,7 +157,7 @@ def run_private(folder, runtime, kokoro, supertonic, ocr, stt_runtime=None, stt_
             assert result.returncode == 0 and 'status\tok' in result.stdout, result.stderr + result.stdout
         global_abort()
         time.sleep(.15)
-        assert not (root / 'reader/simple-tts.sock').exists(), 'Abort must not start the optional reader'
+        assert not (root / 'reader/smalltalkai-reader.sock').exists(), 'Abort must not start the optional reader'
         if stt_runtime is not None:
             control = [BIN / 'smalltalkai-ctl', '--state-file', capture_state, '--token', capture_token]
             def model_test(expected_count):
@@ -211,7 +211,7 @@ def run_private(folder, runtime, kokoro, supertonic, ocr, stt_runtime=None, stt_
         }))
         daemon = subprocess.Popen([str(BIN / 'smalltalkai-reader'), 'daemon', '--foreground', '--no-desktop'], env=env,
                                   stdin=subprocess.DEVNULL, stdout=handles['smalltalkai-reader'], stderr=handles['smalltalkai-reader'])
-        path = reader / 'simple-tts.sock'
+        path = reader / 'smalltalkai-reader.sock'
         service.wait_for(lambda: path.exists() or daemon.poll() is not None, 10, 'reader socket')
         assert daemon.poll() is None
         def monitor_children():
@@ -379,7 +379,7 @@ def main():
         for key in ('DBUS_SESSION_BUS_ADDRESS', 'DISPLAY', 'WAYLAND_DISPLAY', 'WAYLAND_SOCKET',
                     'PULSE_SERVER', 'PULSE_RUNTIME_PATH', 'PIPEWIRE_REMOTE'):
             env.pop(key, None)
-        env.update(XDG_RUNTIME_DIR=str(runtime_dir), SIMPLE_STT_PRIVATE_AUDIO='1')
+        env.update(XDG_RUNTIME_DIR=str(runtime_dir), SMALLTALKAI_PRIVATE_AUDIO='1')
         command = ['dbus-run-session', '--', sys.executable, str(Path(__file__).resolve()), '--session', tmp,
                    '--bin-dir', str(BIN),
                    '--runtime', str(args.runtime.resolve()), '--kokoro', str(args.kokoro.resolve()),

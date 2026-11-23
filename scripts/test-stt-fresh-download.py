@@ -41,7 +41,7 @@ protocol = load_script('private_stt_protocol', 'test-linux-language.py')
 
 
 def run_private(profile, binaries, reuse):
-    assert os.environ.get('SIMPLE_STT_PRIVATE_AUDIO') == '1'
+    assert os.environ.get('SMALLTALKAI_PRIVATE_AUDIO') == '1'
     env = os.environ.copy()
     for key in ('DISPLAY', 'WAYLAND_DISPLAY', 'WAYLAND_SOCKET', 'PULSE_SERVER',
                 'PULSE_RUNTIME_PATH', 'PIPEWIRE_CONFIG_DIR'):
@@ -56,9 +56,9 @@ def run_private(profile, binaries, reuse):
     fixture.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(ROOT / 'fixtures/parakeet-smoke.wav', fixture)
     env.update(PIPEWIRE_REMOTE='pipewire-0', ALSA_CONFIG_PATH=str(alsa),
-               SIMPLE_STT_RUNTIME_ROOT=str(runtime_root), SIMPLE_STT_NO_DESKTOP='1',
-               SIMPLE_TTS_NO_DESKTOP='1', SIMPLE_STT_CONFIG=str(profile / 'config.json'),
-               SIMPLE_STT_READER_DATA=str(profile / 'reader'), SIMPLE_TTS_CONFIG=str(profile / 'reader/config.json'),
+               SMALLTALKAI_RUNTIME_ROOT=str(runtime_root), SMALLTALKAI_NO_DESKTOP='1',
+               SMALLTALKAI_READER_NO_DESKTOP='1', SMALLTALKAI_CONFIG=str(profile / 'config.json'),
+               SMALLTALKAI_READER_DATA=str(profile / 'reader'), SMALLTALKAI_READER_CONFIG=str(profile / 'reader/config.json'),
                XDG_DATA_HOME=str(profile / 'data'), XDG_CONFIG_HOME=str(profile / 'config'),
                XDG_CACHE_HOME=str(profile / 'cache'), XDG_STATE_HOME=str(profile / 'state'))
     runtime_dir = Path(env['XDG_RUNTIME_DIR'])
@@ -87,13 +87,13 @@ def run_private(profile, binaries, reuse):
         service.wait_for(null_sink, 10, 'private null sink')
         assert policy.poll() is None, 'private audio policy exited'
         capture = subprocess.Popen([str(binaries / 'smalltalkai-capture'), '--token', capture_token,
-                                    '--state-file', str(state_path), '--config', env['SIMPLE_STT_CONFIG']],
+                                    '--state-file', str(state_path), '--config', env['SMALLTALKAI_CONFIG']],
                                    env=env, stdin=subprocess.DEVNULL,
                                    stdout=handles['capture'], stderr=handles['capture'])
         service.wait_for(lambda: state_path.exists() or capture.poll() is not None, 10, 'private capture')
         assert capture.poll() is None, 'capture exited; see capture.log'
         capture_state = json.loads(state_path.read_text())
-        settings = subprocess.Popen([str(binaries / 'smalltalkai-settings'), '--no-browser',
+        settings = subprocess.Popen([str(binaries / 'smalltalkai-settings'), '--headless',
                                      '--state-file', str(state_path), '--service-token', capture_token],
                                     env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                     stderr=handles['settings'], text=True)
@@ -105,7 +105,7 @@ def run_private(profile, binaries, reuse):
         def api(path, body=None):
             request = Request(origin + path, data=None if body is None else json.dumps(body).encode())
             request.add_header('Origin', origin)
-            request.add_header('X-Simple-STT-Token', web_token)
+            request.add_header('X-SmallTalkAI-Token', web_token)
             if body is not None:
                 request.add_header('Content-Type', 'application/json')
             with urlopen(request, timeout=15) as response:
@@ -233,7 +233,7 @@ def main():
         for key in ('DBUS_SESSION_BUS_ADDRESS', 'DISPLAY', 'WAYLAND_DISPLAY', 'WAYLAND_SOCKET',
                     'PULSE_SERVER', 'PULSE_RUNTIME_PATH', 'PIPEWIRE_REMOTE'):
             env.pop(key, None)
-        env.update(XDG_RUNTIME_DIR=runtime, SIMPLE_STT_PRIVATE_AUDIO='1')
+        env.update(XDG_RUNTIME_DIR=runtime, SMALLTALKAI_PRIVATE_AUDIO='1')
         command = ['dbus-run-session', '--', sys.executable, str(Path(__file__).resolve()),
                    '--private-session', '--bin-dir', str(binaries)]
         if args.reuse:

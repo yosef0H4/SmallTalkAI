@@ -68,12 +68,12 @@ def main():
         reader.mkdir(parents=True,exist_ok=True)
         short_instance=Path(socket_alias.name)/'instance';short_instance.symlink_to(reader.parent,target_is_directory=True)
         short_reader=short_instance/'reader'
-        env=dict(os.environ,SIMPLE_STT_CONFIG=str(profile/'stt-config.json'),SIMPLE_STT_RUNTIME_ROOT=str(profile/'runtime-root'),XDG_DATA_HOME=str(profile/'data'),XDG_CONFIG_HOME=str(profile/'config'),XDG_CACHE_HOME=str(profile/'cache'),SIMPLE_STT_READER_DATA=str(short_reader),SIMPLE_TTS_CONFIG=str(short_reader/'config.json'),SIMPLE_TTS_NO_DESKTOP='1',SIMPLE_STT_NO_DESKTOP='1',DISPLAY='',WAYLAND_DISPLAY='',DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-fresh-gpu-test')
+        env=dict(os.environ,SMALLTALKAI_CONFIG=str(profile/'stt-config.json'),SMALLTALKAI_RUNTIME_ROOT=str(profile/'runtime-root'),XDG_DATA_HOME=str(profile/'data'),XDG_CONFIG_HOME=str(profile/'config'),XDG_CACHE_HOME=str(profile/'cache'),SMALLTALKAI_READER_DATA=str(short_reader),SMALLTALKAI_READER_CONFIG=str(short_reader/'config.json'),SMALLTALKAI_READER_NO_DESKTOP='1',SMALLTALKAI_NO_DESKTOP='1',DISPLAY='',WAYLAND_DISPLAY='',DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-fresh-gpu-test')
         env.pop('LD_LIBRARY_PATH',None)
         log=(profile/'smalltalkai-reader.log').open('w')
         daemon=subprocess.Popen([str(bins/'smalltalkai-reader'),'daemon','--foreground','--no-desktop'],env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=log)
         monitor=service.WorkerMonitor(daemon.pid)
-        service.wait_for(lambda:(reader/'simple-tts.sock').exists(),12,'fresh reader controller')
+        service.wait_for(lambda:(reader/'smalltalkai-reader.sock').exists(),12,'fresh reader controller')
         observations={};stop=threading.Event()
         def observe():
             while not stop.wait(.1):

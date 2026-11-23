@@ -7,8 +7,6 @@ export type DeliveryMode =
   | "paste_shift_insert"
   | "paste_ctrl_v"
   | "paste_ctrl_shift_v";
-export type Backend =
-  "auto" | "native" | "wtype" | "ydotool" | "xdotool" | "clipboard_only";
 export type Reasoning = "none" | "low" | "medium" | "high" | "xhigh" | "max";
 export interface Config {
   schema_version: number;
@@ -48,8 +46,6 @@ export interface Config {
   output: {
     delivery_mode: DeliveryMode;
     enabled_delivery_modes: DeliveryMode[];
-    linux_automation_backend: Backend;
-    linux_delivery_cycle: { backend: Backend; mode: DeliveryMode }[];
     app_overrides: { app_id: string; mode: DeliveryMode }[];
     paced_typing_enabled: boolean;
     typing_speed_wpm: number;
@@ -114,15 +110,6 @@ export interface HistoryEntry {
 export interface Tools {
   session?: string;
   desktop?: string;
-  distro?: string;
-  distro_id?: string;
-  native?: boolean;
-  wtype?: boolean;
-  ydotool?: boolean;
-  ydotool_daemon?: boolean;
-  xdotool?: boolean;
-  wl_clipboard?: boolean;
-  recommended?: string;
   start_command?: string;
   stop_command?: string;
 }
@@ -203,7 +190,7 @@ export function assertConfig(value: unknown): asserts value is Config {
   if (!value || typeof value !== "object")
     throw Error("Invalid configuration response");
   const c = value as Record<string, unknown>;
-  if (c.schema_version !== 9) throw Error("Unsupported configuration schema");
+  if (c.schema_version !== 10) throw Error("Unsupported configuration schema");
   const shape: Record<string, string[]> = {
     general: [
       "enabled",
@@ -236,8 +223,6 @@ export function assertConfig(value: unknown): asserts value is Config {
     output: [
       "delivery_mode",
       "enabled_delivery_modes",
-      "linux_automation_backend",
-      "linux_delivery_cycle",
       "app_overrides",
       "paced_typing_enabled",
       "typing_speed_wpm",
@@ -346,14 +331,6 @@ export function assertConfig(value: unknown): asserts value is Config {
       "paste_ctrl_v",
       "paste_ctrl_shift_v",
     ],
-    "output.linux_automation_backend": [
-      "auto",
-      "native",
-      "wtype",
-      "ydotool",
-      "xdotool",
-      "clipboard_only",
-    ],
     "cleanup.provider": ["open_ai_compatible", "chat_gpt"],
     "cleanup.openai_compatible.reasoning_effort": [
       "none",
@@ -378,7 +355,6 @@ export function assertConfig(value: unknown): asserts value is Config {
     if (!values.includes(String(at(path)))) throw Error(`Invalid ${path}`);
   for (const path of [
     "output.enabled_delivery_modes",
-    "output.linux_delivery_cycle",
     "output.app_overrides",
     "cleanup.screenshot.excluded_apps",
   ])
@@ -387,12 +363,6 @@ export function assertConfig(value: unknown): asserts value is Config {
   if (
     output.enabled_delivery_modes.some(
       (v) => !enums["output.delivery_mode"].includes(v),
-    ) ||
-    output.linux_delivery_cycle.some(
-      (v) =>
-        !v ||
-        !enums["output.delivery_mode"].includes(v.mode) ||
-        !enums["output.linux_automation_backend"].includes(v.backend),
     ) ||
     output.app_overrides.some(
       (v) =>

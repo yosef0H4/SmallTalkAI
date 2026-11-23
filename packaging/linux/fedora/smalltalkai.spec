@@ -1,13 +1,11 @@
 Name:           smalltalkai
 Version:        0.3.1
-Release:        53%{?dist}
+Release:        54%{?dist}
 %global __provides_exclude_from ^/usr/lib/smalltalkai/.*\.so.*$
 Summary:        Local dictation, read aloud, and screen text for Linux desktops
 License:        GPL-2.0-only AND MIT AND OFL-1.1 AND CC-BY-SA-3.0
 URL:            https://github.com/yosef0H4/SmallTalkAI
 BuildArch:      x86_64
-Provides:       simple-stt = %{version}-%{release}
-Obsoletes:      simple-stt < %{version}-%{release}
 Requires:       alsa-lib
 Requires:       libX11
 Requires:       pango
@@ -42,12 +40,6 @@ cp -a %{_sourcedir}/stage/. %{buildroot}/
 %defattr(-,root,root,-)
 %attr(0755,root,root) /usr/bin/smalltalkai
 /usr/bin/smalltalkai-ctl
-/usr/bin/simple-stt
-/usr/bin/simple-stt-ctl
-%dir /usr/lib/simple-stt
-/usr/lib/simple-stt/simple-stt-linux
-/usr/lib/simple-stt/simple-stt-ctl
-/usr/lib/simple-stt/readerd
 %dir /usr/lib/smalltalkai
 %attr(0755,root,root) /usr/lib/smalltalkai/smalltalkai-linux
 %attr(0755,root,root) /usr/lib/smalltalkai/smalltalkai-capture
@@ -65,14 +57,12 @@ cp -a %{_sourcedir}/stage/. %{buildroot}/
 %attr(0644,root,root) /usr/lib/smalltalkai/lid.176.ftz
 %attr(0644,root,root) /usr/lib/smalltalkai/linux-installation
 %dir /usr/share/applications
-/usr/share/applications/io.github.yosef0H4.simple_stt.desktop
+/usr/share/applications/io.github.yosef0H4.smalltalkai.desktop
 /usr/share/applications/smalltalkai-reader.desktop
 /usr/share/icons/hicolor/*/apps/smalltalkai.png
 %dir /usr/lib/systemd/user
 /usr/lib/systemd/user/smalltalkai-linux.service
 /usr/lib/systemd/user/smalltalkai-server.service
-/usr/lib/systemd/user/simple-stt-linux.service
-/usr/lib/systemd/user/simple-stt-server.service
 %license /usr/share/licenses/smalltalkai/LICENSE
 %license /usr/share/licenses/smalltalkai/THIRD_PARTY_NOTICES.md
 %license /usr/share/licenses/smalltalkai/OFL-JetBrainsMono.txt

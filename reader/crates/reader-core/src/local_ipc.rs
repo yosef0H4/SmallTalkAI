@@ -4,7 +4,7 @@ use std::path::Path;
 
 #[cfg(unix)]
 pub fn address(profile: &Path) -> std::path::PathBuf {
-    profile.join("simple-tts.sock")
+    profile.join("smalltalkai-reader.sock")
 }
 
 #[cfg(unix)]
@@ -98,6 +98,6 @@ mod tests {
     }
 }
 #[cfg(windows)]
-pub const WINDOWS_PICKER_CLASS: *const u16 = windows_sys::w!("SimpleSttScreenRegionPicker");
+pub const WINDOWS_PICKER_CLASS: *const u16 = windows_sys::w!("SmallTalkAIScreenRegionPicker");
 #[cfg(windows)]
-pub const WINDOWS_TOOLTIP_PROPERTY: *const u16 = windows_sys::w!("SimpleSttOverlay");
+pub const WINDOWS_TOOLTIP_PROPERTY: *const u16 = windows_sys::w!("SmallTalkAIOverlay");

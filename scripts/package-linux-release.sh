@@ -47,12 +47,12 @@ fi
 
 build_one() {
   local distro="$1"
-  local image="localhost/simple-stt-linux-builder-$distro"
-  local source_volume="simple-stt-linux-$distro-work"
+  local image="localhost/smalltalkai-linux-builder-$distro"
+  local source_volume="smalltalkai-linux-$distro-work"
   printf 'Source archive: %s sha256=%s\n' \
     "$(basename "$source_archive")" "$(cat "$source_hash_file")" > "$out/BUILD-INFO-$distro.txt"
   printf 'Runtimes: optional verified downloads; base package contains no native inference runtime\n' >> "$out/BUILD-INFO-$distro.txt"
-  if [[ "${SIMPLE_STT_REUSE_BUILDER:-0}" == 1 ]] && podman image exists "$image"; then
+  if [[ "${SMALLTALKAI_REUSE_BUILDER:-0}" == 1 ]] && podman image exists "$image"; then
     echo "Reusing local builder: $image"
   else
     podman build --pull=always --memory=4g --cpu-period=100000 --cpu-quota=200000 --jobs=1 \

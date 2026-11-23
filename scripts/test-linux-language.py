@@ -54,7 +54,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="smalltalkai-language-") as directory:
         directory = Path(directory)
         config = directory / "config.json"
-        config.write_text(json.dumps({"schema_version": 9, "speech": {
+        config.write_text(json.dumps({"schema_version": 10, "speech": {
             "selection_mode": "follow_keyboard", "inference_device": "gpu",
             "single_model_filename": None,
             "language_models": {"en": "tdt_ctc-110m-q8_0.gguf", "ar": "lemura-arabic-asr-lite-q8_0.gguf"},
@@ -64,7 +64,7 @@ def main():
         token = secrets.token_hex(32)
         env = os.environ.copy()
         env["XDG_DATA_HOME"] = str(directory / "data")
-        env["SIMPLE_STT_CONFIG"] = str(config)
+        env["SMALLTALKAI_CONFIG"] = str(config)
         shown = subprocess.check_output([str(ROOT / "target/release/smalltalkai-ctl"), "config-show"], env=env, text=True)
         values = {fields[1]: fields[2] for line in shown.splitlines()
                   if len(fields := line.split("\t", 2)) == 3 and fields[0] == "value"}

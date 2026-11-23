@@ -1112,7 +1112,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn administration_and_legacy_shell_commands_parse() {
+    fn administration_and_shell_commands_parse() {
         assert!(Args::try_parse_from(["smalltalkai-ctl", "config", "show"]).is_ok());
         assert!(Args::try_parse_from(["smalltalkai-ctl", "assets", "list"]).is_ok());
         assert!(Args::try_parse_from(["smalltalkai-ctl", "ping"]).is_ok());
@@ -1135,7 +1135,7 @@ mod tests {
             "set",
             "stt",
             "--env",
-            "SIMPLE_STT_STT_API_KEY"
+            "SMALLTALKAI_STT_API_KEY"
         ])
         .is_ok());
     }

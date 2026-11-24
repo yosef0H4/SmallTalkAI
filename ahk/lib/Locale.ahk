@@ -1,5 +1,5 @@
 ; Generated from desktop catalogs and tray menu. Run node web/settings/tools/locales.mjs.
-; catalog-sha256: 829123bfc661421f0d906cbca12c10c82475f6023d637afb51cd7114f77f7d3e
+; catalog-sha256: 582ac70d20dff14196fde7a79ee98d2fed2e96b1f57ad7d137bbb8dedcfb30cc
 UiSetLanguage(language := "auto") {
     global SmallTalkAIUiLocale
     if language = "auto"
@@ -21,6 +21,7 @@ UiText(id, args := unset) {
         "notice.noMicrophone", "No microphone available",
         "notice.screenContext", "Screen context requested…",
         "notice.recordingShort", "Recording too short",
+        "notice.recordingBufferFull", "Recording reached the audio buffer limit",
         "notice.noSpeech", "No speech detected",
         "notice.speech.loading", "{language} speech recognition loading…",
         "notice.speech.warming", "{language} speech recognition warming up…",
@@ -247,6 +248,7 @@ UiText(id, args := unset) {
         "notice.noMicrophone", "لا يوجد ميكروفون",
         "notice.screenContext", "جارٍ التقاط سياق الشاشة…",
         "notice.recordingShort", "التسجيل قصير جدًا",
+        "notice.recordingBufferFull", "بلغ التسجيل حد ذاكرة التخزين المؤقت للصوت",
         "notice.noSpeech", "لم يُرصد كلام",
         "notice.speech.loading", "{language} · جارٍ تحميل التعرف على الصوت…",
         "notice.speech.warming", "{language} · جارٍ تجهيز التعرف على الصوت…",

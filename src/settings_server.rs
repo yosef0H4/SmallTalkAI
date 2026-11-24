@@ -584,6 +584,21 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
                 .as_u64()
                 .context("Missing reading revision")?;
             let previous = crate::reader::load()?;
+            if config.server.enabled && config.server != previous.server {
+                config.server.bind_address()?;
+            }
+            let defaults = reader_core::AppConfig::default();
+            anyhow::ensure!(
+                (config.speech.worker_library.is_none()
+                    || config.speech.worker_library == previous.speech.worker_library)
+                    && (config.ocr.worker_library.is_none()
+                        || config.ocr.worker_library == previous.ocr.worker_library)
+                    && (config.speech.runtime_dir == previous.speech.runtime_dir
+                        || config.speech.runtime_dir == defaults.speech.runtime_dir)
+                    && (config.ocr.runtime_dir == previous.ocr.runtime_dir
+                        || config.ocr.runtime_dir == defaults.ocr.runtime_dir),
+                "Choose a runtime from the installed catalog in Settings"
+            );
             let online = crate::reader::status().is_some();
             let config = crate::reader::store().save(config, expected)?;
             if online && previous.server != config.server {
@@ -720,6 +735,8 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
             AppConfig::validate_json_schema(&input)?;
             let config = AppConfig::normalize_json(&input);
             config.validate()?;
+            let current = fs::read(AppConfig::config_path()).unwrap_or_default();
+            validate_settings_runtime(&config, &current)?;
             Ok(json_response(
                 StatusCode(200),
                 &json!({"config": config}),
@@ -1167,6 +1184,24 @@ fn factory_reset(state: &AppState) -> Result<()> {
     Ok(())
 }
 
+fn validate_settings_runtime(config: &AppConfig, current: &[u8]) -> Result<()> {
+    let configured = &config.speech.runtime_dir;
+    if configured.is_empty()
+        || crate::modules::catalog_stt_runtime_path(&config.parakeet_runtime_dir_path())
+    {
+        return Ok(());
+    }
+    let already_configured = serde_json::from_slice::<Value>(current)
+        .ok()
+        .filter(|value| AppConfig::validate_json_schema(value).is_ok())
+        .is_some_and(|value| AppConfig::normalize_json(&value).speech.runtime_dir == *configured);
+    anyhow::ensure!(
+        already_configured,
+        "Choose a dictation runtime from the installed catalog in Settings"
+    );
+    Ok(())
+}
+
 fn save_response(
     request: &mut Request,
     state: &AppState,
@@ -1183,6 +1218,7 @@ fn save_response(
     AppConfig::validate_json_schema(&body.config)?;
     let config = AppConfig::normalize_json(&body.config);
     config.validate()?;
+    validate_settings_runtime(&config, &current)?;
     config.save()?;
     let raw = fs::read(path)?;
     drop(_shared_guard);

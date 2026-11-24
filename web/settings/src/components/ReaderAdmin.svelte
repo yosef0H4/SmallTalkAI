@@ -16,6 +16,7 @@ async function action(action:string){busy=true;try{await api("/api/reader-action
   <Group title="reading.server" icon="advanced">
     <div class="field"><label for="reader-server">{t("reading.enabled")}</label><div class="control"><input id="reader-server" type="checkbox" role="switch" bind:checked={reading.config.server.enabled} /></div></div>
     <div class="field"><label for="reader-listen">{t("reading.address")}</label><div class="control"><input id="reader-listen" dir="ltr" bind:value={reading.config.server.listen} /></div></div>
+    <div class="field"><label for="reader-network">{t("reading.network_access")}</label><div class="control"><input id="reader-network" type="checkbox" role="switch" bind:checked={reading.config.server.allow_remote} /></div></div>
     <div class="reading-actions"><button type="button" disabled={busy} onclick={()=>action("server_start")}>{t("reading.start_server")}</button><button type="button" disabled={busy} onclick={()=>action("server_stop")}>{t("reading.stop_server")}</button></div>
   </Group>
   <div class="field"><span>{t("reading.server_token")}</span><div class="control"><button type="button" onclick={showToken}>{t("reading.show_token")}</button>{#if serverToken}<input aria-label={t("reading.server_token")} dir="ltr" readonly value={serverToken} />{/if}</div></div>

@@ -11,6 +11,7 @@
   "notice.noMicrophone": "No microphone available",
   "notice.screenContext": "Screen context requested…",
   "notice.recordingShort": "Recording too short",
+  "notice.recordingBufferFull": "Recording reached the audio buffer limit",
   "notice.noSpeech": "No speech detected",
   "notice.speech.loading": "{language} speech recognition loading…",
   "notice.speech.warming": "{language} speech recognition warming up…",

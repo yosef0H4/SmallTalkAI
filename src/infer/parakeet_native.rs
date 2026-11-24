@@ -36,9 +36,9 @@ impl ParakeetNative {
 
     fn take_string(&self, ptr: *mut c_char, operation: &str) -> Result<String> {
         if ptr.is_null() {
-            let error = unsafe { CStr::from_ptr((self.api.last_error)(self.ctx)) }
-                .to_string_lossy()
-                .into_owned();
+            let error_ptr = unsafe { (self.api.last_error)(self.ctx) };
+            anyhow::ensure!(!error_ptr.is_null(), "{operation} returned no result");
+            let error = unsafe { CStr::from_ptr(error_ptr) }.to_string_lossy();
             if error.trim().is_empty() {
                 return Err(anyhow!("{operation} failed"));
             }

@@ -224,6 +224,11 @@ impl Drop for ClipboardSuppressionGuard<'_> {
             .fetch_sub(1, Ordering::AcqRel);
     }
 }
+struct ApiServer {
+    stop: Arc<AtomicBool>,
+    dispatch: std::thread::JoinHandle<()>,
+}
+
 struct AppInner {
     store: ConfigStore,
     model_events: model_events::ModelEvents,
@@ -280,7 +285,7 @@ struct AppInner {
     ocr_epoch: AtomicU64,
     ocr_gate: Mutex<()>,
     shutdown: AtomicBool,
-    server: Mutex<Option<Arc<AtomicBool>>>,
+    server: Mutex<Option<ApiServer>>,
     hud: Mutex<Option<Arc<AtomicBool>>>,
     desktop_enabled: AtomicBool,
     notice: Mutex<ControllerNotice>,
@@ -592,9 +597,14 @@ fn read_clipboard_snapshot() -> Result<ClipboardSnapshot> {
 
 #[cfg(windows)]
 fn read_clipboard_snapshot() -> Result<ClipboardSnapshot> {
+    read_windows_clipboard(None)
+}
+
+#[cfg(windows)]
+fn read_windows_clipboard(expected_sequence: Option<u32>) -> Result<ClipboardSnapshot> {
     use windows_sys::Win32::System::DataExchange::{
-        CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
-        RegisterClipboardFormatW,
+        CloseClipboard, GetClipboardData, GetClipboardSequenceNumber, IsClipboardFormatAvailable,
+        OpenClipboard, RegisterClipboardFormatW,
     };
     use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
     const CF_DIB: u32 = 8;
@@ -605,6 +615,11 @@ fn read_clipboard_snapshot() -> Result<ClipboardSnapshot> {
         "clipboard is busy"
     );
     let result = (|| {
+        anyhow::ensure!(
+            expected_sequence
+                .is_none_or(|sequence| sequence == unsafe { GetClipboardSequenceNumber() }),
+            "clipboard changed before the selection could be read"
+        );
         // Check explicit privacy formats before requesting the text or image.
         for (name, presence_only) in [
             ("Clipboard Viewer Ignore", true),
@@ -636,8 +651,9 @@ fn read_clipboard_snapshot() -> Result<ClipboardSnapshot> {
                 return Ok(empty_clipboard_snapshot());
             }
         }
-        if unsafe { IsClipboardFormatAvailable(CF_DIBV5) } != 0
-            || unsafe { IsClipboardFormatAvailable(CF_DIB) } != 0
+        if expected_sequence.is_none()
+            && (unsafe { IsClipboardFormatAvailable(CF_DIBV5) } != 0
+                || unsafe { IsClipboardFormatAvailable(CF_DIB) } != 0)
         {
             let format = if unsafe { IsClipboardFormatAvailable(CF_DIBV5) } != 0 {
                 CF_DIBV5
@@ -1037,7 +1053,8 @@ impl WorkerHandle {
 }
 impl Drop for WorkerHandle {
     fn drop(&mut self) {
-        if self.native && self.loading && matches!(self.child.try_wait(), Ok(Some(_))) {
+        let exited = terminate_and_reap_child(&mut self.child);
+        if self.native && self.loading && exited {
             self.events.record(
                 "tts",
                 &self.model_id,
@@ -2493,11 +2510,15 @@ fn open_tts_transport(
     Ok((stdin, cancel_stdin, stdout, kill))
 }
 
-fn terminate_and_reap_child(child: &mut Child) {
-    if !matches!(child.try_wait(), Ok(Some(_))) {
-        let _ = child.kill();
-        let _ = child.wait();
+fn terminate_and_reap_child(child: &mut Child) -> bool {
+    if matches!(child.try_wait(), Ok(Some(_))) {
+        return true;
     }
+    if child.kill().is_ok() {
+        return child.wait().is_ok();
+    }
+    // A child can exit between try_wait and kill.
+    matches!(child.try_wait(), Ok(Some(_)))
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -2533,7 +2554,7 @@ fn failed_tts_start_reaps_the_exact_child() {
 
 fn discard_worker(worker: &mut Option<WorkerHandle>) {
     if let Some(mut process) = worker.take() {
-        let _ = process.child.wait();
+        terminate_and_reap_child(&mut process.child);
         process
             .model_lifecycle
             .write()
@@ -3658,7 +3679,7 @@ impl App {
         if let Err(error) = self.kill_clipboard_owner() {
             tracing::warn!(%error,"could not stop prior clipboard transaction on new read intent");
         }
-        if let Err(error) = self.kill_ocr() {
+        if let Err(error) = self.kill_ocr(false) {
             tracing::warn!(%error,"could not stop prior OCR on new read intent");
         }
         *self
@@ -5558,19 +5579,7 @@ impl App {
         self.clear_idle_lease();
         self.inner.tts.shutdown()?;
         self.unload_server_workers()?;
-        self.inner.ocr_timer.cancel();
-        self.inner.ocr_epoch.fetch_add(1, Ordering::AcqRel);
-        self.kill_ocr()?;
-        let _gate = self
-            .inner
-            .ocr_gate
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        self.inner
-            .ocr_worker
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
+        self.unload_ocr_worker()?;
         write_device_report("Stopped · manually unloaded", false);
         self.show_hud();
         Ok("All reading models released".into())
@@ -5597,9 +5606,6 @@ impl App {
         Ok("Authenticated OpenAI-compatible server started".into())
     }
     fn action_server_stop(&self) -> Result<String> {
-        if let Some(stop) = self.inner.server.lock().unwrap().take() {
-            stop.store(true, Ordering::Relaxed)
-        }
         self.stop_server_workers()?;
         Ok("Headless server stopped".into())
     }
@@ -5670,16 +5676,7 @@ impl App {
             config.server.enabled,
             "enable server mode in settings before starting it"
         );
-        let host = config
-            .server
-            .listen
-            .parse::<std::net::SocketAddr>()
-            .context("server listen address must be host:port")?;
-        if !config.server.allow_remote && !host.ip().is_loopback() {
-            bail!(
-                "remote server binding is disabled; select a loopback address or enable private-network access"
-            )
-        }
+        let host = config.server.bind_address()?;
         let token = if let Ok(value) = std::env::var("SMALLTALKAI_SERVER_TOKEN") {
             anyhow::ensure!(
                 !value.trim().is_empty() && value.len() <= 512,
@@ -5701,12 +5698,12 @@ impl App {
             .map_err(anyhow::Error::from_boxed)
             .context("starting HTTP server")?;
         let stop = Arc::new(AtomicBool::new(false));
-        *active = Some(stop.clone());
+        let stop_requested = Arc::clone(&stop);
         let app = self.clone();
         let max = config.server.max_clients.max(1) as usize;
-        std::thread::spawn(move || {
+        let dispatch = std::thread::spawn(move || {
             let clients = Arc::new(AtomicUsize::new(0));
-            while !stop.load(Ordering::Relaxed) {
+            while !stop_requested.load(Ordering::Acquire) {
                 let Some(request) = server
                     .recv_timeout(Duration::from_millis(250))
                     .ok()
@@ -5714,6 +5711,9 @@ impl App {
                 else {
                     continue;
                 };
+                if stop_requested.load(Ordering::Acquire) {
+                    break;
+                }
                 if clients.fetch_add(1, Ordering::Relaxed) >= max {
                     clients.fetch_sub(1, Ordering::Relaxed);
                     let _=request.respond(server_json(429,&serde_json::json!({"error":{"message":"server client limit reached","type":"rate_limit_error"}})));
@@ -5730,29 +5730,52 @@ impl App {
                 });
             }
         });
+        *active = Some(ApiServer { stop, dispatch });
         Ok(())
     }
-    fn kill_ocr(&self) -> Result<()> {
+    fn kill_ocr(&self, include_copy: bool) -> Result<()> {
         let mut guard = self
             .inner
             .ocr_kill
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some((identity, false)) = guard.as_ref() {
+        if let Some((identity, _)) = guard
+            .as_ref()
+            .filter(|(_, is_copy)| include_copy || !is_copy)
+        {
             identity.terminate("OCR worker")?;
             *guard = None;
         }
         Ok(())
     }
+    fn unload_ocr_worker(&self) -> Result<()> {
+        self.inner.ocr_timer.cancel();
+        self.inner.ocr_epoch.fetch_add(1, Ordering::AcqRel);
+        self.kill_ocr(true)?;
+        let _gate = self
+            .inner
+            .ocr_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.inner
+            .ocr_worker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        Ok(())
+    }
     fn stop_server_workers(&self) -> Result<()> {
-        if let Some(stop) = self
+        let mut active = self
             .inner
             .server
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take()
-        {
-            stop.store(true, Ordering::Release);
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(server) = active.take() {
+            server.stop.store(true, Ordering::Release);
+            server
+                .dispatch
+                .join()
+                .map_err(|_| anyhow::anyhow!("API server thread failed"))?;
         }
         let result = self.unload_server_workers();
         // The server threads can keep App alive after the command returns.
@@ -6507,9 +6530,9 @@ impl App {
                 drop(intent);
                 self.inner.audio.stop(generation);
                 self.kill_capture()?;
-                self.kill_ocr()?;
                 self.inner.tts.shutdown()?;
                 self.stop_server_workers()?;
+                self.unload_ocr_worker()?;
                 drop(lifecycle);
                 Ok(LocalReply::ok("Controller shutting down"))
             }
@@ -7623,8 +7646,15 @@ fn handle_server_request(app: &App, token: &str, mut request: tiny_http::Request
         .find(|h| h.field.equiv("Authorization"))
         .map(|h| String::from_utf8_lossy(h.value.as_bytes()).to_string())
         .unwrap_or_default();
-    if auth.strip_prefix("Bearer ") != Some(token) {
-        let _=request.respond(server_json(401,&serde_json::json!({"error":{"message":"invalid bearer token","type":"authentication_error"}})));
+    if !auth.split_once(' ').is_some_and(|(scheme, value)| {
+        scheme.eq_ignore_ascii_case("Bearer") && value.trim_start_matches(' ') == token
+    }) {
+        let response = server_json(
+            401,
+            &serde_json::json!({"error":{"message":"invalid bearer token","type":"authentication_error"}}),
+        )
+        .with_header(tiny_http::Header::from_bytes("WWW-Authenticate", "Bearer").unwrap());
+        let _ = request.respond(response);
         return Ok(());
     }
     let client_session = request
@@ -8697,10 +8727,53 @@ fn wake_pipe() {
     let _ = reader_core::local_ipc::connect(&data_dir());
 }
 #[cfg(windows)]
+struct PipeRequest<'a> {
+    stream: &'a mut File,
+    deadline: Instant,
+}
+
+#[cfg(windows)]
+impl std::io::Read for PipeRequest<'_> {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::System::Pipes::PeekNamedPipe;
+        if output.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            if Instant::now() >= self.deadline {
+                return Err(std::io::ErrorKind::TimedOut.into());
+            }
+            let mut available = 0;
+            let success = unsafe {
+                PeekNamedPipe(
+                    self.stream.as_raw_handle(),
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null_mut(),
+                    &mut available,
+                    std::ptr::null_mut(),
+                )
+            };
+            if success == 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if available > 0 {
+                let count = output.len().min(available as usize);
+                return std::io::Read::read(self.stream, &mut output[..count]);
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
+#[cfg(windows)]
 fn serve_daemon(app: App, no_desktop: bool) -> Result<()> {
     let _processing = privacy::ProcessingLease::acquire(&data_dir())?;
     use std::os::windows::io::{FromRawHandle, RawHandle};
-    use windows_sys::Win32::Foundation::{ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Foundation::{LocalFree, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
+    use windows_sys::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
     use windows_sys::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
     use windows_sys::Win32::System::Pipes::{
         ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
@@ -8714,22 +8787,45 @@ fn serve_daemon(app: App, no_desktop: bool) -> Result<()> {
     }
     if app.inner.store.load()?.server.enabled {
         if let Err(error) = app.start_server() {
-            let occupied = error.downcast_ref::<std::io::Error>().is_some_and(|err| {
-                matches!(
-                    err.kind(),
-                    std::io::ErrorKind::AddrInUse | std::io::ErrorKind::PermissionDenied
-                )
-            });
-            if !occupied || std::env::var_os("SMALLTALKAI_MANAGED_API").is_some() {
+            if std::env::var_os("SMALLTALKAI_MANAGED_API").is_some() {
                 return Err(error);
             }
-            tracing::warn!(%error, "API address is already in use; reader IPC stays available");
+            tracing::warn!(%error, "API could not start; reader IPC stays available");
         }
     }
     let signal_app = app.clone();
     ctrlc::set_handler(move || request_daemon_shutdown(&signal_app))?;
     let active = Arc::new(AtomicUsize::new(0));
     let name = reader_core::local_ipc::wide_address(&data_dir())?;
+    struct PipeSecurity(PSECURITY_DESCRIPTOR);
+    impl Drop for PipeSecurity {
+        fn drop(&mut self) {
+            unsafe { LocalFree(self.0) };
+        }
+    }
+    let sddl: Vec<u16> = "D:P(A;;GA;;;OW)(A;;GA;;;SY)"
+        .encode_utf16()
+        .chain([0])
+        .collect();
+    let mut descriptor = std::ptr::null_mut();
+    if unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            1,
+            &mut descriptor,
+            std::ptr::null_mut(),
+        )
+    } == 0
+    {
+        return Err(std::io::Error::last_os_error())
+            .context("creating private Reader pipe security");
+    }
+    let security = PipeSecurity(descriptor);
+    let attributes = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: security.0,
+        bInheritHandle: 0,
+    };
     while !app.inner.shutdown.load(Ordering::Relaxed) {
         let handle = unsafe {
             CreateNamedPipeW(
@@ -8740,7 +8836,7 @@ fn serve_daemon(app: App, no_desktop: bool) -> Result<()> {
                 65_536,
                 65_536,
                 0,
-                std::ptr::null(),
+                &attributes,
             )
         };
         if handle == INVALID_HANDLE_VALUE {
@@ -8767,7 +8863,10 @@ fn serve_daemon(app: App, no_desktop: bool) -> Result<()> {
         let app = app.clone();
         let active = active.clone();
         std::thread::spawn(move || {
-            let request = read_json_frame::<LocalRequest>(&mut stream);
+            let request = read_json_frame::<LocalRequest>(&mut PipeRequest {
+                stream: &mut stream,
+                deadline: Instant::now() + Duration::from_secs(10),
+            });
             let should_shutdown = request
                 .as_ref()
                 .is_ok_and(|value| matches!(value, LocalRequest::Shutdown));
@@ -8781,6 +8880,7 @@ fn serve_daemon(app: App, no_desktop: bool) -> Result<()> {
             active.fetch_sub(1, Ordering::Relaxed);
         });
     }
+    app.handle(LocalRequest::Shutdown)?;
     Ok(())
 }
 #[cfg(not(any(unix, windows)))]
@@ -10335,32 +10435,65 @@ fn read_desktop_clipboard(app: &App, generation: u64) -> Result<String> {
 
 #[cfg(windows)]
 fn windows_copy_selection(app: &App, generation: u64, config: &AppConfig) -> Result<String> {
+    use std::os::windows::ffi::OsStringExt;
     use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId,
+    };
     const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let window = unsafe { GetForegroundWindow() };
+    let mut pid = 0;
+    anyhow::ensure!(
+        !window.is_null() && unsafe { GetWindowThreadProcessId(window, &mut pid) } != 0,
+        "no foreground window for reading"
+    );
     wait_for_copy_modifiers(app, generation)?;
+    let mut system = [0_u16; 260];
+    let len = unsafe { GetSystemDirectoryW(system.as_mut_ptr(), system.len() as u32) } as usize;
+    anyhow::ensure!(
+        len > 0 && len < system.len(),
+        "Windows system directory is unavailable"
+    );
+    let powershell = PathBuf::from(std::ffi::OsString::from_wide(&system[..len]))
+        .join(r"WindowsPowerShell\v1.0\powershell.exe");
     let script = r#"
+$ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class SmallTalkAIClipboardGuard { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId); [DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber(); }'
 $settings = $env:SMALLTALKAI_READER_COPY_SETTINGS | ConvertFrom-Json
 $backend = $settings.backend
 $shortcut = $settings.shortcut
-$foreground = [SmallTalkAIClipboardGuard]::GetForegroundWindow()
-[uint32]$foregroundPid = 0
-[void][SmallTalkAIClipboardGuard]::GetWindowThreadProcessId($foreground, [ref]$foregroundPid)
+$foreground = [IntPtr]::new([long]$env:SMALLTALKAI_READER_COPY_WINDOW)
+[uint32]$foregroundPid = $env:SMALLTALKAI_READER_COPY_PID
+function Assert-Target {
+  $active = [SmallTalkAIClipboardGuard]::GetForegroundWindow()
+  [uint32]$activePid = 0
+  [void][SmallTalkAIClipboardGuard]::GetWindowThreadProcessId($active, [ref]$activePid)
+  if ($active -ne $foreground -or $activePid -ne $foregroundPid) { throw 'The selected window lost focus.' }
+}
+function Get-ReadableFocus {
+  Assert-Target
+  $focused = $null
+  try { $focused = [System.Windows.Automation.AutomationElement]::FocusedElement } catch { }
+  if ($null -ne $focused -and $focused.Current.IsPassword) { throw 'Password selection is unavailable.' }
+  return $focused
+}
+Assert-Target
 $processName = (Get-Process -Id $foregroundPid -ErrorAction SilentlyContinue).ProcessName
 foreach ($rule in ($env:SMALLTALKAI_READER_COPY_OVERRIDES | ConvertFrom-Json)) { if ($rule.app_id -and $processName -and ([string]::Equals($rule.app_id, $processName, [StringComparison]::OrdinalIgnoreCase) -or [string]::Equals($rule.app_id, "$processName.exe", [StringComparison]::OrdinalIgnoreCase))) { $shortcut = $rule.shortcut; if ($rule.backend) { $backend = $rule.backend }; break } }
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+$focused = Get-ReadableFocus
 if ($backend -eq 'auto' -or $backend -eq 'accessibility') {
   $selection = $null
   try {
-    $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
-    if ($focused.Current.IsPassword) { throw 'Password selection is unavailable.' }
     $pattern = $focused.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
     $ranges = $pattern.GetSelection()
     if ($ranges.Count -eq 1) { $selection = $ranges[0].GetText(1048577) }
   } catch { }
   if ($null -ne $selection) {
+    Assert-Target
     if ([string]::IsNullOrWhiteSpace($selection)) { throw 'There is no selected text.' }
     [Console]::Write((@{text=$selection; clipboard_replaced=$false} | ConvertTo-Json -Compress)); exit
   }
@@ -10369,22 +10502,33 @@ if ($backend -eq 'auto' -or $backend -eq 'accessibility') {
 if (!$settings.allow_clipboard_copy) { throw 'Copy the selection manually or enable shortcut copy in Settings.' }
 $before = [SmallTalkAIClipboardGuard]::GetClipboardSequenceNumber()
 $key = switch ($shortcut) { 'ctrl_c' { '^c' } 'ctrl_shift_c' { '^+c' } default { '^{INSERT}' } }
+[void](Get-ReadableFocus)
 [System.Windows.Forms.SendKeys]::SendWait($key)
 $deadline = [DateTime]::UtcNow.AddSeconds(2)
 do {
+  Assert-Target
   $copiedAt = [SmallTalkAIClipboardGuard]::GetClipboardSequenceNumber()
   if ($copiedAt -ne $before) { break }
   Start-Sleep -Milliseconds 15
 } while ([DateTime]::UtcNow -lt $deadline)
 if ($copiedAt -eq $before) { throw 'The selected app did not update the clipboard.' }
-$s = [System.Windows.Forms.Clipboard]::GetText()
-if ([SmallTalkAIClipboardGuard]::GetClipboardSequenceNumber() -ne $copiedAt) { throw 'Clipboard changed again; retry.' }
-if ([string]::IsNullOrWhiteSpace($s)) { throw 'There is no selected text.' }
-[Console]::Write((@{text=$s; clipboard_replaced=$true} | ConvertTo-Json -Compress))
+[Console]::Write((@{clipboard_sequence=$copiedAt} | ConvertTo-Json -Compress))
 "#;
-    let mut command = Command::new("powershell.exe");
+    let mut command = Command::new(powershell);
     command
-        .args(["-NoLogo", "-NoProfile", "-STA", "-Command", script])
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-STA",
+            "-Command",
+            script,
+        ])
+        .env(
+            "SMALLTALKAI_READER_COPY_WINDOW",
+            (window as isize).to_string(),
+        )
+        .env("SMALLTALKAI_READER_COPY_PID", pid.to_string())
         .env(
             "SMALLTALKAI_READER_COPY_OVERRIDES",
             serde_json::to_string(&config.selection_copy_overrides)?,
@@ -10406,13 +10550,28 @@ if ([string]::IsNullOrWhiteSpace($s)) { throw 'There is no selected text.' }
         "Windows selection copy failed; choose another copy method in Settings"
     );
     let response: serde_json::Value = serde_json::from_slice(&output.stdout)?;
-    let text = response["text"]
-        .as_str()
-        .context("selected text is missing")?
-        .to_owned();
+    let sequence = response["clipboard_sequence"]
+        .as_u64()
+        .map(|value| value as u32);
+    let text = if let Some(sequence) = sequence {
+        anyhow::ensure!(
+            unsafe { GetForegroundWindow() } == window,
+            "the selected window lost focus"
+        );
+        let snapshot = read_windows_clipboard(Some(sequence))?;
+        match snapshot.payload {
+            Some(ClipboardPayload::Text(text)) => text,
+            _ => bail!("the clipboard has no readable selected text"),
+        }
+    } else {
+        response["text"]
+            .as_str()
+            .context("selected text is missing")?
+            .to_owned()
+    };
     anyhow::ensure!(!text.trim().is_empty(), "there is no selected text");
     anyhow::ensure!(text.len() <= MAX_TEXT_BYTES, "selected text is too large");
-    if config.selection_copy.show_clipboard_notice && response["clipboard_replaced"] == true {
+    if config.selection_copy.show_clipboard_notice && sequence.is_some() {
         app.set_notice("reader.clipboard_replaced".into(), Duration::from_secs(3));
     }
     Ok(text)
@@ -10752,7 +10911,7 @@ fn run_server(store: ConfigStore) -> Result<()> {
     while !stopped.load(Ordering::Relaxed) {
         std::thread::sleep(Duration::from_millis(200));
     }
-    app.action("server_stop")?;
+    app.handle(LocalRequest::Shutdown)?;
     Ok(())
 }
 

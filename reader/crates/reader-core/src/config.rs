@@ -351,6 +351,27 @@ impl Default for ServerSettings {
     }
 }
 
+impl ServerSettings {
+    pub fn bind_address(&self) -> anyhow::Result<std::net::SocketAddr> {
+        let address = self
+            .listen
+            .trim()
+            .parse::<std::net::SocketAddr>()
+            .map_err(|_| {
+                anyhow::anyhow!("Enter a local interface IP and port, such as 127.0.0.1:8765")
+            })?;
+        anyhow::ensure!(
+            !address.ip().is_unspecified(),
+            "Choose a specific interface IP for the API server"
+        );
+        anyhow::ensure!(
+            self.allow_remote || address.ip().is_loopback(),
+            "Enable network access to bind to a non-loopback interface"
+        );
+        Ok(address)
+    }
+}
+
 impl AppConfig {
     pub fn selection_copy_shortcut(&self, app_id: Option<&str>) -> SelectionCopyShortcut {
         app_id

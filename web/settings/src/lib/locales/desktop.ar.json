@@ -11,6 +11,7 @@
   "notice.noMicrophone": "لا يوجد ميكروفون",
   "notice.screenContext": "جارٍ التقاط سياق الشاشة…",
   "notice.recordingShort": "التسجيل قصير جدًا",
+  "notice.recordingBufferFull": "بلغ التسجيل حد ذاكرة التخزين المؤقت للصوت",
   "notice.noSpeech": "لم يُرصد كلام",
   "notice.speech.loading": "{language} · جارٍ تحميل التعرف على الصوت…",
   "notice.speech.warming": "{language} · جارٍ تجهيز التعرف على الصوت…",

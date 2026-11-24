@@ -2,7 +2,10 @@ param(
     [switch]$SkipTests,
     [string]$AhkBase,
     [string]$Iscc,
-    [string]$CargoTargetDir
+    [string]$CargoTargetDir,
+    [ValidatePattern('^[0-9A-Fa-f]{40}$')]
+    [string]$SigningCertificateThumbprint,
+    [string]$SignTool
 )
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
@@ -41,6 +44,17 @@ function Resolve-Tool([string]$Provided, [string[]]$Candidates, [string]$Label) 
     if ($Provided) { Require-File $Provided; return $Provided }
     foreach ($Candidate in $Candidates) { if (Test-Path -LiteralPath $Candidate -PathType Leaf) { return $Candidate } }
     throw "$Label was not found. Pass its path explicitly."
+}
+function Sign-AppFile([string]$Path) {
+    & $SignTool sign /sha1 $SigningCertificateThumbprint /fd SHA256 /tr https://timestamp.digicert.com /td SHA256 $Path
+    if ($LASTEXITCODE -ne 0) { throw "Signing failed for $Path" }
+    & $SignTool verify /pa $Path
+    if ($LASTEXITCODE -ne 0) { throw "Signature verification failed for $Path" }
+}
+if ($SigningCertificateThumbprint) {
+    $InstalledSignTool = Get-Command signtool.exe -ErrorAction SilentlyContinue
+    $SignToolCandidates = if ($InstalledSignTool) { @($InstalledSignTool.Source) } else { @() }
+    $SignTool = Resolve-Tool $SignTool $SignToolCandidates 'Windows SDK SignTool (signtool.exe)'
 }
 $AhkBase = Resolve-Tool $AhkBase @(
     "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe",
@@ -150,6 +164,13 @@ $Required = @(
     'runtime\fixtures\parakeet-smoke.wav'
 )
 foreach ($RelativePath in $Required) { Require-File (Join-Path $Portable $RelativePath) }
+if ($SigningCertificateThumbprint) {
+    foreach ($RelativePath in $Required) {
+        if ($RelativePath -match '(^SmallTalkAI\.exe$|^runtime\\smalltalkai-.*\.exe$)') {
+            Sign-AppFile (Join-Path $Portable $RelativePath)
+        }
+    }
+}
 
 New-Item -ItemType Directory -Path $Dist -Force | Out-Null
 $Setup = Join-Path $Dist 'smalltalkai-setup.exe'
@@ -162,6 +183,7 @@ foreach ($Output in @($Setup, $Zip)) {
 & $Iscc "/DSmallTalkAIVersion=$PackageVersion" $InnoScript
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
 Require-File $Setup
+if ($SigningCertificateThumbprint) { Sign-AppFile $Setup }
 Get-ChildItem -LiteralPath $Portable | Compress-Archive -DestinationPath $Zip -CompressionLevel Optimal
 Require-File $Zip
 Write-Host ''

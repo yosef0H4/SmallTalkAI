@@ -26,6 +26,8 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 const MIN_RECORDING_SAMPLES: usize = 1_600; // 100 ms at 16 kHz.
+                                            // Bound pending audio when no chunk can be retired, including one-shot recording.
+const MAX_PENDING_SAMPLES: usize = audio::OUTPUT_SAMPLE_RATE as usize * 30 * 60;
 const EVENT_HISTORY_LIMIT: usize = 512;
 const DEVICE_RETRY_DELAYS: [Duration; 5] = [
     Duration::from_millis(100),
@@ -69,9 +71,16 @@ struct Recording {
     stop_deadline: Option<Instant>,
     stop_ready: bool,
     countdown_shown: Option<u64>,
+    pending_limit_reached: bool,
 }
 
 impl Recording {
+    fn append_samples(&mut self, frame: &[i16]) {
+        let remaining = MAX_PENDING_SAMPLES.saturating_sub(self.samples.len());
+        self.samples
+            .extend_from_slice(&frame[..remaining.min(frame.len())]);
+    }
+
     fn capture_frame(
         &mut self,
         frame: &[i16],
@@ -80,7 +89,10 @@ impl Recording {
         warming: bool,
         overlay: &OverlayHandle,
     ) {
-        self.samples.extend_from_slice(frame);
+        if self.pending_limit_reached {
+            return;
+        }
+        self.append_samples(frame);
         if self.preview || self.remote_stt || self.processing_mode != ProcessingMode::Chunked {
             return;
         }
@@ -193,7 +205,7 @@ fn advance_stop_grace(
     }
     if now >= deadline {
         while let Ok(frame) = frame_rx.try_recv() {
-            recording.samples.extend_from_slice(&frame);
+            recording.append_samples(&frame);
         }
         recording.stop_ready = true;
         return GraceTick::Finish(recording.session_id);
@@ -580,6 +592,16 @@ fn main() -> Result<()> {
             recv(frame_rx) -> message => if let (Some(recording), Ok(frame)) = (&mut active, message) {
                 let warming = warming.contains(&recording.session_id);
                 recording.capture_frame(&frame, &worker, &cancel_generation, warming, &overlay);
+                if !recording.pending_limit_reached && recording.samples.len() == MAX_PENDING_SAMPLES {
+                    recording.pending_limit_reached = true;
+                    let notice = "notice.recordingBufferFull";
+                    events.push(notice_event_for_session(NoticeLevel::Warning, notice, recording.session_id));
+                    if recording.preview {
+                        overlay.notify_warning(tr(notice), Duration::from_secs(3));
+                    } else {
+                        recording.stop_deadline = Some(Instant::now());
+                    }
+                }
             },
             recv(audio_event_rx) -> message => if let Ok(audio_event) = message {
                 match audio_event {
@@ -1090,6 +1112,7 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                 stop_deadline: None,
                 stop_ready: false,
                 countdown_shown: None,
+                pending_limit_reached: false,
             });
             if preview {
                 return message_response(true, "capture.recordingStarted");
@@ -2740,6 +2763,7 @@ mod tests {
             stop_deadline: None,
             stop_ready: false,
             countdown_shown: None,
+            pending_limit_reached: false,
         }
     }
 

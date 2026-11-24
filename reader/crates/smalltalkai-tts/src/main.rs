@@ -470,7 +470,10 @@ impl NativeTts {
             unsafe { (self.destroy_audio)(generated) };
             return Ok(None);
         }
-        if audio.n <= 0 || audio.n as usize > self.sample_rate as usize * 30 {
+        if audio.samples.is_null()
+            || audio.n <= 0
+            || audio.n as usize > self.sample_rate as usize * 30
+        {
             unsafe { (self.destroy_audio)(generated) };
             bail!("Kokoro returned empty or overlong audio")
         }

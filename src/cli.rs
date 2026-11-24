@@ -200,7 +200,16 @@ fn print_text(text: &str, json: bool) -> Result<()> {
 
 fn decode_to_wav(input: &Path, output: &Path) -> Result<()> {
     let mut child = Command::new("ffmpeg")
-        .args(["-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i"])
+        .args([
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-protocol_whitelist",
+            "file,pipe",
+            "-i",
+        ])
         .arg(input)
         .args([
             "-vn",

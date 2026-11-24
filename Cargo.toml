@@ -13,7 +13,7 @@ reader-core = { path = "reader/crates/reader-core" }
 flate2 = "1"
 bzip2 = "0.6"
 tar = "0.4"
-zip = { version = "4", default-features = false, features = ["deflate"] }
+zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 anyhow = "1"
 base64 = "0.22"
 clap = { version = "4.5", features = ["derive"] }

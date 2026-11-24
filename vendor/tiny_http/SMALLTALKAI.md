@@ -5,3 +5,4 @@ connection and keeps streaming responses open until their writer finishes.
 The patch caps active connections, header size and count, and request body
 size and duration. Rejecting an unread body closes its connection without
 draining it. The reader and Settings servers use the same patched dependency.
+Dropping the server waits for its accept thread to release the listening socket.

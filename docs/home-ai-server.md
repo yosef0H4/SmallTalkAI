@@ -119,7 +119,7 @@ The service starts without a desktop login because lingering is enabled. Model
 workers can unload when idle; the API stays running and reloads them on demand.
 Keep the PC powered on and disable automatic suspend in its power settings.
 No router port forwarding is needed for Tailscale. This host listens on
-`0.0.0.0:8765`, accepting LAN and Tailscale connections with a bearer token.
+its own Tailscale address and requires a bearer token.
 
 On this PC, sleep, suspend, hibernate, and hybrid-sleep systemd targets are
 masked so a sleep request cannot interrupt serving. To allow sleep again:
@@ -196,7 +196,14 @@ the service, Tailscale route, tailnet access policy, or host firewall needs
 checking. An inference error needs the service journal; model installation and
 successful inference are separate checks.
 
-New server configurations start disabled and listen on `127.0.0.1:8765` when
-enabled. To serve on a Tailscale or LAN interface, set `server.listen` to that
-interface's IP and port and set `server.allow_remote` to `true`. The same bearer
-token is required. Existing saved addresses are preserved.
+New server configurations start disabled and use `127.0.0.1:8765` when enabled.
+For access from a tailnet, enable **Allow connections from other devices** in
+the Settings server panel and set **Bind IP and port** to the server's own
+Tailscale address, such as `100.85.156.101:8765`. Use brackets around an IPv6
+address, for example `[fd7a:115c:a1e0::1]:8765`.
+
+An existing `0.0.0.0` or `[::]` configuration must be changed to a specific
+address before the API can start. The client still uses the same bearer token.
+Tailscale encrypts traffic between tailnet devices. For connections outside an
+encrypted private network, keep the API on loopback behind an HTTPS reverse
+proxy that forwards `Authorization`.

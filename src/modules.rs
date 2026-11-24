@@ -2,10 +2,19 @@
 use crate::config::{AppConfig, ModelSelectionMode};
 use reader_core::routing;
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 fn stt_runtime_path(runtime: &routing::Runtime) -> Option<PathBuf> {
     runtime.asset.as_deref().map(crate::assets::directory)
+}
+
+pub fn catalog_stt_runtime_path(path: &Path) -> bool {
+    routing::registry()
+        .runtimes
+        .iter()
+        .filter(|runtime| runtime.feature == routing::Feature::Stt)
+        .filter_map(stt_runtime_path)
+        .any(|candidate| candidate == path)
 }
 pub fn stt_runtime(config: &AppConfig, language: &str) -> Option<PathBuf> {
     let language_runtime = config

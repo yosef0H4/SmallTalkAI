@@ -140,6 +140,8 @@ pub struct Server {
 
     // result of TcpListener::local_addr()
     listening_addr: ListenAddr,
+
+    accept_thread: Option<thread::JoinHandle<()>>,
 }
 
 enum Message {
@@ -291,7 +293,7 @@ impl Server {
                 self.0.fetch_sub(1, Relaxed);
             }
         }
-        thread::spawn(move || {
+        let accept_thread = thread::spawn(move || {
             let active_connections = Arc::new(AtomicUsize::new(0));
             // a tasks pool is used to dispatch the connections into threads
             let tasks_pool = util::TaskPool::new();
@@ -363,6 +365,7 @@ impl Server {
             messages,
             close: close_trigger,
             listening_addr: local_addr,
+            accept_thread: Some(accept_thread),
         })
     }
 
@@ -433,7 +436,9 @@ impl Drop for Server {
         self.close.store(true, Relaxed);
         // Connect briefly to ourselves to unblock the accept thread
         let maybe_stream = match &self.listening_addr {
-            ListenAddr::IP(addr) => TcpStream::connect(addr).map(Connection::from),
+            ListenAddr::IP(addr) => {
+                TcpStream::connect_timeout(addr, Duration::from_millis(250)).map(Connection::from)
+            }
             #[cfg(unix)]
             ListenAddr::Unix(addr) => {
                 // TODO: use connect_addr when its stabilized.
@@ -443,6 +448,9 @@ impl Drop for Server {
         };
         if let Ok(stream) = maybe_stream {
             let _ = stream.shutdown(Shutdown::Both);
+        }
+        if let Some(accept_thread) = self.accept_thread.take() {
+            let _ = accept_thread.join();
         }
 
         #[cfg(unix)]

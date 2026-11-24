@@ -73,6 +73,7 @@
       "backend": "webgpu",
       "label": "WebGPU · ONNX Runtime",
       "platform_assets": {
+        "linux": "paddle-webgpu-linux",
         "windows": "paddle-webgpu-windows"
       }
     },
@@ -83,6 +84,7 @@
       "backend": "webgpu",
       "label": "WebGPU · ONNX Runtime",
       "platform_assets": {
+        "linux": "paddle-webgpu-linux",
         "windows": "paddle-webgpu-windows"
       }
     }

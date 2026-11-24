@@ -1,0 +1,61 @@
+diff --git a/sherpa-onnx/c-api/c-api.cc b/sherpa-onnx/c-api/c-api.cc
+index 8ab11a1..84a73e5 100644
+--- a/sherpa-onnx/c-api/c-api.cc
++++ b/sherpa-onnx/c-api/c-api.cc
+@@ -6,6 +6,7 @@
+
+ #include <algorithm>
+ #include <cstring>
++#include <exception>
+ #include <memory>
+ #include <sstream>
+ #include <string>
+@@ -1627,7 +1628,13 @@ const SherpaOnnxOfflineTts *SherpaOnnxCreateOfflineTts(
+
+   SherpaOnnxOfflineTts *tts = new SherpaOnnxOfflineTts;
+
+-  tts->impl = std::make_unique<sherpa_onnx::OfflineTts>(tts_config);
++  try {
++    tts->impl = std::make_unique<sherpa_onnx::OfflineTts>(tts_config);
++  } catch (const std::exception &error) {
++    SHERPA_ONNX_LOGE("Could not create OfflineTts: %s", error.what());
++    delete tts;
++    return nullptr;
++  }
+
+   return tts;
+ }
+diff --git a/sherpa-onnx/csrc/session.cc b/sherpa-onnx/csrc/session.cc
+index e5c220c..dfaeea9 100755
+--- a/sherpa-onnx/csrc/session.cc
++++ b/sherpa-onnx/csrc/session.cc
+@@ -5,6 +5,7 @@
+ #include "sherpa-onnx/csrc/session.h"
+
+ #include <algorithm>
++#include <cstdlib>
+ #include <fstream>
+ #include <sstream>
+ #include <string>
+@@ -144,6 +145,21 @@ Ort::SessionOptions GetSessionOptionsImpl(
+
+   SplitProviderAndConfig(provider_str, new_provider_str, config);
+
++  if (new_provider_str == "webgpu") {
++    Ort::SessionOptions options;
++    options.SetIntraOpNumThreads(num_threads);
++    options.SetInterOpNumThreads(num_threads);
++    if (std::getenv("SMALLTALKAI_SHERPA_WEBGPU_TRACE")) {
++      options.SetLogSeverityLevel(0);
++    }
++    const char *index = std::getenv("SMALLTALKAI_WEBGPU_ADAPTER_INDEX");
++    const char *keys[] = {"adapterIndex"};
++    const char *values[] = {index};
++    Ort::ThrowOnError(Ort::GetApi().SessionOptionsAppendExecutionProvider(
++        options, "WebGPU", keys, values, index ? 1 : 0));
++    return options;
++  }
++
+   Provider p = StringToProvider(new_provider_str);
+
+   Ort::SessionOptions sess_opts;

@@ -115,6 +115,7 @@ $SherpaSource = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $Sher
 Copy-Item -LiteralPath (Join-Path $SherpaSource 'LICENSE') -Destination (Join-Path $SherpaDirectory 'Sherpa-ONNX-LICENSE.txt')
 Copy-Item -LiteralPath (Join-Path $SherpaSource 'build/_deps/espeak_ng-src/COPYING') -Destination (Join-Path $SherpaDirectory 'eSpeak-NG-COPYING.txt')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'build-sherpa-webgpu.ps1') -Destination $SherpaDirectory
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'sherpa-webgpu.patch') -Destination $SherpaDirectory
 Copy-Item -LiteralPath (Join-Path $Root 'assets\language\lid.176.ftz') -Destination $Runtime -Force
 Copy-Item -LiteralPath (Join-Path $Root 'LICENSE') -Destination $Portable -Force
 New-Item -ItemType Directory -Path (Join-Path $Portable 'licenses') -Force | Out-Null

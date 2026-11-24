@@ -1,7 +1,9 @@
 Name:           smalltalkai
 Version:        0.3.1
-Release:        54%{?dist}
+Release:        56%{?dist}
 %global __provides_exclude_from ^/usr/lib/smalltalkai/.*\.so.*$
+# These dependencies are resolved by the app's selected Sherpa/ONNX runtime.
+%global __requires_exclude ^lib(onnxruntime|sherpa-onnx-c-api)[.]so([.]1)?[(]
 Summary:        Local dictation, read aloud, and screen text for Linux desktops
 License:        GPL-2.0-only AND MIT AND OFL-1.1 AND CC-BY-SA-3.0
 URL:            https://github.com/yosef0H4/SmallTalkAI
@@ -39,6 +41,7 @@ cp -a %{_sourcedir}/stage/. %{buildroot}/
 %files
 /usr/lib/smalltalkai/fixtures
 /usr/lib/smalltalkai/bundled-runtimes
+/usr/lib/smalltalkai/sherpa-webgpu
 %defattr(-,root,root,-)
 %attr(0755,root,root) /usr/bin/smalltalkai
 /usr/bin/smalltalkai-ctl

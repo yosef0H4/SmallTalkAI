@@ -144,6 +144,10 @@ fn load_ocr(args: &Args) -> Result<OcrEngine> {
         .with_context(|| format!("loading ONNX Runtime from {}", library.display()))?;
     let (environment, use_webgpu) = args.webgpu.configure(environment, &args.device)?;
     environment.commit();
+    #[cfg(target_os = "linux")]
+    if use_webgpu {
+        webgpu::retain_environment_until_exit()?;
+    }
     let use_cuda = args.device == "gpu" && !use_webgpu;
     if use_cuda {
         anyhow::ensure!(

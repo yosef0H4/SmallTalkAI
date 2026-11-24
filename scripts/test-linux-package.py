@@ -31,6 +31,11 @@ def main():
     assert {path.name for path in bundled.iterdir()} == {'parakeet-vulkan', 'sherpa-cpu'}
     assert all((path / '.verified').is_file() for path in bundled.iterdir())
     assert not list(bundled.rglob('*.gguf')) and not list(bundled.rglob('*.onnx'))
+    adapter = root / 'sherpa-webgpu' / 'libsherpa-onnx-c-api.so'
+    assert adapter.is_file() and not os.access(adapter, os.W_OK)
+    imports = subprocess.check_output(['readelf', '-d', str(adapter)], text=True)
+    assert '[libonnxruntime.so.1]' in imports and 'RUNPATH' not in imports, imports
+    assert not list(bundled.glob('*webgpu*')), 'Linux WebGPU runtime must remain an optional download'
     assert (root / 'downloads.json').is_file()
     assert (root / 'lid.176.ftz').stat().st_size == 938013
     for name in ('fixtures/parakeet-smoke.wav', 'fixtures/asr/arabic-sa.wav'):

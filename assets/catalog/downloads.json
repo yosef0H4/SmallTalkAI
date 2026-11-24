@@ -1701,6 +1701,24 @@
     }
   },
   {
+    "id": "paddle-webgpu-linux",
+    "label": "ONNX Runtime · WebGPU · Linux x64",
+    "kind": "ocr",
+    "platform": "linux-x86_64",
+    "url": "https://registry.npmjs.org/onnxruntime-node/-/onnxruntime-node-1.31.1.tgz",
+    "sha256": "d7a3de2b1bba92614abc74af909cc0ba4f4dd5347735418794edeb58cfef2d22",
+    "bytes": 115391311,
+    "format": "tar_gz",
+    "strip": 0,
+    "archive_files": {
+      "package/bin/napi-v6/linux/x64/libonnxruntime.so.1": "lib/libonnxruntime.so"
+    },
+    "required": [
+      "lib/libonnxruntime.so"
+    ],
+    "dependencies": []
+  },
+  {
     "id": "paddle-webgpu-windows",
     "label": "ONNX Runtime · WebGPU · Windows x64",
     "kind": "ocr",

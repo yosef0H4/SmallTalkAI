@@ -190,6 +190,8 @@ struct NativeTts {
     _lib: Library,
     #[cfg(windows)]
     _onnx: Library,
+    #[cfg(target_os = "linux")]
+    _onnx: Option<Library>,
     handle: *const std::ffi::c_void,
     generate: unsafe extern "C" fn(
         *const std::ffi::c_void,
@@ -214,11 +216,16 @@ impl NativeTts {
         let library_path = if let Some(path) = &args.library {
             path.clone()
         } else if args.webgpu {
-            anyhow::ensure!(
-                cfg!(windows),
-                "The packaged WebGPU speech runtime requires Windows"
-            );
-            std::env::current_exe()?.with_file_name("sherpa-webgpu/sherpa-onnx-c-api.dll")
+            let adapter = match std::env::consts::OS {
+                "windows" => "sherpa-onnx-c-api.dll",
+                "linux" => "libsherpa-onnx-c-api.so",
+                platform => {
+                    bail!("The packaged WebGPU speech runtime is unavailable on {platform}")
+                }
+            };
+            std::env::current_exe()?
+                .with_file_name("sherpa-webgpu")
+                .join(adapter)
         } else {
             if cfg!(windows) {
                 [
@@ -251,6 +258,17 @@ impl NativeTts {
             .map(Library::from)
         }
         .context("loading the selected Windows ONNX runtime")?;
+        #[cfg(target_os = "linux")]
+        let onnx = if args.webgpu {
+            // The adapter depends on the SONAME libonnxruntime.so.1. Open the
+            // verified runtime directly so another installed ORT cannot take its place.
+            Some(
+                unsafe { Library::new(args.runtime_dir.join("lib/libonnxruntime.so")) }
+                    .context("loading the selected Linux WebGPU ONNX runtime")?,
+            )
+        } else {
+            None
+        };
         #[cfg(windows)]
         let library = unsafe {
             // Resolve ONNX dependencies beside the selected runtime, before System32.
@@ -387,7 +405,7 @@ impl NativeTts {
         }
         Ok(Self {
             _lib: library,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             _onnx: onnx,
             handle,
             generate,

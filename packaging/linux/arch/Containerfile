@@ -1,6 +1,6 @@
 FROM docker.io/library/archlinux:base
 RUN pacman -Syu --noconfirm && pacman -S --noconfirm \
-    alsa-lib at-spi2-core base-devel cairo curl gcc git glib2 libx11 \
+    alsa-lib at-spi2-core base-devel cairo cmake curl gcc git glib2 libx11 ninja \
     libxtst pipewire clang nodejs npm pango pkgconf python rustup binutils vulkan-headers \
     vulkan-icd-loader wl-clipboard wayland-protocols xdg-utils libsecret \
     xclip systemd webkit2gtk-4.1 && pacman -Scc --noconfirm

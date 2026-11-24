@@ -1,6 +1,6 @@
 # Runtime packaging
 
-Parakeet Vulkan is the smallest cataloged GPU runtime for Dictation on Windows and Linux. Windows Read aloud and Image text already share one native ONNX Runtime WebGPU download. Read aloud also uses a Sherpa C API adapter included in the Windows application package. Linux has cataloged Sherpa CPU and CUDA options for both features. [Runtime selection](../src/modules.rs) · [Runtime catalog](../assets/catalog/modules.json) · [Windows adapter packaging](../scripts/build-distribution.ps1)
+Parakeet Vulkan is the smallest cataloged GPU runtime for Dictation on Windows and Linux. Read aloud and Image text share one native ONNX Runtime WebGPU asset per platform. Both native packages include a Sherpa C API adapter built from the same patch. Linux downloads the WebGPU inference library when selected. [Runtime selection](../src/modules.rs) · [Runtime catalog](../assets/catalog/modules.json) · [Sherpa WebGPU patch](../scripts/sherpa-webgpu.patch)
 
 ## Shared CUDA 12.8
 
@@ -23,10 +23,17 @@ library uses PTX for Pascal. Its imports and GPU targets were inspected and
 the application was cross-compiled. Windows GPU execution with these new
 pins still needs a native test. [Linux engine release](https://github.com/yosef0H4/simple-stt-runtimes/releases/tag/parakeet-abi6-cuda12.8-linux-x64-v1) · [Windows build workflow](https://github.com/mudler/parakeet.cpp/blob/v0.5.0/.github/workflows/release.yml) · [NVIDIA driver compatibility](https://docs.nvidia.com/deploy/cuda-compatibility/latest/minor-version-compatibility.html)
 
-The Linux build of ONNX Runtime 1.31.1 processed the English and Arabic WebGPU
-OCR fixtures on the GTX 1070 test machine, then crashed during worker shutdown. Linux keeps
-WebGPU out of the installed runtime catalog while that failure and the native
-Sherpa WebGPU adapter remain unresolved.
+## Linux WebGPU
+
+On Linux x86-64, both features use the same optional ONNX Runtime 1.31.1
+download. The pinned archive is 115,391,311 bytes and the app extracts the
+47,552,704-byte Linux library. The Linux package builds the Sherpa adapter
+with CMake and Ninja. Both features use the system Vulkan loader and driver
+through Dawn. [Linux adapter build](../scripts/build-sherpa-webgpu.sh) · [ONNX Runtime WebGPU requirements](https://onnxruntime.ai/docs/execution-providers/WebGPU-ExecutionProvider.html#requirements)
+
+The Linux OCR worker retains the WebGPU environment until process exit.
+This avoids an ONNX Runtime finalizer releasing Dawn after Vulkan driver
+shutdown. Model sessions still close through the ordinary worker path.
 
 ## Previous runtime packages
 
@@ -60,8 +67,7 @@ Windows Parakeet CUDA consists of `parakeet-cuda-windows` (32,659,792 B), `parak
 
 ## Packaging opportunities
 
-- Keep the base installer model-free and download acceleration runtimes on demand. Offer Vulkan for Dictation and shared WebGPU for Read aloud and Image text on Windows. Fedora, Arch, and Debian packages declare their distro Vulkan loader. The GPU driver comes from the system.
-- The same ORT 1.31.1 tar contains a Linux x64 native WebGPU library (47,552,704 B). This is a candidate for porting the Windows worker integration. The Linux Sherpa build, hardware behavior and minimum driver and distribution requirements still need validation. [Pinned Microsoft Node distribution support table](https://raw.githubusercontent.com/microsoft/onnxruntime/v1.31.1/js/node/README.md)
+- Keep the base installer model-free. Windows and Linux offer Vulkan for Dictation and WebGPU for Read aloud and Image text. Fedora, Arch, and Debian packages declare their distro Vulkan loader. The GPU driver comes from the system.
 - A gzip-6 tar of the two existing WebGPU DLLs measured 19,569,452 B before license and notices. A Windows-only package could save about 91 MiB of download without changing the libraries. A release would need their notices, a pinned checksum and the same clean OCR and synthesis worker checks. [ONNX Runtime notices](https://github.com/microsoft/onnxruntime/blob/main/ThirdPartyNotices.txt) · [DirectX Shader Compiler license](https://github.com/microsoft/DirectXShaderCompiler/blob/main/LICENSE.TXT)
 - If dual CUDA usage on Linux justifies additional packaging, first validate Parakeet against one pinned shared cuBLAS 13 dependency and account for Sherpa's host cudart and cuRAND requirements. The measured duplicate Parakeet cuBLAS pair occupies 595,785,864 B. A local gzip-6 sample of the upstream Parakeet library, cudart regular file and docs occupied 140,969,323 B before symlinks. A slim release would save download bytes for people who already installed Sherpa's shared CUDA dependencies. Keep using pinned NVIDIA downloads for vendor libraries. The CUDA license lists redistributable components and conditions for distributing them with an application. [NVIDIA CUDA 12.8 distribution terms](https://docs.nvidia.com/cuda/archive/12.8.0/eula/index.html) · [NVIDIA CUDA 13 distribution terms](https://docs.nvidia.com/cuda/archive/13.0.0/eula/index.html)
 

@@ -3,6 +3,21 @@ use anyhow::{ensure, Result};
 use ort::environment::EnvironmentBuilder;
 use ort::ep::ArbitrarilyConfigurableExecutionProvider;
 
+#[cfg(target_os = "linux")]
+pub fn retain_environment_until_exit() -> Result<()> {
+    use ort::environment::Environment;
+    use std::sync::{Arc, OnceLock};
+
+    // ort's finalizer can release the Dawn environment after the Vulkan driver
+    // has shut down. Keep one reference for the lifetime of this OCR worker.
+    // Model sessions still drop normally, and process exit releases the device.
+    static ENVIRONMENT: OnceLock<Arc<Environment>> = OnceLock::new();
+    if ENVIRONMENT.get().is_none() {
+        let _ = ENVIRONMENT.set(Environment::current()?);
+    }
+    Ok(())
+}
+
 #[derive(clap::Args, Debug, Default)]
 pub struct Options {
     /// Use a native ONNX Runtime build with WebGPU compiled in.

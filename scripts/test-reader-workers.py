@@ -136,7 +136,9 @@ def main():
                         if 'placed on [WebGpuExecutionProvider]' in line:
                             placements += 1
                             print(line.strip())
-                        dispatched |= 'WebGpuContext::Run' in line
+                        dispatched |= 'WebGpuContext::Run' in line or (
+                            'webgpu_context.cc:' in line and 'Starting program' in line
+                        )
                 assert placements >= 2 and dispatched, f'Missing detector/recognizer WebGPU evidence: {log_path}'
             print('PASS real OCR worker: English and Arabic fixtures, verified text, clean shutdown')
             if args.model_dir and args.runtime_dir:

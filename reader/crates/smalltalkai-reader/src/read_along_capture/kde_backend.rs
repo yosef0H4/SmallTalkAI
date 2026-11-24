@@ -500,7 +500,7 @@ impl WindowBackend for KdeBackend {
         Ok(())
     }
 
-    fn input_ready(&mut self, window: &WindowSnapshot) -> Result<bool> {
+    fn input_ready(&mut self, window: &WindowSnapshot, _action: &AdvanceAction) -> Result<bool> {
         let WindowId::KWin(uuid) = &window.id else {
             bail!("not a KWin window")
         };

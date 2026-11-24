@@ -333,7 +333,7 @@ impl WindowBackend for LinuxBackend {
         self.save_region(live, region, current)
     }
 
-    fn input_ready(&mut self, window: &WindowSnapshot) -> Result<bool> {
+    fn input_ready(&mut self, window: &WindowSnapshot, _action: &AdvanceAction) -> Result<bool> {
         let WindowId::X11(target) = window.id else {
             return Ok(false);
         };
@@ -368,7 +368,7 @@ impl WindowBackend for LinuxBackend {
             "saved region no longer fits the selected window"
         );
         ensure!(current(), "read-along action canceled");
-        if !self.input_ready(window)? {
+        if !self.input_ready(window, action)? {
             return Err(super::FocusChanged.into());
         }
         let input = match action {

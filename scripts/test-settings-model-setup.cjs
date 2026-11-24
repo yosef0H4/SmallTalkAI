@@ -6,6 +6,7 @@ const f = require('./settings-fixture.cjs');
 
 (async () => {
   let browser;
+  let finishVoice;
   try {
     f.options.modelDownloadDelay = 15000;
     f.options.modelQueueNotice = true;
@@ -42,7 +43,14 @@ const f = require('./settings-fixture.cjs');
     });
     await context.route('**/api/preview-voice', async route => {
       voice = route.request().postDataJSON();
+      await new Promise(resolve => { finishVoice = resolve; });
       await route.fulfill({ json: { ok: true } });
+    });
+    const voiceWaveform = '▁▂▃▄▆▆▄▃▂▁';
+    const voiceMeterSessions = [];
+    await context.route('**/api/preview-voice-level', async route => {
+      voiceMeterSessions.push(route.request().postDataJSON().session_id);
+      await route.fulfill({ json: { waveform: voiceWaveform } });
     });
     const url = 'http://127.0.0.1:' + f.server.address().port + '/#token=' + f.token;
     let page = await context.newPage();
@@ -97,7 +105,7 @@ const f = require('./settings-fixture.cjs');
     await button('Next').click();
     await page.setViewportSize({ width: 360, height: 360 });
     const scroller = page.locator('.model-setup-scroll');
-    await page.getByRole('heading', { name: 'Models', exact: true }).waitFor();
+    await page.locator('#model-heading').waitFor();
     await footerAtBottom('Model navigation at the top of the list');
     const scrollBox = await scroller.boundingBox();
     if (process.env.SETTINGS_VISUAL_REVIEW) {
@@ -147,7 +155,7 @@ const f = require('./settings-fixture.cjs');
     await button('Stop').click();
     const transcript = page.getByRole('textbox', { name: 'Preview transcript' });
     await page.waitForFunction(id => document.getElementById(id)?.value === 'My preview transcript.', await transcript.getAttribute('id'));
-    assert.equal(await page.locator('.preview-waveform').count(), 0);
+    assert.equal(await page.locator('.preview-waveform').textContent(), '▁'.repeat(10));
     assert.equal(f.actions.some(item => item.action === 'test_model'), false);
     await f.setChoice(page.locator('#stt-mode'), 'follow_keyboard');
     await button('Next').click();
@@ -181,9 +189,21 @@ const f = require('./settings-fixture.cjs');
     await f.setChoice(page.locator('[data-setting-path="tts.single.model"] [role=combobox]'), 'kokoro');
     await button('Test voice').waitFor();
     await f.setChoice(page.locator('[data-setting-path="tts.single.voice"] [role=combobox]'), 'af_bella');
+    const voiceText = page.getByRole('textbox', { name: 'Text to read aloud' });
+    assert.match(await voiceText.inputValue(), /SmallTalkAI/);
+    await voiceText.fill('Café preview. This is my test sentence.');
     await button('Test voice').click();
-    await page.waitForFunction(() => document.querySelector('.model-setup [aria-busy=false]'));
+    const meter = page.locator('.model-preview .preview-waveform');
+    await meter.filter({ hasText: voiceWaveform }).waitFor();
+    assert(await button('Testing voice…').isDisabled());
     assert.equal(voice.binding.voice, 'af_bella');
+    assert.equal(voice.text, await voiceText.inputValue());
+    assert(voiceMeterSessions.every(id => id === voice.session_id));
+    finishVoice();
+    await button('Test voice').waitFor();
+    assert.equal(await meter.textContent(), '▁'.repeat(10));
+    await voiceText.clear();
+    assert(await button('Test voice').isDisabled());
     const help = page.getByRole('button', { name: /Kokoro may pronounce all-caps/ });
     await help.click();
     assert.equal(await help.getAttribute('aria-expanded'), 'true');

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use smalltalkai::config::{InferenceDevice, LogLevel};
+use smalltalkai::infer::chunks::{transcribe_pcm_chunks, SAMPLE_RATE};
 use smalltalkai::infer::parakeet_native::ParakeetNative;
 use smalltalkai::infer::protocol::{read_frame, write_frame, Frame, MessageType};
 use std::io::{stdin, stdout, BufReader};
@@ -64,18 +65,23 @@ fn main() -> Result<()> {
                 let _ = write_frame(&mut output, &Frame::empty(MessageType::ShutdownAck));
                 break;
             }
-            MessageType::TranscribePcm => {
+            MessageType::TranscribePcm | MessageType::TranscribePcmOneShot => {
                 let session_id = frame.session_id;
                 let response = (|| -> Result<String> {
                     let (sample_rate, samples) = frame.decode_pcm()?;
                     anyhow::ensure!(
-                        sample_rate == 16_000,
+                        sample_rate == SAMPLE_RATE,
                         "expected 16 kHz PCM, got {sample_rate}"
                     );
                     ensure_engine(&mut engine, &args)?;
                     tracing::info!(session_id, samples = samples.len(), "inference begin");
                     let started = std::time::Instant::now();
-                    let transcript = engine.as_ref().unwrap().transcribe_pcm16_16k(&samples)?;
+                    let engine = engine.as_ref().unwrap();
+                    let transcript = if frame.kind == MessageType::TranscribePcmOneShot {
+                        engine.transcribe_pcm16_16k(&samples)?
+                    } else {
+                        transcribe_pcm_chunks(&samples, |chunk| engine.transcribe_pcm16_16k(chunk))?
+                    };
                     tracing::info!(target: "smalltalkai_privacy", session_id, audio_ms = samples.len() / 16, elapsed_ms = started.elapsed().as_millis(), "inference timing");
                     tracing::info!(
                         session_id,

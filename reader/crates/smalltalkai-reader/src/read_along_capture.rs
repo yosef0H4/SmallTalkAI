@@ -137,7 +137,7 @@ pub trait WindowBackend {
     ) -> Result<()> {
         Ok(())
     }
-    fn input_ready(&mut self, _window: &WindowSnapshot) -> Result<bool> {
+    fn input_ready(&mut self, _window: &WindowSnapshot, _action: &AdvanceAction) -> Result<bool> {
         Ok(true)
     }
     fn choose_window_and_region(
@@ -164,8 +164,9 @@ pub trait WindowBackend {
 #[derive(Debug, Clone)]
 pub struct Target {
     pub window: WindowId,
-    /// Region coordinates in the selected window's client coordinate space.
+    /// Pixel offsets from the window bounds at selection time.
     pub region: Rect,
+    pub reference_size: Option<(u32, u32)>,
 }
 
 impl Target {
@@ -197,16 +198,18 @@ impl Target {
     /// Select a window and drag a single region. The returned image is the
     /// first screenshot, ready to pass to OCR.
     pub fn select(current: impl Fn() -> bool) -> Result<(Self, PathBuf)> {
-        let mut backend = native_backend()?;
+        let mut backend = native_backend(false)?;
         let (window, screen_region) = backend.choose_window_and_region(&current)?;
         ensure!(!window.minimized, "selected window is minimized");
         ensure!(current(), "read-along selection canceled");
         let relative = screen_region.relative_to(window.bounds)?;
         let image = backend.capture(&window, relative, &current)?;
+        let reference_size = cfg!(windows).then_some((window.bounds.width, window.bounds.height));
         Ok((
             Self {
                 window: window.id,
                 region: relative,
+                reference_size,
             },
             image,
         ))
@@ -215,16 +218,16 @@ impl Target {
     /// Capture the saved window-relative region after checking that the exact
     /// window still exists and the region remains within its current bounds.
     pub fn capture(&self, current: &dyn Fn() -> bool) -> Result<PathBuf> {
-        let mut backend = native_backend()?;
-        let window = self.live_window(backend.as_mut())?;
+        let mut backend = native_backend(false)?;
+        let (window, region) = self.live_window(backend.as_mut())?;
         ensure!(current(), "read-along capture canceled");
-        backend.capture(&window, self.region, &current)
+        backend.capture(&window, region, &current)
     }
 
     /// Apply a key or region-relative click only through an adapter that can
     /// address the selected native window directly.
     pub fn prepare_input(&self, action: &AdvanceAction, current: &dyn Fn() -> bool) -> Result<()> {
-        let mut backend = native_backend()?;
+        let mut backend = native_backend(false)?;
         self.live_window(backend.as_mut())?;
         backend.prepare_input(action, current)
     }
@@ -232,10 +235,11 @@ impl Target {
     pub fn advance(
         &self,
         action: AdvanceAction,
+        background_advance: bool,
         current: &dyn Fn() -> bool,
         waiting: &dyn Fn(bool),
     ) -> Result<()> {
-        let mut backend = native_backend()?;
+        let mut backend = native_backend(background_advance)?;
         ensure!(
             backend.supports_window_bound_input(),
             "window-bound input is unavailable on this desktop"
@@ -247,31 +251,68 @@ impl Target {
                 .inspect(&self.window)?
                 .ok_or_else(|| anyhow::anyhow!("selected window was closed"))?;
             ensure!(window.id == self.window, "selected window identity changed");
-            if window.minimized || !backend.input_ready(&window)? {
+            if window.minimized || !backend.input_ready(&window, &action)? {
                 waiting(true);
                 std::thread::sleep(std::time::Duration::from_millis(250));
                 continue;
             }
-            self.region.at_window(window.bounds)?;
+            let region = self.region_for(window.bounds)?;
+            let click = if let AdvanceAction::Click { x, y } = &action {
+                ensure!(
+                    *x < self.region.width && *y < self.region.height,
+                    "read-along click is outside the selected region"
+                );
+                Some(AdvanceAction::Click {
+                    x: (u64::from(*x) * u64::from(region.width) / u64::from(self.region.width))
+                        as u32,
+                    y: (u64::from(*y) * u64::from(region.height) / u64::from(self.region.height))
+                        as u32,
+                })
+            } else {
+                None
+            };
             waiting(false);
-            match backend.advance(&window, self.region, &action, current) {
+            match backend.advance(&window, region, click.as_ref().unwrap_or(&action), current) {
                 Err(error) if error.is::<FocusChanged>() => continue,
                 result => return result,
             }
         }
     }
 
-    fn live_window(&self, backend: &mut dyn WindowBackend) -> Result<WindowSnapshot> {
+    fn region_for(&self, bounds: Rect) -> Result<Rect> {
+        let mut region = self.region;
+        if let Some((width, height)) = self.reference_size {
+            region.at_window(Rect {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            })?;
+            let scale_x = |edge: u64| edge * u64::from(bounds.width);
+            let scale_y = |edge: u64| edge * u64::from(bounds.height);
+            let left = scale_x(u64::try_from(region.x)?) / u64::from(width);
+            let top = scale_y(u64::try_from(region.y)?) / u64::from(height);
+            let right = scale_x(u64::try_from(region.right())?).div_ceil(u64::from(width));
+            let bottom = scale_y(u64::try_from(region.bottom())?).div_ceil(u64::from(height));
+            region = Rect {
+                x: i32::try_from(left)?,
+                y: i32::try_from(top)?,
+                width: u32::try_from(right - left)?,
+                height: u32::try_from(bottom - top)?,
+            };
+        }
+        region.at_window(bounds)?;
+        Ok(region)
+    }
+
+    fn live_window(&self, backend: &mut dyn WindowBackend) -> Result<(WindowSnapshot, Rect)> {
         let window = backend
             .inspect(&self.window)?
             .ok_or_else(|| anyhow::anyhow!("selected window was closed"))?;
         ensure!(!window.minimized, "selected window is minimized");
-        ensure!(
-            self.region.at_window(window.bounds).is_ok(),
-            "saved region no longer fits the selected window"
-        );
         ensure!(window.id == self.window, "selected window identity changed");
-        Ok(window)
+        let region = self.region_for(window.bounds)?;
+        Ok((window, region))
     }
 }
 
@@ -285,12 +326,14 @@ impl std::fmt::Display for FocusChanged {
 impl std::error::Error for FocusChanged {}
 
 #[cfg(windows)]
-fn native_backend() -> Result<Box<dyn WindowBackend>> {
-    Ok(Box::new(windows_backend::WindowsBackend::default()))
+fn native_backend(background_advance: bool) -> Result<Box<dyn WindowBackend>> {
+    Ok(Box::new(windows_backend::WindowsBackend::new(
+        background_advance,
+    )))
 }
 
 #[cfg(target_os = "linux")]
-fn native_backend() -> Result<Box<dyn WindowBackend>> {
+fn native_backend(_background_advance: bool) -> Result<Box<dyn WindowBackend>> {
     if std::env::var_os("WAYLAND_DISPLAY").is_some() {
         return Ok(Box::new(kde_backend::KdeBackend::new()?));
     }
@@ -306,7 +349,7 @@ mod linux_backend;
 mod kde_backend;
 
 #[cfg(not(any(windows, target_os = "linux")))]
-fn native_backend() -> Result<Box<dyn WindowBackend>> {
+fn native_backend(_background_advance: bool) -> Result<Box<dyn WindowBackend>> {
     bail!("read-along capture is unsupported on this platform")
 }
 
@@ -345,12 +388,28 @@ mod windows_backend {
 
     const HELPER: &str = include_str!("../../../assets/windows-read-along.ps1");
 
-    #[derive(Default)]
     pub(super) struct WindowsBackend {
         selection_image: Option<PathBuf>,
+        background_advance: bool,
+    }
+    fn requires_foreground(sequence: &reader_core::recorded_action::RecordedAction) -> bool {
+        sequence.events.iter().any(|event| {
+            let key = event.key.as_str();
+            ["Alt", "Control", "Meta", "Shift"]
+                .iter()
+                .any(|prefix| key.starts_with(prefix))
+                || matches!(key, "CapsLock" | "NumLock" | "ScrollLock")
+        })
     }
 
     impl WindowsBackend {
+        pub(super) fn new(background_advance: bool) -> Self {
+            Self {
+                selection_image: None,
+                background_advance,
+            }
+        }
+
         fn advance_key_or_click(
             args: &[(&str, String)],
             current: &dyn Fn() -> bool,
@@ -563,7 +622,12 @@ mod windows_backend {
             Ok(path)
         }
 
-        fn input_ready(&mut self, window: &WindowSnapshot) -> Result<bool> {
+        fn input_ready(&mut self, window: &WindowSnapshot, action: &AdvanceAction) -> Result<bool> {
+            if self.background_advance
+                && !matches!(action, AdvanceAction::Sequence(sequence) if requires_foreground(sequence))
+            {
+                return Ok(true);
+            }
             use windows_sys::Win32::UI::WindowsAndMessaging::{
                 GetAncestor, GetForegroundWindow, GA_ROOT,
             };
@@ -581,8 +645,19 @@ mod windows_backend {
             current: &dyn Fn() -> bool,
         ) -> Result<()> {
             ensure!(current(), "read-along action canceled");
+            if !self.input_ready(window, action)? {
+                return Err(FocusChanged.into());
+            }
             let mut args = vec![("TargetJson", Self::target_json(window, region)?)];
+            if !self.background_advance {
+                args.push(("RequireForeground", "1".into()));
+            }
             match action {
+                AdvanceAction::Sequence(sequence)
+                    if self.background_advance && !requires_foreground(sequence) =>
+                {
+                    return windows_picker::advance_sequence(&window.id, region, sequence, current);
+                }
                 AdvanceAction::Sequence(sequence) => {
                     return self.recorded(window, sequence, current)
                 }
@@ -812,6 +887,7 @@ mod tests {
         let id = WindowId::X11(42);
         let target = Target {
             window: id.clone(),
+            reference_size: None,
             region: Rect {
                 x: 20,
                 y: 30,
@@ -829,8 +905,8 @@ mod tests {
             },
             minimized: false,
         }));
-        let live = target.live_window(&mut moved).unwrap();
-        assert_eq!(target.region.at_window(live.bounds).unwrap().x, 520);
+        let (live, region) = target.live_window(&mut moved).unwrap();
+        assert_eq!(region.at_window(live.bounds).unwrap().x, 520);
 
         let mut destroyed = FakeBackend(None);
         assert!(target.live_window(&mut destroyed).is_err());

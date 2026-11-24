@@ -98,6 +98,8 @@ pub enum ReadAlongAction {
 pub struct ReadAlongSettings {
     /// Prefetch the next page while the current page is being spoken.
     pub prefetch: bool,
+    /// Allow Windows to send window-targeted page turns while another app has focus.
+    pub background_advance: bool,
     /// Key used to advance to the next page in key-action mode.
     pub advance_key: String,
     /// Recorded physical events; absent values retain the existing key assignment.
@@ -114,6 +116,7 @@ impl Default for ReadAlongSettings {
     fn default() -> Self {
         Self {
             prefetch: true,
+            background_advance: true,
             advance_key: "Space".into(),
             sequence: None,
             action: ReadAlongAction::Key,
@@ -133,6 +136,7 @@ pub struct SpeechRouteDefaults {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SpeechSettings {
+    pub processing_mode: crate::processing::ProcessingMode,
     pub excluded_words: Vec<String>,
     #[serde(skip)]
     pub route_defaults: Option<SpeechRouteDefaults>,
@@ -155,6 +159,7 @@ pub struct SpeechSettings {
 impl Default for SpeechSettings {
     fn default() -> Self {
         Self {
+            processing_mode: Default::default(),
             excluded_words: Vec::new(),
             route_defaults: None,
             saved_remote: None,

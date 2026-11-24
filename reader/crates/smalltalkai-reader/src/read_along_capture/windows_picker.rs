@@ -3,6 +3,7 @@ use super::{windows_graphics, Rect, WindowId, WindowSnapshot};
 use anyhow::{ensure, Context, Result};
 use image::{codecs::png::PngEncoder, ExtendedColorType, ImageEncoder};
 use reader_core::local_ipc::{WINDOWS_PICKER_CLASS, WINDOWS_TOOLTIP_PROPERTY};
+use reader_core::recorded_action::{self, Playback, RecordedAction};
 use std::cell::UnsafeCell;
 use std::path::Path;
 use std::ptr::{null, null_mut};
@@ -20,7 +21,8 @@ use windows_sys::Win32::UI::HiDpi::{
     SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, ReleaseCapture, SetCapture, VK_ESCAPE, VK_SPACE,
+    GetAsyncKeyState, GetKeyboardLayout, MapVirtualKeyExW, ReleaseCapture, SetCapture,
+    MAPVK_VSC_TO_VK_EX, VK_ESCAPE, VK_SPACE,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
@@ -848,26 +850,96 @@ fn cloaked(hwnd: HWND) -> bool {
     status >= 0 && cloaked != 0
 }
 
-pub(super) fn advance_space(id: &WindowId, region: Rect, current: &dyn Fn() -> bool) -> Result<()> {
+fn advance_target(id: &WindowId, region: Rect) -> Result<HWND> {
     let WindowId::Windows { hwnd, .. } = *id else {
         anyhow::bail!("target is not a Windows window");
     };
     let hwnd = hwnd as HWND;
     let window = inspect(id).context("The selected window is unavailable")?;
-    if window.minimized || unsafe { GetForegroundWindow() != GetAncestor(hwnd, GA_ROOT) } {
+    if window.minimized {
         return Err(super::FocusChanged.into());
     }
     region.at_window(window.bounds)?;
-    ensure!(current(), "Read-along action canceled");
+    Ok(hwnd)
+}
+
+fn post_key(hwnd: HWND, vk: u32, scan: u32, down: bool) -> Result<()> {
+    let flags = if down { 0 } else { 0xc0000000 };
+    let lparam = (flags | (scan << 16) | 1) as i32 as LPARAM;
+    let message = if down { WM_KEYDOWN } else { WM_KEYUP };
     ensure!(
-        unsafe { PostMessageW(hwnd, WM_KEYDOWN, VK_SPACE as WPARAM, 0) } != 0,
-        "Could not send Space to the selected window"
-    );
-    ensure!(
-        unsafe { PostMessageW(hwnd, WM_KEYUP, VK_SPACE as WPARAM, 0) } != 0,
-        "Could not release Space in the selected window"
+        unsafe { PostMessageW(hwnd, message, vk as WPARAM, lparam) } != 0,
+        "Could not send key event to the selected window"
     );
     Ok(())
+}
+
+pub(super) fn advance_space(id: &WindowId, region: Rect, current: &dyn Fn() -> bool) -> Result<()> {
+    let hwnd = advance_target(id, region)?;
+    ensure!(current(), "Read-along action canceled");
+    post_key(hwnd, u32::from(VK_SPACE), 0x39, true)?;
+    post_key(hwnd, u32::from(VK_SPACE), 0x39, false)
+}
+
+struct WindowPlayback<'a> {
+    id: &'a WindowId,
+    hwnd: HWND,
+    current: &'a dyn Fn() -> bool,
+    started: Instant,
+}
+
+impl Playback for WindowPlayback<'_> {
+    fn wait_until(&mut self, at_ms: u32) -> Result<()> {
+        let deadline = self.started + Duration::from_millis(u64::from(at_ms));
+        loop {
+            ensure!((self.current)(), "Read-along action canceled");
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Ok(());
+            }
+            std::thread::sleep(left.min(Duration::from_millis(5)));
+        }
+    }
+
+    fn key(&mut self, key: &str, down: bool) -> Result<()> {
+        let window = inspect(self.id).context("The selected window is unavailable")?;
+        ensure!(
+            !down || !window.minimized,
+            "The selected window is minimized"
+        );
+        let scan = recorded_action::windows_scan_code(key)?;
+        let win_scan = if scan & 0x100 != 0 {
+            0xe000 | (scan & 0xff)
+        } else {
+            scan
+        };
+        let thread = unsafe { GetWindowThreadProcessId(self.hwnd, null_mut()) };
+        let vk =
+            unsafe { MapVirtualKeyExW(win_scan, MAPVK_VSC_TO_VK_EX, GetKeyboardLayout(thread)) };
+        ensure!(
+            vk != 0,
+            "The selected window's keyboard layout does not map {key}"
+        );
+        post_key(self.hwnd, vk, scan, down)
+    }
+}
+
+pub(super) fn advance_sequence(
+    id: &WindowId,
+    region: Rect,
+    sequence: &RecordedAction,
+    current: &dyn Fn() -> bool,
+) -> Result<()> {
+    let hwnd = advance_target(id, region)?;
+    recorded_action::replay(
+        sequence,
+        &mut WindowPlayback {
+            id,
+            hwnd,
+            current,
+            started: Instant::now(),
+        },
+    )
 }
 
 pub(super) fn inspect(id: &WindowId) -> Option<WindowSnapshot> {
@@ -897,4 +969,189 @@ pub(super) fn inspect(id: &WindowId) -> Option<WindowSnapshot> {
         },
         minimized: width <= 0 || height <= 0 || unsafe { IsIconic(hwnd) != 0 },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn background_page_turns_only_address_saved_windows() {
+        use super::super::{AdvanceAction, Target};
+        struct Window(HWND);
+        impl Drop for Window {
+            fn drop(&mut self) {
+                unsafe { DestroyWindow(self.0) };
+            }
+        }
+        let window = || {
+            let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
+            let hwnd = unsafe {
+                CreateWindowExW(
+                    0,
+                    class.as_ptr(),
+                    null(),
+                    WS_POPUP,
+                    0,
+                    0,
+                    160,
+                    120,
+                    null_mut(),
+                    null_mut(),
+                    GetModuleHandleW(null()),
+                    null(),
+                )
+            };
+            assert!(!hwnd.is_null());
+            Window(hwnd)
+        };
+        let book = window();
+        let other = window();
+        let target = Target {
+            window: WindowId::Windows {
+                hwnd: book.0 as isize,
+                process_id: std::process::id(),
+            },
+            reference_size: Some((160, 120)),
+            region: Rect {
+                x: 10,
+                y: 20,
+                width: 100,
+                height: 80,
+            },
+        };
+        assert_ne!(unsafe { GetForegroundWindow() }, book.0);
+        let sequence = RecordedAction {
+            events: [(true, 0), (false, 10), (true, 45), (false, 60)]
+                .map(|(down, at_ms)| recorded_action::KeyEvent {
+                    key: "Space".into(),
+                    down,
+                    at_ms,
+                })
+                .to_vec(),
+        };
+        let mut message = MSG::default();
+        let event = |hwnd, message: &mut MSG| unsafe {
+            PeekMessageW(message, hwnd, WM_KEYFIRST, WM_KEYLAST, PM_REMOVE) != 0
+        };
+        let started = Instant::now();
+        target
+            .advance(
+                AdvanceAction::Sequence(sequence.clone()),
+                true,
+                &|| true,
+                &|_| {},
+            )
+            .unwrap();
+        assert!(started.elapsed() >= Duration::from_millis(60));
+        for expected in [WM_KEYDOWN, WM_KEYUP, WM_KEYDOWN, WM_KEYUP] {
+            assert!(event(book.0, &mut message));
+            assert_eq!(
+                (message.message, message.wParam),
+                (expected, VK_SPACE as WPARAM)
+            );
+        }
+        assert!(!event(other.0, &mut message));
+        assert!(!event(book.0, &mut message));
+
+        target
+            .advance(AdvanceAction::Key("Space".into()), true, &|| true, &|_| {})
+            .unwrap();
+        for expected in [WM_KEYDOWN, WM_KEYUP] {
+            assert!(event(book.0, &mut message));
+            assert_eq!(message.message, expected);
+        }
+        assert!(!event(other.0, &mut message));
+
+        target
+            .advance(AdvanceAction::Click { x: 5, y: 7 }, true, &|| true, &|_| {})
+            .unwrap();
+        for expected in [WM_LBUTTONDOWN, WM_LBUTTONUP] {
+            assert_ne!(
+                unsafe {
+                    PeekMessageW(
+                        &mut message,
+                        book.0,
+                        WM_LBUTTONDOWN,
+                        WM_LBUTTONUP,
+                        PM_REMOVE,
+                    )
+                },
+                0
+            );
+            assert_eq!((message.message, message.lParam), (expected, 27 << 16 | 15));
+        }
+        assert_eq!(
+            unsafe {
+                PeekMessageW(
+                    &mut message,
+                    other.0,
+                    WM_LBUTTONDOWN,
+                    WM_LBUTTONUP,
+                    PM_REMOVE,
+                )
+            },
+            0
+        );
+        assert_ne!(unsafe { GetForegroundWindow() }, book.0);
+
+        let waiting = Cell::new(false);
+        assert!(target
+            .advance(
+                AdvanceAction::Sequence(sequence),
+                false,
+                &|| !waiting.get(),
+                &|value| waiting.set(value)
+            )
+            .is_err());
+        assert!(waiting.get());
+        assert!(!event(book.0, &mut message));
+
+        assert_ne!(
+            unsafe {
+                SetWindowPos(
+                    book.0,
+                    null_mut(),
+                    -120,
+                    40,
+                    320,
+                    60,
+                    SWP_NOACTIVATE | SWP_NOZORDER,
+                )
+            },
+            0
+        );
+        let new_bounds = inspect(&target.window).unwrap().bounds;
+        let crop = target.region_for(new_bounds).unwrap();
+        assert_eq!(
+            crop,
+            Rect {
+                x: 20,
+                y: 10,
+                width: 200,
+                height: 40
+            }
+        );
+        assert_eq!(crop.at_window(new_bounds).unwrap().x, -100);
+        target
+            .advance(AdvanceAction::Click { x: 5, y: 7 }, true, &|| true, &|_| {})
+            .unwrap();
+        assert_ne!(
+            unsafe {
+                PeekMessageW(
+                    &mut message,
+                    book.0,
+                    WM_LBUTTONDOWN,
+                    WM_LBUTTONUP,
+                    PM_REMOVE,
+                )
+            },
+            0
+        );
+        assert_eq!(
+            (message.message, message.lParam),
+            (WM_LBUTTONDOWN, 13 << 16 | 30)
+        );
+    }
 }

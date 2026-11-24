@@ -13,6 +13,8 @@
   } = $props();
   let busy = $state(false);
   let session = $state<number | null>(null);
+  let voiceSession = $state<number | null>(null);
+  let sampleText = $state<string>();
   let transcript = $state("");
   let waveform = $state("");
   let previewError = $state("");
@@ -21,10 +23,15 @@
   const runtime = $derived(modules.runtimes.find(row => row.id === binding.runtime));
   const model = $derived(modules.models.find(row => row.id === binding.model));
   const voice = $derived(binding.voice ?? (binding.model === "supertonic3" ? "sid:0" : "af_heart"));
+  const voiceLanguage = $derived(language || model?.languages[0] || "en");
+  const voiceText = $derived(sampleText ?? t(voiceLanguage.startsWith("ar") ? "setup.sample.ar" : "setup.sample.en"));
   const ocrChanged = $derived(feature === "ocr" && reading.config && reading.baseline
     && JSON.stringify(reading.config.ocr) !== JSON.stringify(JSON.parse(reading.baseline).ocr));
+  const newSession = () => crypto.getRandomValues(new Uint32Array(1))[0] + 2 ** 52;
   async function test() {
     busy = true;
+    previewError = "";
+    waveform = "";
     try {
       if (feature === "ocr") {
         if (ocrChanged) {
@@ -34,15 +41,18 @@
         await api("/api/reader-action", { action: "copy_region" });
       }
       else {
-        const code = language || model?.languages[0] || "en";
+        voiceSession = newSession();
         await api("/api/preview-voice", {
-          binding: { ...binding, voice }, language: code,
-          text: t(code.startsWith("ar") ? "setup.sample.ar" : "setup.sample.en"),
+          binding: { ...binding, voice }, language: voiceLanguage,
+          text: voiceText, session_id: voiceSession,
         });
       }
     } catch (error) {
-      notice(t("reading.failed"), "error", String(error));
+      if (feature === "tts") previewError = error instanceof Error ? error.message : String(error);
+      else notice(t("reading.failed"), "error", String(error));
     } finally {
+      voiceSession = null;
+      waveform = "";
       busy = false;
     }
   }
@@ -78,7 +88,7 @@
           if (ui.dirty || !mounted) return;
         }
         transcript = "";
-        const id = crypto.getRandomValues(new Uint32Array(1))[0] + 2 ** 52;
+        const id = newSession();
         await preview("start", id);
         if (!mounted) await preview("cancel", id, true);
         else session = id;
@@ -92,15 +102,16 @@
   }
 
   $effect(() => {
-    if (session === null || busy) return;
-    const sessionId = session;
+    const playingVoice = voiceSession !== null;
+    const sessionId = voiceSession ?? session;
+    if (sessionId === null || (!playingVoice && busy)) return;
+    const path = playingVoice ? "/api/preview-voice-level" : "/api/dictation-preview";
+    const request = playingVoice ? { session_id: sessionId } : { action: "waveform", session_id: sessionId };
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     async function readWaveform() {
       try {
-        const result = await api<{ waveform: string }>("/api/dictation-preview", {
-          action: "waveform", session_id: sessionId,
-        }, controller.signal);
+        const result = await api<{ waveform: string }>(path, request, controller.signal);
         if (!controller.signal.aborted) {
           waveform = result.waveform;
           timer = setTimeout(readWaveform, 80);
@@ -115,24 +126,30 @@
 </script>
 
 {#if runtime?.installed && model?.installed}
-  {#if feature === "stt"}
-    <div class="dictation-preview">
+  {#if feature !== "ocr"}
+    <div class="model-preview" class:dictation-preview={feature === "stt"}>
       <div class="reading-actions">
-        <button type="button" disabled={busy || !ui.state?.service_online} onclick={record}>
-          {t(session !== null ? "setup.stop_recording" : ui.dirty ? "setup.save_record" : "ui.record.1c5413")}
-        </button>
-        {#if session !== null && !busy && waveform}
-          <span class="preview-waveform" dir="ltr" aria-hidden="true">{waveform}</span>
+        {#if feature === "stt"}
+          <button type="button" disabled={busy || !ui.state?.service_online} onclick={record}>
+            {t(session !== null ? "setup.stop_recording" : ui.dirty ? "setup.save_record" : "ui.record.1c5413")}
+          </button>
+        {:else}
+          <button type="button" disabled={busy || !voiceText.trim()} aria-busy={busy} onclick={test}>
+            {t(busy ? "setup.testing_voice" : "setup.test_voice")}
+          </button>
         {/if}
+        <span class="preview-waveform" dir="ltr" aria-hidden="true">{waveform || "▁▁▁▁▁▁▁▁▁▁"}</span>
         <span role="status">{busy && session !== null ? t("setup.processing_recording") : previewError}</span>
       </div>
-      <label for={transcriptId}>{t("setup.transcript")}</label>
-      <textarea id={transcriptId} rows="3" readonly value={transcript} dir="auto"></textarea>
+      <label for={transcriptId}>{t(feature === "tts" ? "setup.voice_preview_text" : "setup.transcript")}</label>
+      <textarea id={transcriptId} rows="3" maxlength={feature === "tts" ? 400 : undefined}
+        readonly={feature === "stt"} value={feature === "tts" ? voiceText : transcript}
+        oninput={event => { sampleText = event.currentTarget.value; }} dir="auto"></textarea>
     </div>
   {:else}
     <div class="reading-actions">
       <button type="button" disabled={busy} aria-busy={busy} onclick={test}>
-        {t(feature === "tts" ? "setup.test_voice" : ocrChanged ? "setup.save_copy" : "reading.copy_region")}
+        {t(ocrChanged ? "setup.save_copy" : "reading.copy_region")}
       </button>
     </div>
   {/if}

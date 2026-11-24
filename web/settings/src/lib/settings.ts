@@ -283,6 +283,8 @@ export const searchEntries: {path: string; label: string; page: Page; help?: str
   { path: "ocr.single.model", label: "reading.ocr", page: "models" as Page, aliases: "OCR Paddle PaddleOCR screenshot image text استخراج النص صورة" },
   { path: "selection_copy.shortcut", label: "reading.copy_title", page: "reading" as Page, aliases: "copy selection clipboard نسخ تحديد حافظة" },
   { path: "model-search", label: "assets.title", page: "models" as Page, aliases: "download runtime model installed recommended NVIDIA CUDA Vulkan voice recognition read aloud image text تنزيل نماذج بيئات مثبت موصى إنفيديا" },
+  {path:"speech.processing_mode",label:"processing.mode",page:"models" as Page,aliases:"chunked one shot dictation"},
+  {path:"tts.processing_mode",label:"processing.mode",page:"models" as Page,aliases:"chunked one shot speech synthesis"},
   ...Object.values(fields).map((f) => ({ ...f, page: pageFor(f.path) })),
   ...hotkeys.map(([path, label]) => ({ path, label, page: pageFor(path) })),
   ...readerHotkeys.map(([, key]) => ({ path: `reader.shortcuts.${key}`, label: `reading.${key}`, page: "general" as Page })),

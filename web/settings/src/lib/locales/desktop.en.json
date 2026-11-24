@@ -1,4 +1,5 @@
 {
+  "notice.recordingChunk": "Chunk {number}",
   "capture.previewBusy": "Finish the current dictation before recording a preview.",
   "overlay.screenContext": "Screen",
   "overlay.transcribing": "🎙 Transcribing...",
@@ -194,6 +195,9 @@
   "reader.phase.paused": "Paused",
   "reader.phase.error": "Reading failed",
   "reader.copied": "Text copied",
+  "reader.ocr_clipboard_failed": "Could not write to the clipboard",
+  "reader.ocr_empty": "No text found in the selected area",
+  "reader.ocr_failed": "Could not recognize screen text",
   "reader.failed": "Reading failed",
   "reader.language.ar": "Arabic",
   "reader.language.en": "English",

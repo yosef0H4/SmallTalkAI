@@ -1,4 +1,5 @@
 {
+  "notice.recordingChunk": "المقطع {number}",
   "capture.previewBusy": "أنهِ الإملاء الحالي قبل تسجيل عينة.",
   "overlay.screenContext": "الشاشة",
   "overlay.transcribing": "🎙 جارٍ التفريغ…",
@@ -194,6 +195,9 @@
   "reader.phase.paused": "متوقف مؤقتًا",
   "reader.phase.error": "تعذّرت القراءة",
   "reader.copied": "نُسخ النص",
+  "reader.ocr_clipboard_failed": "تعذّر نسخ النص إلى الحافظة",
+  "reader.ocr_empty": "لم يُعثر على نص في المنطقة المحدّدة",
+  "reader.ocr_failed": "تعذّر التعرّف على نص الشاشة",
   "reader.failed": "تعذّرت القراءة",
   "reader.language.ar": "العربية",
   "reader.language.en": "الإنجليزية",

@@ -247,7 +247,29 @@ fn media_serve() -> Result<()> {
                 .and_then(serde_json::Value::as_str)
                 .context("request path is missing")?;
             let language = request.get("language").and_then(serde_json::Value::as_str);
-            let text = smalltalkai::cli::transcribe_file(&mut backend, Path::new(path), language)?;
+            let mode = serde_json::from_value(request["processing_mode"].clone())?;
+            let streaming = request["stream"].as_bool() == Some(true);
+            let mut first = true;
+            let text = smalltalkai::cli::transcribe_file_with_updates(
+                &mut backend,
+                Path::new(path),
+                language,
+                mode,
+                |text| {
+                    if streaming {
+                        let delta = if first {
+                            text.to_owned()
+                        } else {
+                            format!(" {text}")
+                        };
+                        first = false;
+                        serde_json::to_writer(&mut output, &serde_json::json!({"delta":delta}))?;
+                        output.write_all(b"\n")?;
+                        output.flush()?;
+                    }
+                    Ok(())
+                },
+            )?;
             Ok(serde_json::json!({"text": text}))
         })();
         let frame = match response {

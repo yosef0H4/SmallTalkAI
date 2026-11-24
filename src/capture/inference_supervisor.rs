@@ -165,14 +165,27 @@ impl WorkerSupervisor {
         }
     }
     pub fn transcribe_pcm(&mut self, session_id: u64, samples: &[i16]) -> Result<String> {
+        self.transcribe_pcm_with_mode(
+            session_id,
+            samples,
+            reader_core::processing::ProcessingMode::Chunked,
+        )
+    }
+
+    pub fn transcribe_pcm_with_mode(
+        &mut self,
+        session_id: u64,
+        samples: &[i16],
+        mode: reader_core::processing::ProcessingMode,
+    ) -> Result<String> {
         self.ensure_worker()?;
+        let mut request = Frame::transcribe_pcm(session_id, 16_000, samples);
+        if mode == reader_core::processing::ProcessingMode::OneShot {
+            request.kind = MessageType::TranscribePcmOneShot;
+        }
         let result = {
             let worker = self.worker.as_mut().unwrap();
-            write_frame(
-                &mut worker.stdin,
-                &Frame::transcribe_pcm(session_id, 16_000, samples),
-            )
-            .context("sending PCM to inference worker")?;
+            write_frame(&mut worker.stdin, &request).context("sending PCM to inference worker")?;
             read_frame(&mut worker.stdout).context("reading transcript from inference worker")
         };
         let frame = match result {

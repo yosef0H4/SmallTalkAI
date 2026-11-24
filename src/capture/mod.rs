@@ -4,5 +4,6 @@ pub mod input_language;
 pub mod ipc_server;
 pub mod overlay;
 pub mod process;
+pub mod recording_chunks;
 pub mod screen_context;
 pub mod state;

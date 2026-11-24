@@ -9,6 +9,7 @@
   import ModelRouteCard from "./ModelRouteCard.svelte";
   import RouteAssignment from "./RouteAssignment.svelte";
   import EngineAssignment from "./EngineAssignment.svelte";
+  import Field from "./Field.svelte";
 
   let { feature, provider, defaultRemote, defaultFallback }: {
     feature: Feature;
@@ -159,9 +160,23 @@
   <EngineAssignment {feature} path={`${feature}.single`} binding={singleBinding} onchange={value => update(value, "")} />
 {/snippet}
 
+{#snippet processing()}
+  {#if feature !== "ocr"}
+    {@const stt = feature === "stt"}
+    {@const mode = stt ? ui.config?.speech.processing_mode : reading.config?.speech.processing_mode}
+    <Combo selectOnly label="processing.mode" path={stt ? "speech.processing_mode" : "tts.processing_mode"}
+      value={mode ?? "chunked"}
+      items={[{value:"chunked",label:"processing.chunked"},{value:"one_shot",label:"processing.one_shot"}]}
+      onselect={value => {
+        if (stt) set("speech.processing_mode", value);
+        else if (reading.config) reading.config.speech.processing_mode = value === "one_shot" ? "one_shot" : "chunked";
+      }} />
+  {/if}
+{/snippet}
+
 <div class="route-cards">
   {#if singleSpeech}
-    <RouteAssignment {feature} language="" path={`${feature}.single`} binding={singleBinding} {defaultRemote} {defaultFallback}
+    <RouteAssignment {feature} language="" path={`${feature}.single`} binding={singleBinding} {defaultRemote} {defaultFallback} {processing}
       onchange={value => update(value, "")} />
   {:else if !single && !(feature === "ocr" && defaultRemote)}
     {@render languageCards()}
@@ -185,6 +200,7 @@
 
   <ModelRouteCard id={`${feature}.default`} title={t(single && !singleSpeech ? "settings.model_route_title" : "settings.default_route_title")}>
     {@render provider()}
+    {#if !singleSpeech}{@render processing()}{/if}
     {#if single && !singleSpeech && !defaultRemote}
       {@render singleModel()}
     {:else if defaultRemote && defaultFallback && ((single && !singleSpeech) || feature === "ocr")}

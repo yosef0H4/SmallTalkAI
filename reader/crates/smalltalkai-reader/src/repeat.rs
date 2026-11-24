@@ -86,6 +86,7 @@ mod tests {
     fn repeated_read_along_keeps_the_saved_area_across_invocations() {
         let target = Target {
             window: crate::read_along_capture::WindowId::X11(77),
+            reference_size: None,
             region: crate::read_along_capture::Rect {
                 x: 2,
                 y: 3,

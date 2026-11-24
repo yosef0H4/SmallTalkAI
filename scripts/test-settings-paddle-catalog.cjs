@@ -72,8 +72,8 @@ const downloads = require('../assets/catalog/downloads.json');
     for (const feature of ['tts', 'ocr']) {
       await page.locator(`[data-catalog-feature=${feature}]`).click();
       const runtimeSection = page.locator(`[data-catalog="${feature}.runtime"]`);
-      for (const [id, label] of [[feature === 'tts' ? 'sherpa-cpu' : 'paddle-cpu', 'Sherpa ONNX · CPU'], [feature === 'tts' ? 'sherpa-cuda' : 'paddle-cuda', 'Sherpa ONNX · CUDA']]) {
-        assert.equal((await runtimeSection.locator(`[data-model-id="${id}"] small`).textContent()).trim(), label);
+      for (const [id, label] of [[feature === 'tts' ? 'sherpa-cpu' : 'paddle-cpu', 'CPU'], [feature === 'tts' ? 'sherpa-cuda' : 'paddle-cuda', 'CUDA']]) {
+        assert.equal((await runtimeSection.locator(`[data-model-id="${id}"] strong`).textContent()).trim(), label);
       }
     }
     await page.locator('[data-download-kind=model]').click();
@@ -82,9 +82,18 @@ const downloads = require('../assets/catalog/downloads.json');
     await choose('ocr');
     await row('paddle-ar-en').waitFor();
     assert.equal(await section.locator('.model-result').count(), 30, 'first page is bounded');
-    assert.equal(await section.locator('.model-result').first().getAttribute('data-model-id'), 'paddle-ar-en');
     await showAll();
     assert.equal(await section.locator('.model-result').count(), 34);
+    const displayedSizes = () => section.locator('.model-result .model-metric').evaluateAll(
+      metrics => metrics.map(metric => Number.parseInt(metric.textContent, 10)),
+    );
+    const sizes = await displayedSizes();
+    assert.deepEqual(sizes, [...sizes].sort((a, b) => a - b), 'OCR defaults to ascending download size');
+    await section.locator('[data-sort=size]').click();
+    assert.deepEqual(await displayedSizes(), [...sizes].reverse(), 'OCR size can sort largest first');
+    await section.locator('[data-sort=name]').click();
+    const names = await section.locator('.model-result strong').allTextContents();
+    assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b)), 'OCR models can sort by name');
     assert.deepEqual(new Set(await section.locator('.model-result').evaluateAll(nodes => nodes.map(node => node.dataset.modelId))), new Set(ocr.map(model => model.id)));
     assert.deepEqual(await section.locator('.model-result:has(.recommendation)').evaluateAll(nodes => nodes.map(node => node.dataset.modelId)), ['paddle-ar-en']);
     for (const [query, expected] of [

@@ -618,8 +618,23 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
                 binding,
                 payload["language"].as_str().unwrap_or("en"),
                 payload["text"].as_str().unwrap_or(""),
+                payload["session_id"].as_u64(),
             )?;
             Ok(json_response(StatusCode(200), &json!({"ok":true}), state))
+        }
+        (&Method::Post, "/api/preview-voice-level") => {
+            let payload: Value = serde_json::from_slice(&read_body(request)?)?;
+            let session_id = payload["session_id"]
+                .as_u64()
+                .context("Missing voice preview session")?;
+            let rms = crate::reader::preview_voice_rms(session_id);
+            let level = crate::capture::audio::visualizer_level_from_rms(rms);
+            let waveform = crate::capture::overlay::waveform_for_level(level);
+            Ok(json_response(
+                StatusCode(200),
+                &json!({"waveform":waveform}),
+                state,
+            ))
         }
         (&Method::Post, "/api/reader-server-key") => {
             let key = reader_core::secrets::server_key()?

@@ -247,6 +247,18 @@ def main():
     assert transcript == repeated
     assert first_stt and first_stt == {pid for pid, name in model_workers(server.pid).items() if name == 'smalltalkai-infer'}, 'STT worker was duplicated/reloaded'
     print('PASS SDK multipart STT: real transcription and warm worker reuse', flush=True)
+    with (ROOT / 'fixtures/parakeet-smoke.wav').open('rb') as audio:
+        events = list(sdk.audio.transcriptions.create(model='configured-stt', file=audio, language='en', stream=True))
+    assert ''.join(event.delta for event in events if event.type == 'transcript.text.delta') == transcript
+    assert events[-1].type == 'transcript.text.done' and events[-1].text == transcript
+    with sdk.audio.speech.with_streaming_response.create(
+        model='kokoro-v1', voice='af_heart', input='First sentence. Second sentence.',
+        stream_format='audio', response_format='pcm',
+    ) as response:
+        pcm = b''.join(response.iter_bytes())
+        assert response.headers['transfer-encoding'] == 'chunked'
+    assert len(pcm) > 1000 and len(pcm) % 2 == 0 and any(pcm)
+    print('PASS SDK SSE transcript and streamed PCM speech', flush=True)
     assert_no_internal_content(host_data)
     remote_reader = copy.deepcopy(reader)
     remote_reader['server'] = {'enabled': False}

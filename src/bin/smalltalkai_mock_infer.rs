@@ -65,13 +65,23 @@ fn main() -> Result<()> {
                 write_frame(&mut output, &Frame::empty(MessageType::ShutdownAck))?;
                 break;
             }
-            MessageType::TranscribePcm | MessageType::TranscribeWav if mode.contains("crash") => {
+            MessageType::TranscribePcm
+            | MessageType::TranscribePcmOneShot
+            | MessageType::TranscribeWav
+                if mode.contains("crash") =>
+            {
                 std::process::exit(23)
             }
-            MessageType::TranscribePcm | MessageType::TranscribeWav if mode.contains("hang") => {
+            MessageType::TranscribePcm
+            | MessageType::TranscribePcmOneShot
+            | MessageType::TranscribeWav
+                if mode.contains("hang") =>
+            {
                 sleep_forever()
             }
-            MessageType::TranscribePcm | MessageType::TranscribeWav => {
+            MessageType::TranscribePcm
+            | MessageType::TranscribePcmOneShot
+            | MessageType::TranscribeWav => {
                 write_frame(
                     &mut output,
                     &Frame::text(

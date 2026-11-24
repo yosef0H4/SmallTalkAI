@@ -1,4 +1,5 @@
 mod activity;
+mod audio_http;
 mod chunk_stream;
 mod lease_timer;
 mod media_routing;
@@ -29,7 +30,8 @@ use reader_core::config::{
     config_path, AppConfig, ConfigStore, DevicePreference, PlaybackSettings, SpeechProvider,
 };
 use reader_core::generation::{GenerationGate, WorkerIncarnation};
-use reader_core::text::{chunk_progress, plan_units, SpeechUnit, MAX_TEXT_BYTES};
+use reader_core::processing::ProcessingMode;
+use reader_core::text::{chunk_progress, plan_speech, SpeechUnit, MAX_TEXT_BYTES};
 use reader_core::wire::{
     read_json_frame, read_worker_frame, write_json_frame, WorkerEvent, WorkerFrame, WorkerRequest,
 };
@@ -90,9 +92,18 @@ enum Mode {
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum MediaRequest {
-    Render { input: String, output: String },
-    Play { input: String },
-    Ocr { path: String },
+    Render {
+        input: String,
+        output: String,
+        processing_mode: Option<ProcessingMode>,
+    },
+    Play {
+        input: String,
+        processing_mode: Option<ProcessingMode>,
+    },
+    Ocr {
+        path: String,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -101,6 +112,7 @@ enum LocalRequest {
     ReadStart {
         id: String,
         source: String,
+        processing_mode: Option<ProcessingMode>,
     },
     ReadChunk {
         id: String,
@@ -116,10 +128,15 @@ enum LocalRequest {
         binding: Box<reader_core::routing::Binding>,
         language: String,
         text: String,
+        session_id: Option<u64>,
+    },
+    PreviewVoiceLevel {
+        session_id: u64,
     },
     RenderFile {
         input: String,
         output: String,
+        processing_mode: Option<ProcessingMode>,
     },
     OcrFile {
         path: String,
@@ -171,6 +188,7 @@ impl LocalReply {
 }
 #[derive(Debug)]
 struct Draft {
+    processing_mode: Option<ProcessingMode>,
     source: String,
     text: String,
     created: Instant,
@@ -363,6 +381,7 @@ struct ReadAlongNextActivity {
 }
 struct PreparedReadAlongPage {
     text: String,
+    processing_mode: ProcessingMode,
     first: PreparedReadAlongChunk,
     progress: Arc<chunk_stream::Progress>,
     remaining: chunk_stream::Receiver<Result<Option<PreparedReadAlongChunk>, String>>,
@@ -375,6 +394,7 @@ struct PreparedReadAlongChunk {
 }
 struct ControllerNotice {
     text: String,
+    preview: Option<String>,
     revision: u64,
     expires: Option<Instant>,
 }
@@ -1774,7 +1794,7 @@ impl WorkerSupervisor {
             self.desktop_priority_waiters.fetch_add(1, Ordering::AcqRel);
             DesktopTtsPriority(&self.desktop_priority_waiters)
         });
-        let units = plan_units(text, 240)?;
+        let units = plan_speech(text, config.speech.processing_mode)?;
         let mut result = Vec::new();
         let mut rate = 24_000u32;
         let generation = 1;
@@ -2700,6 +2720,11 @@ struct AudioState {
     generation: u64,
     producer_done: bool,
     stream_open: bool,
+    voice_preview: Option<VoicePreview>,
+}
+struct VoicePreview {
+    session_id: u64,
+    rms: f32,
 }
 #[derive(Clone, Copy)]
 struct TaggedSample {
@@ -2734,6 +2759,7 @@ impl AudioOutput {
                     generation: 0,
                     producer_done: true,
                     stream_open: false,
+                    voice_preview: None,
                 }),
                 changed: Condvar::new(),
                 stream: Mutex::new(None),
@@ -2911,6 +2937,9 @@ impl AudioOutput {
         Ok(())
     }
     fn replace(&self, generation: u64) {
+        self.replace_with_preview(generation, None);
+    }
+    fn replace_with_preview(&self, generation: u64, session_id: Option<u64>) {
         let mut stream = self
             .inner
             .stream
@@ -2935,6 +2964,10 @@ impl AudioOutput {
         s.queue.clear();
         s.paused = false;
         s.producer_done = false;
+        s.voice_preview = session_id.map(|session_id| VoicePreview {
+            session_id,
+            rms: 0.0,
+        });
         drop(s);
         drop(previous);
         self.inner.changed.notify_all();
@@ -2998,6 +3031,7 @@ impl AudioOutput {
             if state.generation == generation {
                 self.inner.stream_epoch.fetch_add(1, Ordering::AcqRel);
                 state.stream_open = false;
+                state.voice_preview = None;
                 drop(state);
                 stream.take();
             }
@@ -3028,6 +3062,7 @@ impl AudioOutput {
         state.queue.clear();
         state.paused = false;
         state.producer_done = true;
+        state.voice_preview = None;
         self.inner.stream_epoch.fetch_add(1, Ordering::AcqRel);
         state.stream_open = false;
         *self
@@ -3052,6 +3087,16 @@ impl AudioOutput {
     }
     fn queued(&self) -> usize {
         self.inner.state.lock().unwrap().queue.len()
+    }
+    fn preview_rms(&self, session_id: u64) -> f32 {
+        self.inner
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .voice_preview
+            .as_ref()
+            .filter(|preview| preview.session_id == session_id)
+            .map_or(0.0, |preview| preview.rms)
     }
 }
 
@@ -3132,6 +3177,8 @@ where
                     state
                         .callback_frames
                         .fetch_add((data.len() / channels) as u64, Ordering::Relaxed);
+                    let measure_preview = queue.voice_preview.is_some();
+                    let mut power = 0.0;
                     for frame in data.chunks_mut(channels) {
                         let value = if queue.paused {
                             0.0
@@ -3146,9 +3193,15 @@ where
                         } else {
                             0.0
                         };
+                        if measure_preview {
+                            power += value * value;
+                        }
                         for sample in frame {
                             *sample = to_sample(value)
                         }
+                    }
+                    if let Some(preview) = &mut queue.voice_preview {
+                        preview.rms = (power / data.len().div_ceil(channels).max(1) as f32).sqrt();
                     }
                     drop(queue);
                 } else {
@@ -3321,6 +3374,7 @@ impl App {
                 desktop_enabled: AtomicBool::new(true),
                 notice: Mutex::new(ControllerNotice {
                     text: String::new(),
+                    preview: None,
                     revision: 0,
                     expires: None,
                 }),
@@ -3332,6 +3386,9 @@ impl App {
         }
     }
     fn set_notice(&self, text: String, duration: Duration) {
+        self.set_notice_with_preview(text, duration, None);
+    }
+    fn set_notice_with_preview(&self, text: String, duration: Duration, preview: Option<String>) {
         let mut notice = self
             .inner
             .notice
@@ -3339,6 +3396,7 @@ impl App {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         notice.revision = notice.revision.wrapping_add(1).max(1);
         notice.text = text;
+        notice.preview = preview;
         notice.expires = if duration.is_zero() {
             None
         } else {
@@ -3605,8 +3663,21 @@ impl App {
         Ok(generation)
     }
     fn start_text_at(&self, source: String, text: String, generation: u64) -> Result<String> {
+        self.start_text_at_with_mode(source, text, generation, None)
+    }
+
+    fn start_text_at_with_mode(
+        &self,
+        source: String,
+        text: String,
+        generation: u64,
+        mode: Option<ProcessingMode>,
+    ) -> Result<String> {
         self.show_read_phase(generation, "detecting_language");
-        let saved = self.inner.store.load()?;
+        let mut saved = self.inner.store.load()?;
+        if let Some(mode) = mode {
+            saved.speech.processing_mode = mode;
+        }
         let config =
             saved.routed_text(&text, self.inner.route_language.lock().unwrap().as_deref())?;
         if saved.speech.selection.mode == reader_core::routing::SelectionMode::AutoDetect {
@@ -3625,7 +3696,7 @@ impl App {
                 activity.set(generation, "synthesizing");
             }
         }
-        let units = plan_units(&text, 240)?;
+        let units = plan_speech(&text, config.speech.processing_mode)?;
         let lifecycle = self
             .inner
             .pause_lifecycle_gate
@@ -4006,10 +4077,7 @@ impl App {
                         if let Err(error) = copy_region_with_target(&app, epoch, language, target) {
                             if app.inner.copy_epoch.load(Ordering::Acquire) == epoch {
                                 tracing::warn!(%error, "repeated OCR copy failed");
-                                app.set_notice(
-                                    format!("OCR copy repeat failed: {error}"),
-                                    Duration::from_secs(4),
-                                );
+                                app.set_notice("reader.ocr_failed".into(), Duration::from_secs(4));
                                 app.show_hud();
                             }
                         }
@@ -4072,7 +4140,7 @@ impl App {
             {
                 if app.inner.copy_epoch.load(Ordering::Acquire) == epoch {
                     tracing::warn!(%error, "OCR copy failed");
-                    app.set_notice(format!("OCR copy failed: {error}"), Duration::from_secs(4));
+                    app.set_notice("reader.ocr_failed".into(), Duration::from_secs(4));
                     app.show_hud();
                 }
             }
@@ -4458,7 +4526,12 @@ impl App {
                             && app.inner.activity.lock().unwrap().phase != "paused"
                     };
                     let result = target
-                        .advance(read_along_input(&settings, &target), &current, &|_| {})
+                        .advance(
+                            read_along_input(&settings, &target),
+                            settings.background_advance,
+                            &current,
+                            &|_| {},
+                        )
                         .map(|_| Instant::now())
                         .map_err(|error| error.to_string());
                     let _ = tx.send(result);
@@ -4682,6 +4755,7 @@ impl App {
                     if advance {
                         target.advance(
                             read_along_input(&settings, &target),
+                            settings.background_advance,
                             &advancing,
                             &show_waiting,
                         )?;
@@ -4754,7 +4828,7 @@ impl App {
                                 app.inner.route_language.lock().unwrap().as_deref(),
                             )?;
                             anyhow::ensure!(
-                                plan_units(&text, 240)?
+                                plan_speech(&text, route.speech.processing_mode)?
                                     .iter()
                                     .any(|unit| !prepare_speech_text(
                                         &route,
@@ -4795,7 +4869,13 @@ impl App {
                     )?
                 };
                 app.set_read_along_next_activity(generation, app_generation, "tts");
-                let units = plan_units(&text, 240)?;
+                let page_route = app
+                    .inner
+                    .store
+                    .load()?
+                    .routed_text(&text, app.inner.route_language.lock().unwrap().as_deref())?;
+                let processing_mode = page_route.speech.processing_mode;
+                let units = plan_speech(&text, processing_mode)?;
                 let progress = Arc::new(chunk_stream::Progress::new(units.len()));
                 if let Some(run) = app
                     .inner
@@ -4807,11 +4887,6 @@ impl App {
                 {
                     run.next_progress = Some(progress.clone());
                 }
-                let page_route = app
-                    .inner
-                    .store
-                    .load()?
-                    .routed_text(&text, app.inner.route_language.lock().unwrap().as_deref())?;
                 let playing_generation = Arc::new(AtomicU64::new(0));
                 let mut pending = units.into_iter().enumerate();
                 let first = loop {
@@ -4895,6 +4970,7 @@ impl App {
                 });
                 Ok(PreparedReadAlongPage {
                     text,
+                    processing_mode,
                     first,
                     progress,
                     remaining,
@@ -5179,7 +5255,7 @@ impl App {
             .advance_from(previous_generation)
             .context("read-along was superseded")?;
         self.inner.audio.replace(app_generation);
-        let units = plan_units(&prepared.text, 240)?;
+        let units = plan_speech(&prepared.text, prepared.processing_mode)?;
         let session = Session {
             job_id: Uuid::new_v4().to_string(),
             generation: app_generation,
@@ -5829,7 +5905,7 @@ impl App {
             None
         };
         let model_lifecycle = self.inner.tts.model_lifecycle();
-        let (notice_text, notice_revision, notice_expires_in_ms) = {
+        let (notice_text, notice_preview, notice_revision, notice_expires_in_ms) = {
             let notice = self
                 .inner
                 .notice
@@ -5838,13 +5914,14 @@ impl App {
             let remaining = notice
                 .expires
                 .map(|expires| expires.saturating_duration_since(Instant::now()));
-            let text = if remaining.is_some_and(|value| value.is_zero()) {
-                String::new()
+            let (text, preview) = if remaining.is_some_and(|value| value.is_zero()) {
+                (String::new(), None)
             } else {
-                notice.text.clone()
+                (notice.text.clone(), notice.preview.clone())
             };
             (
                 text,
+                preview,
                 notice.revision,
                 remaining.map(|value| value.as_millis().min(u64::MAX as u128) as u64),
             )
@@ -5889,7 +5966,11 @@ impl App {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .metadata();
-        serde_json::json!({"activity":activity,"ocr_activity":ocr_activity,"read_along_active":read_along_active,"next_page_activity":next_page_activity,"controller_online":true,"state":phase,"last_action_at_ms":last_action_at_ms,"last_action_kind":last_action_kind,"job_id":session.as_ref().map(|s|s.job_id.clone()),"generation":session.as_ref().map(|s|s.generation),"read_pending":self.inner.read_pending.load(Ordering::Acquire),"clipboard_listening":self.inner.clipboard_listening.load(Ordering::Acquire),"keep_warm_seconds":warm_timeout_seconds,"idle_unload_remaining_seconds":idle_unload_remaining_seconds,"sentence":sentence,"sentence_text":sentence_text,"sentence_total":total,"unit":unit,"chunk":chunk_index,"chunk_total":chunk_total,"chunks_ready_ahead":session.as_ref().map(|s| s.preparation.ready_after(chunk_index)).unwrap_or(0),"chunks_generated":session.as_ref().map(|s| s.preparation.generated()).unwrap_or(0),"chunk_text":chunk_text,"prepared_text":prepared_text,"model_events":self.inner.model_events.snapshot(),"residency":{"tts":self.inner.tts.residency.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone(),"ocr":self.inner.ocr_residency.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone()},"model_status":model_lifecycle.status,"model_status_revision":model_lifecycle.revision,"notice_text":notice_text,"notice_revision":notice_revision,"notice_expires_in_ms":notice_expires_in_ms,"source":session.map(|s|s.source),"device":device.unwrap_or_else(||if paused{"Voice worker released during pause".into()}else{"Voice model is preparing".into()}),"route":if matches!(self.inner.store.load().map(|c|c.speech.provider),Ok(SpeechProvider::LocalKokoro | SpeechProvider::LocalSupertonic)){"local"}else{"remote"},"auto_dismiss_seconds":auto_dismiss_seconds,"audio_queued_samples":self.inner.audio.queued(),"audio_callback_buffers":self.inner.audio.inner.callback_buffers.load(Ordering::Relaxed),"audio_callback_frames":self.inner.audio.inner.callback_frames.load(Ordering::Relaxed),"audio_callback_contention":self.inner.audio.inner.callback_contention.load(Ordering::Relaxed),"audio_callback_errors":self.inner.audio.inner.callback_errors.load(Ordering::Relaxed),"audio_error":self.inner.audio.inner.fatal_error.lock().unwrap().clone()})
+        let mut status = serde_json::json!({"activity":activity,"ocr_activity":ocr_activity,"read_along_active":read_along_active,"next_page_activity":next_page_activity,"controller_online":true,"state":phase,"last_action_at_ms":last_action_at_ms,"last_action_kind":last_action_kind,"job_id":session.as_ref().map(|s|s.job_id.clone()),"generation":session.as_ref().map(|s|s.generation),"read_pending":self.inner.read_pending.load(Ordering::Acquire),"clipboard_listening":self.inner.clipboard_listening.load(Ordering::Acquire),"keep_warm_seconds":warm_timeout_seconds,"idle_unload_remaining_seconds":idle_unload_remaining_seconds,"sentence":sentence,"sentence_text":sentence_text,"sentence_total":total,"unit":unit,"chunk":chunk_index,"chunk_total":chunk_total,"chunks_ready_ahead":session.as_ref().map(|s| s.preparation.ready_after(chunk_index)).unwrap_or(0),"chunks_generated":session.as_ref().map(|s| s.preparation.generated()).unwrap_or(0),"chunk_text":chunk_text,"prepared_text":prepared_text,"model_events":self.inner.model_events.snapshot(),"residency":{"tts":self.inner.tts.residency.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone(),"ocr":self.inner.ocr_residency.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone()},"model_status":model_lifecycle.status,"model_status_revision":model_lifecycle.revision,"notice_text":notice_text,"notice_revision":notice_revision,"notice_expires_in_ms":notice_expires_in_ms,"source":session.map(|s|s.source),"device":device.unwrap_or_else(||if paused{"Voice worker released during pause".into()}else{"Voice model is preparing".into()}),"route":if matches!(self.inner.store.load().map(|c|c.speech.provider),Ok(SpeechProvider::LocalKokoro | SpeechProvider::LocalSupertonic)){"local"}else{"remote"},"auto_dismiss_seconds":auto_dismiss_seconds,"audio_queued_samples":self.inner.audio.queued(),"audio_callback_buffers":self.inner.audio.inner.callback_buffers.load(Ordering::Relaxed),"audio_callback_frames":self.inner.audio.inner.callback_frames.load(Ordering::Relaxed),"audio_callback_contention":self.inner.audio.inner.callback_contention.load(Ordering::Relaxed),"audio_callback_errors":self.inner.audio.inner.callback_errors.load(Ordering::Relaxed),"audio_error":self.inner.audio.inner.fatal_error.lock().unwrap().clone()});
+        if let Some(preview) = notice_preview {
+            status["notice_preview"] = serde_json::Value::String(preview);
+        }
+        status
     }
     fn read_image(&self, path: &str) -> Result<String> {
         let generation = self.begin_read_intent_with_pending(true)?;
@@ -6020,18 +6101,30 @@ impl App {
         Ok((text, config))
     }
 
-    fn play_file(&self, input: &str) -> Result<LocalReply> {
-        let (text, config) = self.file_speech_route(input)?;
-        self.play_text(&text, config)
+    fn play_file(
+        &self,
+        input: &str,
+        processing_mode: Option<ProcessingMode>,
+    ) -> Result<LocalReply> {
+        let (text, mut config) = self.file_speech_route(input)?;
+        if let Some(mode) = processing_mode {
+            config.speech.processing_mode = mode;
+        }
+        self.play_text(&text, config, self.inner.generation.current(), None)
     }
 
-    fn play_text(&self, text: &str, config: AppConfig) -> Result<LocalReply> {
+    fn play_text(
+        &self,
+        text: &str,
+        config: AppConfig,
+        generation: u64,
+        preview_id: Option<u64>,
+    ) -> Result<LocalReply> {
         let playback = config.playback.clone();
-        let generation = self.inner.generation.current();
         let audio = &self.inner.audio;
-        audio.replace(generation);
+        audio.replace_with_preview(generation, preview_id);
         let current = || self.inner.generation.accepts(generation);
-        synthesize_media_units(
+        let generated = synthesize_media_units(
             &self.inner.tts,
             config.clone(),
             text,
@@ -6066,23 +6159,28 @@ impl App {
                 }
                 Ok(())
             },
-        )?;
+        );
         audio.finish(generation);
-        audio.wait_drained(generation)?;
+        let played = audio.wait_drained(generation);
+        generated?;
+        played?;
         Ok(LocalReply::ok("Playback complete"))
     }
 
     fn handle(&self, request: LocalRequest) -> Result<LocalReply> {
-        privacy::set_content_logging(self.inner.store.load()?.privacy.log_content);
+        if !matches!(request, LocalRequest::PreviewVoiceLevel { .. }) {
+            privacy::set_content_logging(self.inner.store.load()?.privacy.log_content);
+        }
         match request {
             LocalRequest::PreviewVoice {
                 mut binding,
                 language,
                 text,
+                session_id,
             } => {
                 use reader_core::routing::{Feature, Selection, SelectionMode};
                 anyhow::ensure!(
-                    !text.trim().is_empty() && text.len() <= 400,
+                    !text.trim().is_empty() && text.chars().count() <= 400,
                     "Invalid preview text"
                 );
                 anyhow::ensure!(
@@ -6100,10 +6198,17 @@ impl App {
                     ..Default::default()
                 };
                 let config = config.routed(Feature::Tts, Some(&language))?;
-                self.begin_read_intent()?;
-                self.play_text(&text, config)
+                let generation = self.begin_read_intent()?;
+                self.play_text(&text, config, generation, session_id)
             }
-            LocalRequest::ReadStart { id, source } => {
+            LocalRequest::PreviewVoiceLevel { session_id } => Ok(LocalReply::state(
+                serde_json::json!({"rms": self.inner.audio.preview_rms(session_id)}),
+            )),
+            LocalRequest::ReadStart {
+                id,
+                source,
+                processing_mode,
+            } => {
                 let generation = self.begin_read_intent_with_pending(true)?;
                 let lifecycle = self
                     .inner
@@ -6124,6 +6229,7 @@ impl App {
                     id.clone(),
                     Draft {
                         source,
+                        processing_mode,
                         text: String::new(),
                         created: Instant::now(),
                         generation,
@@ -6198,8 +6304,12 @@ impl App {
                     .remove(&id)
                     .context("reading request expired")?;
                 self.inner.draft_timer.cancel();
-                match self.start_text_at(draft.source.clone(), draft.text.clone(), draft.generation)
-                {
+                match self.start_text_at_with_mode(
+                    draft.source.clone(),
+                    draft.text.clone(),
+                    draft.generation,
+                    draft.processing_mode,
+                ) {
                     Ok(message) => {
                         self.complete_repeat_action(
                             draft.repeat_revision,
@@ -6221,9 +6331,16 @@ impl App {
                     }
                 }
             }
-            LocalRequest::RenderFile { input, output } => {
+            LocalRequest::RenderFile {
+                input,
+                output,
+                processing_mode,
+            } => {
                 let abort_epoch = self.inner.server_unload_epoch.load(Ordering::Acquire);
-                let (text, config) = self.file_speech_route(&input)?;
+                let (text, mut config) = self.file_speech_route(&input)?;
+                if let Some(mode) = processing_mode {
+                    config.speech.processing_mode = mode;
+                }
                 {
                     let _intent = self
                         .inner
@@ -6901,7 +7018,7 @@ fn synthesize_media_units(
 ) -> Result<AppConfig> {
     privacy::text_metadata("tts", text);
     let mut route = config;
-    for unit in plan_units(text, 240)? {
+    for unit in plan_speech(text, route.speech.processing_mode)? {
         anyhow::ensure!((options.current)(), "speech rendering was cancelled");
         route = media_routing::unit_route(&route, &unit.text)?;
         if prepare_speech_text(&route, &unit.text, unit.starts_in_code)
@@ -7201,6 +7318,7 @@ impl MediaBridge {
         &self,
         value: serde_json::Value,
         lifetime: &request_lifetime::RequestLifetime,
+        mut on_delta: impl FnMut(&str) -> Result<()>,
     ) -> Result<serde_json::Value> {
         let (reply, response) = mpsc::channel();
         self.requests
@@ -7214,6 +7332,10 @@ impl MediaBridge {
             match response.recv_timeout(wait) {
                 Ok(Ok(value)) => {
                     lifetime.check()?;
+                    if let Some(delta) = value["delta"].as_str() {
+                        on_delta(delta)?;
+                        continue;
+                    }
                     return Ok(value);
                 }
                 Ok(Err(error)) => anyhow::bail!("{error}"),
@@ -7224,6 +7346,240 @@ impl MediaBridge {
             }
         }
     }
+}
+
+fn api_invalid_request(error: &anyhow::Error) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
+    server_json(
+        400,
+        &serde_json::json!({"error":{"message":error.to_string(),"type":"invalid_request_error"}}),
+    )
+}
+
+fn run_api_transcription(
+    app: &App,
+    lifetime: &request_lifetime::RequestLifetime,
+    upload: AudioUpload,
+    on_delta: impl FnMut(&str) -> Result<()>,
+) -> Result<String> {
+    let audio_dir = reader_core::config::data_dir().join("requests");
+    std::fs::create_dir_all(&audio_dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&audio_dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    let path = audio_dir.join(format!(
+        "transcription-{}.{}",
+        Uuid::new_v4(),
+        upload.extension
+    ));
+    let _audio_cleanup = privacy::TemporaryFile::create(path.clone(), &upload.audio)?;
+    drop(upload.audio);
+    let mut bridge = acquire_media_bridge(&app.inner.media_bridge, lifetime)?;
+    let running = bridge
+        .as_mut()
+        .map(|process| process.child.try_wait().map(|status| status.is_none()))
+        .transpose()?
+        .unwrap_or(false);
+    if !running {
+        *bridge = Some(start_media_bridge()?);
+    }
+    let process = bridge
+        .as_ref()
+        .context("transcription bridge did not start")?;
+    lifetime.set_stage(if running {
+        reader_core::request_budget::RequestStage::Inference
+    } else {
+        reader_core::request_budget::RequestStage::LoadingModel
+    });
+    let request = serde_json::json!({
+        "path": path,
+        "language": upload.language,
+        "processing_mode": upload.processing.mode,
+        "stream": upload.processing.stream,
+    });
+    let value = match process.transcribe(request, lifetime, on_delta) {
+        Ok(value) => value,
+        Err(error) => {
+            bridge.take();
+            return Err(error);
+        }
+    };
+    anyhow::ensure!(
+        value.get("error").is_none(),
+        "{}",
+        value["error"].as_str().unwrap_or("transcription failed")
+    );
+    value["text"]
+        .as_str()
+        .map(str::to_owned)
+        .context("transcription bridge response has no transcript text")
+}
+
+fn respond_api_transcription(
+    app: &App,
+    lifetime: &request_lifetime::RequestLifetime,
+    request: tiny_http::Request,
+    body: Vec<u8>,
+) -> Result<()> {
+    let content_type = request
+        .headers()
+        .iter()
+        .find(|header| header.field.equiv("Content-Type"))
+        .and_then(|header| std::str::from_utf8(header.value.as_bytes()).ok())
+        .unwrap_or("");
+    let parsed = parse_audio_upload(content_type, &body);
+    drop(body);
+    let upload = match parsed {
+        Ok(upload) => upload,
+        Err(error) => {
+            request.respond(api_invalid_request(&error))?;
+            return Ok(());
+        }
+    };
+    if upload.processing.stream {
+        let mut stream = audio_http::Stream::start(request, "text/event-stream")?;
+        let result = run_api_transcription(app, lifetime, upload, |delta| {
+            stream.event(serde_json::json!({"type":"transcript.text.delta","delta":delta}))
+        });
+        match result {
+            Ok(text) => {
+                stream.event(serde_json::json!({"type":"transcript.text.done","text":text}))?
+            }
+            Err(error) => stream
+                .event(serde_json::json!({"type":"error","error":{"message":error.to_string()}}))?,
+        }
+        stream.finish()?;
+    } else {
+        let response = match run_api_transcription(app, lifetime, upload, |_| Ok(())) {
+            Ok(text) => server_json(200, &serde_json::json!({"text":text})),
+            Err(error) => api_invalid_request(&error),
+        };
+        request.respond(response)?;
+    }
+    Ok(())
+}
+
+struct ApiSpeech<'a> {
+    route: AppConfig,
+    text: &'a str,
+    voice: Option<&'a str>,
+    speed: f32,
+    format: &'a str,
+    stream: bool,
+}
+
+fn parse_api_speech<'a>(config: &AppConfig, input: &'a serde_json::Value) -> Result<ApiSpeech<'a>> {
+    let text = input["input"]
+        .as_str()
+        .context("request requires input text")?;
+    anyhow::ensure!(
+        text.len() <= config.server.max_text_bytes,
+        "speech input exceeds configured text limit"
+    );
+    let speed = input["speed"]
+        .as_f64()
+        .unwrap_or(config.speech.speed.into()) as f32;
+    anyhow::ensure!(
+        (0.5..=2.0).contains(&speed),
+        "speed must be between 0.5 and 2.0"
+    );
+    let stream_format = input["stream_format"].as_str();
+    anyhow::ensure!(
+        stream_format.is_none_or(|value| value == "audio"),
+        "stream_format must be audio"
+    );
+    let processing = audio_http::Processing::new(
+        input["processing_mode"].as_str(),
+        input["stream"].as_bool().unwrap_or(false) || stream_format == Some("audio"),
+    )?;
+    let format = input["response_format"]
+        .as_str()
+        .unwrap_or(if processing.stream { "pcm" } else { "wav" });
+    anyhow::ensure!(
+        matches!(format, "wav" | "pcm"),
+        "response_format must be wav or pcm"
+    );
+    anyhow::ensure!(
+        !processing.stream || format == "pcm",
+        "streaming audio requires response_format pcm"
+    );
+    let mut route = server_tts_route(config, input, text)?;
+    if let Some(mode) = processing.mode {
+        route.speech.processing_mode = mode;
+    }
+    Ok(ApiSpeech {
+        route,
+        text,
+        voice: input["voice"].as_str(),
+        speed,
+        format,
+        stream: processing.stream,
+    })
+}
+
+fn respond_api_speech_stream(
+    app: &App,
+    lifetime: &request_lifetime::RequestLifetime,
+    request: tiny_http::Request,
+    speech: ApiSpeech<'_>,
+    unload_epoch: u64,
+) -> Result<()> {
+    let mut request = Some(request);
+    let mut stream = None;
+    let mut remaining = MAX_SERVER_JOB_AUDIO / 2;
+    let result = with_server_worker(&app.inner, lifetime, |worker| {
+        let current = || {
+            !app.inner.shutdown.load(Ordering::Acquire)
+                && app.inner.server_unload_epoch.load(Ordering::Acquire) == unload_epoch
+                && lifetime.check().is_ok()
+        };
+        synthesize_media_units(
+            worker,
+            speech.route,
+            speech.text,
+            MediaOptions {
+                voice: speech.voice,
+                speed: speech.speed,
+                max_samples: remaining,
+                request_id: Some(lifetime.request_id()),
+                lifetime: Some(lifetime),
+                current: &current,
+            },
+            |_, pcm, rate| {
+                let mut normalized = Vec::new();
+                media_routing::append_pcm(&mut normalized, pcm, rate, remaining)?;
+                remaining -= normalized.len();
+                if normalized.is_empty() {
+                    return Ok(());
+                }
+                if let Some(request) = request.take() {
+                    stream = Some(audio_http::Stream::start(
+                        request,
+                        "audio/pcm;rate=24000;channels=1",
+                    )?);
+                }
+                stream.as_mut().context("missing speech stream")?.send(
+                    &normalized
+                        .into_iter()
+                        .flat_map(i16::to_le_bytes)
+                        .collect::<Vec<_>>(),
+                )
+            },
+        )
+    });
+    if let Some(request) = request {
+        let error = result
+            .err()
+            .unwrap_or_else(|| anyhow::anyhow!("no readable speech remains"));
+        request.respond(api_invalid_request(&error))?;
+        return Ok(());
+    }
+    let route = result?;
+    if let Err(error) = reading_hint::record(&route) {
+        tracing::debug!(%error, "could not save last voice route");
+    }
+    stream.context("missing speech stream")?.finish()
 }
 
 fn handle_server_request(app: &App, token: &str, mut request: tiny_http::Request) -> Result<()> {
@@ -7268,7 +7624,7 @@ fn handle_server_request(app: &App, token: &str, mut request: tiny_http::Request
     let limit = if path == "/v1/chat/completions" || path == "/v1/responses" {
         16 * 1024 * 1024 + 1024 * 1024
     } else if path == "/v1/audio/transcriptions" {
-        26 * 1024 * 1024
+        35 * 1024 * 1024
     } else {
         1_100_000
     };
@@ -7284,7 +7640,36 @@ fn handle_server_request(app: &App, token: &str, mut request: tiny_http::Request
         return Ok(());
     }
     lifetime.check()?;
+    if path == "/v1/audio/transcriptions" && *request.method() == tiny_http::Method::Post {
+        return respond_api_transcription(app, &lifetime, request, body);
+    }
     let unload_epoch = app.inner.server_unload_epoch.load(Ordering::Acquire);
+    let speech_input = if path == "/v1/audio/speech" && *request.method() == tiny_http::Method::Post
+    {
+        match serde_json::from_slice(&body) {
+            Ok(value) => Some(value),
+            Err(error) => {
+                request.respond(api_invalid_request(&error.into()))?;
+                return Ok(());
+            }
+        }
+    } else {
+        None
+    };
+    let speech = match speech_input
+        .as_ref()
+        .map(|value| parse_api_speech(&config, value))
+        .transpose()
+    {
+        Ok(speech) => speech,
+        Err(error) => {
+            request.respond(api_invalid_request(&error))?;
+            return Ok(());
+        }
+    };
+    if speech.as_ref().is_some_and(|speech| speech.stream) {
+        return respond_api_speech_stream(app, &lifetime, request, speech.unwrap(), unload_epoch);
+    }
     let result: Result<tiny_http::Response<std::io::Cursor<Vec<u8>>>> = (|| match path.as_str() {
         "/v1/audio/voices" if *request.method() == tiny_http::Method::Get => Ok(server_json(
             200,
@@ -7309,65 +7694,6 @@ fn handle_server_request(app: &App, token: &str, mut request: tiny_http::Request
             models.push(serde_json::json!({"id":"smalltalkai-ocr","object":"model","owned_by":"smalltalkai-reader","capabilities":["ocr"]}));
             serde_json::json!({"object":"list","data":models})
         })),
-        "/v1/audio/transcriptions" if *request.method() == tiny_http::Method::Post => {
-            let content_type = request
-                .headers()
-                .iter()
-                .find(|header| header.field.equiv("Content-Type"))
-                .map(|header| String::from_utf8_lossy(header.value.as_bytes()).into_owned())
-                .context("multipart Content-Type is required")?;
-            let (audio, language, extension) = parse_transcription_multipart(&content_type, &body)?;
-            let audio_dir = reader_core::config::data_dir().join("requests");
-            std::fs::create_dir_all(&audio_dir)?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&audio_dir, std::fs::Permissions::from_mode(0o700))?;
-            }
-            let path = audio_dir.join(format!("transcription-{}.{}", Uuid::new_v4(), extension));
-            let _audio_cleanup = privacy::TemporaryFile::create(path.clone(), &audio)?;
-            let write_result = (|| -> Result<String> {
-                let mut bridge = acquire_media_bridge(&app.inner.media_bridge, &lifetime)?;
-                let running = bridge
-                    .as_mut()
-                    .map(|process| process.child.try_wait().map(|status| status.is_none()))
-                    .transpose()?
-                    .unwrap_or(false);
-                if !running {
-                    *bridge = Some(start_media_bridge()?);
-                }
-                let process = bridge.as_mut().expect("bridge was just started");
-                lifetime.set_stage(if running {
-                    reader_core::request_budget::RequestStage::Inference
-                } else {
-                    reader_core::request_budget::RequestStage::LoadingModel
-                });
-                let request = serde_json::json!({
-                    "path": path,
-                    "language": language.as_deref(),
-                });
-                let value = match process.transcribe(request, &lifetime) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        bridge.take();
-                        return Err(error);
-                    }
-                };
-                anyhow::ensure!(
-                    value.get("error").is_none(),
-                    "{}",
-                    value["error"].as_str().unwrap_or("transcription failed")
-                );
-                value
-                    .get("text")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned)
-                    .context("transcription bridge response has no transcript text")
-            })();
-            let _ = std::fs::remove_file(&path);
-            let transcript = write_result?;
-            Ok(server_json(200, &serde_json::json!({"text": transcript})))
-        }
         "/app/v1/capabilities" => Ok(server_json(
             200,
             &serde_json::json!({"protocol_version":1,"server_id":format!("smalltalkai-reader-{}",std::process::id()),"warmup_leases":true,"jobs":true,"job_events":true,"cancel_jobs":true,"tts":[{"id":"kokoro-v1","voices":["af_heart","af_bella","af_nicole","af_sarah","am_adam","am_michael","bf_emma"],"languages":["en-us","en-gb"],"formats":["pcm","wav"],"pcm":{"encoding":"s16le","sample_rate_hz":24000,"channels":1},"timing":"sentence"}],"ocr":[{"id":"paddle-ar-en","languages":["eng"],"word_boxes":false}]}),
@@ -7849,33 +8175,14 @@ fn handle_server_request(app: &App, token: &str, mut request: tiny_http::Request
             }
         }
         "/v1/audio/speech" => {
-            let input: serde_json::Value = serde_json::from_slice(&body)?;
-            let text = input
-                .get("input")
-                .and_then(|v| v.as_str())
-                .context("request requires input text")?;
-            anyhow::ensure!(
-                text.len() <= config.server.max_text_bytes,
-                "speech input exceeds configured text limit"
-            );
-            let voice = input.get("voice").and_then(|v| v.as_str());
-            let speed = input
-                .get("speed")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(config.speech.speed as f64) as f32;
-            anyhow::ensure!(
-                speed.is_finite() && (0.5..=2.0).contains(&speed),
-                "speed must be between 0.5 and 2.0"
-            );
-            let format = input
-                .get("response_format")
-                .and_then(|v| v.as_str())
-                .unwrap_or("wav");
-            anyhow::ensure!(
-                matches!(format, "wav" | "pcm"),
-                "response_format must be wav or pcm"
-            );
-            let route = server_tts_route(&config, &input, text)?;
+            let ApiSpeech {
+                route,
+                text,
+                voice,
+                speed,
+                format,
+                ..
+            } = speech.context("speech requires POST")?;
             let (samples, last_route) = with_server_worker(&app.inner, &lifetime, |worker| {
                 let is_current = || {
                     !app.inner.shutdown.load(Ordering::Acquire)
@@ -8032,10 +8339,64 @@ fn handle_server_request(app: &App, token: &str, mut request: tiny_http::Request
     let _ = request.respond(response);
     Ok(())
 }
-fn parse_transcription_multipart(
-    content_type: &str,
-    body: &[u8],
-) -> Result<(Vec<u8>, Option<String>, String)> {
+struct AudioUpload {
+    audio: Vec<u8>,
+    language: Option<String>,
+    extension: String,
+    processing: audio_http::Processing,
+}
+
+fn audio_extension(value: &str) -> bool {
+    matches!(
+        value,
+        "wav" | "mp3" | "m4a" | "flac" | "ogg" | "webm" | "mp4" | "mpeg" | "mpga" | "opus" | "aac"
+    )
+}
+
+fn parse_audio_upload(content_type: &str, body: &[u8]) -> Result<AudioUpload> {
+    use base64::Engine;
+    let parsed = if content_type
+        .split(';')
+        .next()
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("application/json"))
+    {
+        let request: serde_json::Value = serde_json::from_slice(body)?;
+        let input = &request["input_audio"];
+        let data = input["data"]
+            .as_str()
+            .context("input_audio.data must contain base64 audio")?;
+        let extension = input["format"]
+            .as_str()
+            .context("input_audio.format is required")?
+            .to_ascii_lowercase();
+        anyhow::ensure!(
+            audio_extension(&extension),
+            "unsupported input_audio.format"
+        );
+        AudioUpload {
+            audio: base64::engine::general_purpose::STANDARD.decode(data)?,
+            extension,
+            language: request["language"].as_str().map(str::to_owned),
+            processing: audio_http::Processing::new(
+                request["processing_mode"].as_str(),
+                request["stream"].as_bool().unwrap_or(false),
+            )?,
+        }
+    } else {
+        parse_transcription_multipart(content_type, body)?
+    };
+    anyhow::ensure!(
+        !parsed.audio.is_empty() && parsed.audio.len() <= 25 * 1024 * 1024,
+        "audio must be nonempty and at most 25 MiB"
+    );
+    anyhow::ensure!(
+        parsed.language.as_ref().is_none_or(|language| language.len() <= 128 && !language.chars().any(char::is_control)),
+        "language field is invalid"
+    );
+    Ok(parsed)
+}
+
+fn parse_transcription_multipart(content_type: &str, body: &[u8]) -> Result<AudioUpload> {
     anyhow::ensure!(
         content_type
             .split(';')
@@ -8062,6 +8423,8 @@ fn parse_transcription_multipart(
     let mut file = None;
     let mut extension = "wav".to_owned();
     let mut language = None;
+    let mut mode = None;
+    let mut stream = false;
     while cursor < body.len() {
         anyhow::ensure!(
             body[cursor..].starts_with(&delimiter),
@@ -8110,21 +8473,7 @@ fn parse_transcription_multipart(
                         .extension()
                         .and_then(|value| value.to_str())
                         .map(str::to_ascii_lowercase)
-                        .filter(|value| {
-                            matches!(
-                                value.as_str(),
-                                "wav"
-                                    | "mp3"
-                                    | "m4a"
-                                    | "flac"
-                                    | "ogg"
-                                    | "webm"
-                                    | "mp4"
-                                    | "mpeg"
-                                    | "mpga"
-                                    | "opus"
-                            )
-                        })
+                        .filter(|value| audio_extension(value))
                     {
                         extension = candidate;
                     }
@@ -8141,16 +8490,24 @@ fn parse_transcription_multipart(
                 );
                 language = (!value.is_empty()).then(|| value.to_owned());
             }
+            "processing_mode" => mode = Some(std::str::from_utf8(part)?.trim()),
+            "stream" => {
+                stream = std::str::from_utf8(part)?
+                    .trim()
+                    .parse()
+                    .context("stream must be true or false")?
+            }
             "model" => {} // The selected speech configuration is authoritative.
             _ => {}
         }
         cursor = part_end + 2;
     }
-    Ok((
-        file.context("multipart request requires a file field")?,
+    Ok(AudioUpload {
+        audio: file.context("multipart request requires a file field")?,
         language,
         extension,
-    ))
+        processing: audio_http::Processing::new(mode, stream)?,
+    })
 }
 
 fn find_bytes(haystack: &[u8], needle: &[u8], start: usize) -> Option<usize> {
@@ -9217,10 +9574,11 @@ fn copy_region_inner(
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         commit_current_ocr(&app.inner.intent_gate, current, || {
-            let _suppression = app.suppress_clipboard_watcher();
-            app.inner.ocr_activity.lock().unwrap().set(epoch, "copying");
-            copy_ocr_text(&text)?;
-            app.set_notice("Text copied".into(), Duration::from_secs(3));
+            finish_ocr_copy(app, &text, || {
+                let _suppression = app.suppress_clipboard_watcher();
+                app.inner.ocr_activity.lock().unwrap().set(epoch, "copying");
+                copy_ocr_text(&text)
+            });
             app.show_hud();
             Ok(())
         })
@@ -9234,6 +9592,29 @@ fn copy_region_inner(
     let _ = std::fs::remove_file(image);
     app.inner.ocr_activity.lock().unwrap().set(epoch, "idle");
     result
+}
+
+#[cfg(any(target_os = "linux", windows))]
+fn finish_ocr_copy(app: &App, text: &str, copy: impl FnOnce() -> Result<()>) {
+    let text = text.trim();
+    if text.is_empty() {
+        app.set_notice("reader.ocr_empty".into(), Duration::from_secs(3));
+        return;
+    }
+    let mut chars = text.chars();
+    let excerpt: String = chars.by_ref().take(240).collect();
+    let mut preview = excerpt.split_whitespace().collect::<Vec<_>>().join(" ");
+    if chars.next().is_some() {
+        preview.push('…');
+    }
+    let message = match copy() {
+        Ok(()) => "Text copied",
+        Err(error) => {
+            tracing::warn!(%error, "OCR clipboard delivery failed");
+            "reader.ocr_clipboard_failed"
+        }
+    };
+    app.set_notice_with_preview(message.into(), Duration::from_secs(3), Some(preview));
 }
 #[cfg(any(target_os = "linux", windows))]
 fn start_region_prewarm(app: &App, generation: u64) -> Result<()> {
@@ -10395,12 +10776,22 @@ fn start_media_bridge_command(mut command: Command) -> Result<MediaBridge> {
                     input.write_all(b"\n")?;
                     input.flush()?;
                     let mut line = String::new();
-                    anyhow::ensure!(
-                        output.read_line(&mut line)? > 0,
-                        "media bridge closed stdout without a response"
-                    );
-                    serde_json::from_str(&line)
-                        .context("transcription bridge returned invalid JSON")
+                    loop {
+                        line.clear();
+                        anyhow::ensure!(
+                            output.read_line(&mut line)? > 0,
+                            "media bridge closed stdout without a response"
+                        );
+                        let frame: serde_json::Value = serde_json::from_str(&line)
+                            .context("transcription bridge returned invalid JSON")?;
+                        if frame.get("delta").is_none() {
+                            break Ok(frame);
+                        }
+                        request
+                            .reply
+                            .send(Ok(frame))
+                            .map_err(|_| anyhow::anyhow!("transcription client disconnected"))?;
+                    }
                 })()
                 .map_err(|error| format!("{error:#}"));
                 let failed = result.is_err();
@@ -10434,10 +10825,19 @@ fn run_media_request(store: ConfigStore) -> Result<()> {
     let app = App::new(store);
     app.inner.desktop_enabled.store(false, Ordering::Release);
     let result = match request {
-        MediaRequest::Render { input, output } => {
-            app.handle(LocalRequest::RenderFile { input, output })
-        }
-        MediaRequest::Play { input } => app.play_file(&input),
+        MediaRequest::Render {
+            input,
+            output,
+            processing_mode,
+        } => app.handle(LocalRequest::RenderFile {
+            input,
+            output,
+            processing_mode,
+        }),
+        MediaRequest::Play {
+            input,
+            processing_mode,
+        } => app.play_file(&input, processing_mode),
         MediaRequest::Ocr { path } => app.handle(LocalRequest::OcrFile { path }),
     };
     let speech_cleanup = app.inner.tts.shutdown();
@@ -10550,7 +10950,7 @@ fn copy_ocr_text(text: &str) -> Result<()> {
     #[cfg(windows)]
     let mut command = {
         let mut c = Command::new("powershell.exe");
-        c.args(["-NoProfile","-NonInteractive","-STA","-Command","[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); $text = [Console]::In.ReadToEnd(); Set-Clipboard -Value $text"]);
+        c.args(["-NoProfile","-NonInteractive","-STA","-Command","[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); $text = [Console]::In.ReadToEnd(); Set-Clipboard -Value $text -ErrorAction Stop"]);
         c
     };
     #[cfg(not(any(target_os = "linux", windows)))]
@@ -10583,6 +10983,35 @@ fn copy_ocr_text(text: &str) -> Result<()> {
 
 #[cfg(test)]
 mod server_model_tests {
+    #[cfg(any(target_os = "linux", windows))]
+    #[test]
+    fn ocr_copy_feedback_keeps_text_on_clipboard_failure_and_expires() {
+        let directory = tempfile::tempdir().unwrap();
+        let app = super::App::new(reader_core::ConfigStore::new(
+            directory.path().join("config.json"),
+        ));
+        super::finish_ocr_copy(&app, "  \n ", || panic!("blank OCR must not copy"));
+        let empty = app.status();
+        assert_eq!(empty["notice_text"], "reader.ocr_empty");
+        assert!(empty["notice_preview"].is_null());
+
+        let text = "السطر الأول\nSecond line";
+        super::finish_ocr_copy(&app, text, || anyhow::bail!("clipboard busy"));
+        let failed = app.status();
+        assert_eq!(failed["notice_text"], "reader.ocr_clipboard_failed");
+        assert_eq!(failed["notice_preview"], "السطر الأول Second line");
+
+        super::finish_ocr_copy(&app, &text.repeat(30), || Ok(()));
+        let copied = app.status();
+        assert_eq!(copied["notice_text"], "Text copied");
+        let preview = copied["notice_preview"].as_str().unwrap();
+        assert!(preview.chars().count() <= 241 && preview.ends_with('…'));
+        app.inner.notice.lock().unwrap().expires = Some(std::time::Instant::now());
+        let expired = app.status();
+        assert_eq!(expired["notice_text"], "");
+        assert!(expired["notice_preview"].is_null());
+    }
+
     #[cfg(any(target_os = "linux", windows))]
     #[test]
     fn aborted_ocr_copy_cannot_publish_late_text() {
@@ -10915,6 +11344,7 @@ mod server_model_tests {
             super::repeat::RepeatPayload::ReadAlong {
                 target: super::read_along_capture::Target {
                     window: super::read_along_capture::WindowId::X11(77),
+                    reference_size: None,
                     region: super::read_along_capture::Rect {
                         x: 2,
                         y: 3,
@@ -11096,7 +11526,7 @@ mod server_model_tests {
         );
         lifetime.set_stage(reader_core::request_budget::RequestStage::LoadingModel);
         assert!(bridge
-            .transcribe(serde_json::json!({"path":"unused"}), &lifetime)
+            .transcribe(serde_json::json!({"path":"unused"}), &lifetime, |_| Ok(()))
             .is_err());
         drop(bridge);
         for _ in 0..50 {
@@ -11227,6 +11657,7 @@ mod server_model_tests {
         preparation.text = Some("pending speech text".into());
         let target = super::read_along_capture::Target {
             window: super::read_along_capture::WindowId::X11(1),
+            reference_size: None,
             region: super::read_along_capture::Rect {
                 x: 0,
                 y: 0,

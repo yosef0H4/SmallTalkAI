@@ -76,16 +76,38 @@ fn command_input(args: &[&str], input: Option<&[u8]>) -> Result<String> {
     command_in_profile(args, input, &data_dir(), false)
 }
 
-pub fn read_in_background(text: &str) -> Result<String> {
-    command_input(&["read-text", "--existing"], Some(text.as_bytes()))
+pub fn read_in_background(
+    text: &str,
+    mode: Option<reader_core::processing::ProcessingMode>,
+) -> Result<String> {
+    read_text(text, mode, true)
+}
+
+fn read_text(
+    text: &str,
+    mode: Option<reader_core::processing::ProcessingMode>,
+    existing: bool,
+) -> Result<String> {
+    let mut args = vec!["read-text"];
+    if existing {
+        args.push("--existing");
+    }
+    let value = mode.map(|mode| mode.to_string());
+    if let Some(value) = value.as_deref() {
+        args.extend(["--processing-mode", value]);
+    }
+    command_input(&args, Some(text.as_bytes()))
 }
 
 pub fn preview_voice(
     binding: reader_core::routing::Binding,
     language: &str,
     text: &str,
+    session_id: Option<u64>,
 ) -> Result<()> {
-    local_request(json!({"op":"preview_voice","binding":binding,"language":language,"text":text}))?;
+    local_request(json!({
+        "op":"preview_voice","binding":binding,"language":language,"text":text,"session_id":session_id
+    }))?;
     Ok(())
 }
 
@@ -189,6 +211,16 @@ pub fn stop_background_server() -> Result<()> {
     Ok(())
 }
 pub fn status() -> Option<Value> {
+    existing_reader_state(json!({"op":"status"}))
+}
+
+pub fn preview_voice_rms(session_id: u64) -> f32 {
+    existing_reader_state(json!({"op":"preview_voice_level","session_id":session_id}))
+        .and_then(|state| state["rms"].as_f64())
+        .unwrap_or_default() as f32
+}
+
+fn existing_reader_state(request: Value) -> Option<Value> {
     let mut stream = reader_core::local_ipc::connect(&data_dir()).ok()?;
     #[cfg(unix)]
     {
@@ -199,7 +231,7 @@ pub fn status() -> Option<Value> {
             .set_write_timeout(Some(Duration::from_millis(500)))
             .ok()?;
     }
-    reader_core::wire::write_json_frame(&mut stream, &json!({"op":"status"})).ok()?;
+    reader_core::wire::write_json_frame(&mut stream, &request).ok()?;
     let reply: Value = reader_core::wire::read_json_frame(&mut stream).ok()?;
     reply.get("state").filter(|state| !state.is_null()).cloned()
 }
@@ -368,7 +400,15 @@ pub fn hud_text(
             lines.push(line);
         }
     }
-    if let Some(notice) = status["notice_text"].as_str().filter(|s| !s.is_empty()) {
+    let notice = status["notice_text"].as_str().filter(|s| !s.is_empty());
+    let copy_preview = status["notice_preview"].as_str().filter(|text| {
+        !text.is_empty() && matches!(notice, Some("Text copied" | "reader.ocr_clipboard_failed"))
+    });
+    if let Some(preview) = copy_preview {
+        lines.push(format!("📋 \u{2068}{preview}\u{2069}"));
+    }
+    if let Some(notice) = notice.filter(|notice| *notice != "Text copied" || copy_preview.is_none())
+    {
         if let Some(attempt) = notice.strip_prefix("Read-along retry ") {
             lines.push(format!(
                 "⟳ {}",
@@ -383,6 +423,9 @@ pub fn hud_text(
             let (icon, key) = match notice {
                 "reader.clipboard_replaced" => ("📋", "reader.clipboard_replaced"),
                 "Text copied" => ("📋", "reader.copied"),
+                "reader.ocr_clipboard_failed" => ("⚠️", "reader.ocr_clipboard_failed"),
+                "reader.ocr_empty" => ("🔍", "reader.ocr_empty"),
+                "reader.ocr_failed" => ("⚠️", "reader.ocr_failed"),
                 value if value.starts_with("Clipboard listening enabled") => {
                     ("📋", "reader.listening")
                 }
@@ -563,6 +606,25 @@ mod hud_formatter_tests {
         status["chunk_text"] = json!("");
         assert!(activity_text(&status, Locale::En, false).contains("Reading"));
     }
+    #[test]
+    fn copy_tooltip_shows_recognized_text_and_distinguishes_delivery_failure() {
+        let mut status = json!({
+            "notice_text": "Text copied",
+            "notice_preview": "مرحبا from the screen",
+        });
+        let (text, active) = super::hud_text(&status, Locale::En, 0);
+        assert!(active && text.contains("مرحبا from the screen"));
+        assert!(!text.contains("Text copied"));
+        status["notice_text"] = json!("reader.ocr_clipboard_failed");
+        let text = super::hud_text(&status, Locale::En, 0).0;
+        assert!(text.contains("مرحبا from the screen"));
+        assert!(text.contains("Could not write to the clipboard"));
+        status["notice_text"] = json!("reader.ocr_empty");
+        let text = super::hud_text(&status, Locale::En, 0).0;
+        assert!(text.contains("No text found in the selected area"));
+        assert!(!text.contains("مرحبا from the screen"));
+    }
+
     #[test]
     fn clipboard_notice_does_not_replace_spoken_passage() {
         let status = json!({"state":"reading","activity":{"phase":"reading","message_id":"reader.phase.reading"},"chunk_text":"Current prepared passage.","notice_text":"reader.clipboard_replaced"});
@@ -900,10 +962,18 @@ impl ConfiguredBackend {
     }
 }
 impl crate::cli::Backend for ConfiguredBackend {
+    fn saved_transcription_mode(&self) -> Result<reader_core::processing::ProcessingMode> {
+        Ok(crate::config::AppConfig::load()?.speech.processing_mode)
+    }
     fn transcribe_wav(&mut self, wav: &std::path::Path, language: Option<&str>) -> Result<String> {
         self.transcriber.transcribe(wav, language)
     }
-    fn speak_text(&mut self, text: &str, output: Option<&std::path::Path>) -> Result<()> {
+    fn speak_text(
+        &mut self,
+        text: &str,
+        output: Option<&std::path::Path>,
+        mode: Option<reader_core::processing::ProcessingMode>,
+    ) -> Result<()> {
         if let Some(output) = output {
             let directory = data_dir().join("cli");
             std::fs::create_dir_all(&directory)?;
@@ -919,11 +989,13 @@ impl crate::cli::Backend for ConfiguredBackend {
             } else {
                 std::env::current_dir()?.join(output)
             };
-            let result = local_request(json!({"op":"render_file","input":input,"output":output}));
+            let result = local_request(
+                json!({"op":"render_file","input":input,"output":output,"processing_mode":mode}),
+            );
             let _ = std::fs::remove_file(input);
             result?;
         } else {
-            action("read_text", text)?;
+            read_text(text, mode, false)?;
         }
         Ok(())
     }

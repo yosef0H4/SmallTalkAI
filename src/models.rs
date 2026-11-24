@@ -205,6 +205,34 @@ pub fn find_by_file(file: &str) -> Option<ModelSpec> {
     catalog().into_iter().find(|model| model.file == file)
 }
 
+/// Mean word error rate (%) on 100 English LibriSpeech test-clean clips.
+/// parakeet.cpp v0.5.0, benchmarks/results, CPU with eight threads.
+pub fn benchmark_wer(file: &str) -> Option<f64> {
+    let (family, quant) = file.strip_suffix(".gguf")?.rsplit_once('-')?;
+    let index = match quant {
+        "f16" => 0,
+        "q8_0" => 1,
+        "q6_k" => 2,
+        "q5_k" => 3,
+        "q4_k" => 4,
+        _ => return None,
+    };
+    let scores = match family {
+        "tdt_ctc-110m" => [3.456, 3.610, 3.567, 3.477, 2.892],
+        "realtime_eou_120m-v1" => [10.922, 11.311, 10.925, 11.093, 11.064],
+        "ctc-0.6b" => [4.326, 4.326, 4.351, 4.351, 4.009],
+        "rnnt-0.6b" => [4.411, 4.411, 4.403, 4.382, 4.254],
+        "tdt-0.6b-v2" => [3.712, 3.746, 3.777, 3.721, 3.846],
+        "tdt-0.6b-v3" => [3.410, 3.410, 3.278, 3.362, 3.463],
+        "ctc-1.1b" => [4.752, 4.752, 4.609, 4.590, 3.461],
+        "rnnt-1.1b" => [4.263, 4.220, 4.217, 4.217, 4.217],
+        "tdt-1.1b" => [2.505, 2.439, 2.439, 2.439, 2.401],
+        "tdt_ctc-1.1b" => [2.554, 2.514, 2.561, 2.561, 2.524],
+        _ => return None,
+    };
+    Some(scores[index])
+}
+
 fn catalog_cache_path() -> PathBuf {
     AppConfig::local_data_dir().join("model-catalog.json")
 }
@@ -360,19 +388,14 @@ fn recommendation_rank(file: &str, device: &InferenceDevice, size_mb: Option<u32
     if file == "lemura-arabic-asr-lite-q8_0.gguf" {
         return Some(2);
     }
-    let preferred_family =
-        file.starts_with("tdt_ctc-110m") || file.starts_with("realtime_eou_120m-v1");
+    let preferred_family = file.starts_with("tdt_ctc-110m");
     match device.effective() {
         InferenceDevice::Gpu | InferenceDevice::Auto => {
             if file.ends_with("-q8_0.gguf")
                 && preferred_family
                 && size_mb.unwrap_or(u32::MAX) <= 300
             {
-                Some(if file.starts_with("tdt_ctc-110m") {
-                    0
-                } else {
-                    1
-                })
+                Some(0)
             } else {
                 None
             }
@@ -380,11 +403,7 @@ fn recommendation_rank(file: &str, device: &InferenceDevice, size_mb: Option<u32
         InferenceDevice::Cpu => {
             let compact_quant = file.ends_with("-q4_k.gguf") || file.ends_with("-q5_k.gguf");
             if compact_quant && preferred_family && size_mb.unwrap_or(u32::MAX) <= 160 {
-                Some(if file.starts_with("tdt_ctc-110m") {
-                    0
-                } else {
-                    1
-                })
+                Some(0)
             } else {
                 None
             }
@@ -746,6 +765,14 @@ mod tests {
         ));
         assert!(!is_recommended_for_device(
             "tdt_ctc-110m-f16.gguf",
+            &InferenceDevice::Cpu
+        ));
+        assert!(!is_recommended_for_device(
+            "realtime_eou_120m-v1-q8_0.gguf",
+            &InferenceDevice::Gpu
+        ));
+        assert!(!is_recommended_for_device(
+            "realtime_eou_120m-v1-q4_k.gguf",
             &InferenceDevice::Cpu
         ));
     }

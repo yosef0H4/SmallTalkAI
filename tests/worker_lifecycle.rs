@@ -1,7 +1,9 @@
 use smalltalkai::capture::inference_supervisor::{
     nonzero_pid, shutdown_shared, shutdown_shared_if_current, WorkerConfig, WorkerSupervisor,
 };
+use smalltalkai::capture::recording_chunks::RecordingChunks;
 use smalltalkai::config::{InferenceDevice, LogLevel};
+use smalltalkai::infer::chunks::SAMPLE_RATE;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -47,6 +49,28 @@ fn worker_launches_lazily_and_reuses_warm_process() {
     assert_eq!(worker.worker_pid(), Some(warm_pid));
     worker.shutdown_now().unwrap();
     assert_eq!(worker.worker_pid(), None);
+}
+
+#[test]
+fn live_chunk_and_final_audio_reuse_one_worker() {
+    let mut worker = WorkerSupervisor::new(worker_config(
+        "normal.gguf",
+        Duration::from_secs(10),
+        Duration::from_millis(300),
+    ));
+    let mut recording = RecordingChunks::default();
+    let mut samples = vec![1; 40 * SAMPLE_RATE as usize];
+    let task = recording.queue(&samples).unwrap();
+    let decoded = worker.transcribe_pcm(1, &task.samples);
+    task.result.send(decoded).unwrap();
+    let (number, first) = recording.poll(&mut samples).unwrap().unwrap();
+    assert_eq!(number, 1);
+    let pid = worker.worker_pid().unwrap();
+    let final_text = recording
+        .finish(samples, |chunk| worker.transcribe_pcm(1, chunk))
+        .unwrap();
+    assert_eq!(final_text, format!("{first} {first}"));
+    assert_eq!(worker.worker_pid(), Some(pid));
 }
 
 #[test]

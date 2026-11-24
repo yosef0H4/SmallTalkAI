@@ -1,35 +1,46 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import Icon from "./Icon.svelte";
   import { t } from "../lib/i18n";
   let { text }: { text: string } = $props();
   const id = $props.id();
-  let position = $state<{ left: number; width: number; top?: number; bottom?: number } | null>(null);
-  function toggle(event: MouseEvent & { currentTarget: HTMLButtonElement }) {
-    if (position) {
-      position = null;
+  let open = $state(false);
+  let popup = $state<HTMLSpanElement>();
+  let position = $state<{ left: number; top: number; height: number } | null>(null);
+  async function toggle(event: MouseEvent & { currentTarget: HTMLButtonElement }) {
+    if (open) {
+      open = false;
       return;
     }
     const button = event.currentTarget.getBoundingClientRect();
-    const width = Math.min(330, innerWidth - 16);
-    const left = Math.max(8, Math.min(button.left, innerWidth - width - 8));
+    position = null;
+    open = true;
+    await tick();
+    if (!open || !popup) return;
+    const { width, height } = popup.getBoundingClientRect();
+    const above = Math.max(0, button.top - 12);
+    const below = Math.max(0, innerHeight - button.bottom - 12);
+    const flip = height > below && above > below;
+    const maxHeight = flip ? above : below;
+    const start = document.dir === "rtl" ? button.right - width : button.left;
     position = {
-      left,
-      width,
-      ...(innerHeight - button.bottom > 128 ? { top: button.bottom + 4 } : { bottom: innerHeight - button.top + 4 }),
+      left: Math.max(8, Math.min(start, innerWidth - width - 8)),
+      top: flip ? button.top - Math.min(height, maxHeight) - 4 : button.bottom + 4,
+      height: maxHeight,
     };
   }
 </script>
 
 <span class="help">
-  <button type="button" aria-label={t(text)} title={position ? undefined : t(text)}
-    aria-expanded={!!position} aria-controls={position ? id : undefined}
-    onclick={toggle} onblur={() => position = null}
-    onkeydown={event => { if (event.key === "Escape") position = null; }}>
+  <button type="button" aria-label={t(text)} title={open ? undefined : t(text)}
+    aria-expanded={open} aria-controls={open ? id : undefined}
+    onclick={toggle} onblur={() => open = false}
+    onkeydown={event => { if (event.key === "Escape") open = false; }}>
     <Icon name="help" size={15} />
   </button>
-  {#if position}
-    <span class="help-text" id={id} style:left={position.left + "px"} style:width={position.width + "px"}
-      style:top={position.top === undefined ? undefined : position.top + "px"}
-      style:bottom={position.bottom === undefined ? undefined : position.bottom + "px"}>{t(text)}</span>
+  {#if open}
+    <span class="help-text" id={id} role="tooltip" bind:this={popup} style:visibility={position ? undefined : "hidden"}
+      style:left={(position?.left ?? 8) + "px"} style:top={(position?.top ?? 8) + "px"}
+      style:max-height={position ? position.height + "px" : undefined}>{t(text)}</span>
   {/if}
 </span>

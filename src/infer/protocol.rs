@@ -21,6 +21,7 @@ pub enum MessageType {
     WarmUp = 11,
     ModelLoaded = 12,
     WarmUpAck = 13,
+    TranscribePcmOneShot = 14,
 }
 
 impl TryFrom<u16> for MessageType {
@@ -40,6 +41,7 @@ impl TryFrom<u16> for MessageType {
             11 => Ok(Self::WarmUp),
             12 => Ok(Self::ModelLoaded),
             13 => Ok(Self::WarmUpAck),
+            14 => Ok(Self::TranscribePcmOneShot),
             _ => bail!("unknown inference message type {value}"),
         }
     }
@@ -84,7 +86,13 @@ impl Frame {
         }
     }
     pub fn decode_pcm(&self) -> Result<(u32, Vec<i16>)> {
-        anyhow::ensure!(self.kind == MessageType::TranscribePcm, "frame is not PCM");
+        anyhow::ensure!(
+            matches!(
+                self.kind,
+                MessageType::TranscribePcm | MessageType::TranscribePcmOneShot
+            ),
+            "frame is not PCM"
+        );
         anyhow::ensure!(self.body.len() >= 8, "PCM body too short");
         let sample_rate = u32::from_le_bytes(self.body[0..4].try_into().unwrap());
         let count = u32::from_le_bytes(self.body[4..8].try_into().unwrap()) as usize;

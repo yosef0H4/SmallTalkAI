@@ -400,11 +400,18 @@ main {
   background: var(--rail);
 }
 .model-setup-bottom .notice { background: var(--raised); }
-.dictation-preview { display: grid; gap: 6px; }
-.dictation-preview textarea { width: 100%; resize: vertical; }
+.model-preview { display: grid; gap: 6px; }
+.model-preview textarea { width: 100%; resize: vertical; }
+.model-preview .reading-actions { align-items: center; }
 .help-text {
   position: fixed;
   z-index: 80;
+  width: max-content;
+  max-width: min(330px, calc(100vw - 16px));
+  white-space: normal;
+  overflow-wrap: anywhere;
+  overflow: auto;
+  font-weight: normal;
   padding: 7px 9px;
   border: 1px solid var(--line);
   background: var(--raised);

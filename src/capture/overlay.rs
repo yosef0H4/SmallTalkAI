@@ -34,6 +34,7 @@ mod platform {
             })
         }
         pub fn start_recording(&self, _: isize, _: RecordingIndicators) {}
+        pub fn set_recording_transcript(&self, _: usize, _: &str) {}
         pub fn set_primary(&self, _: OverlayPrimary) {}
         pub fn set_locale(&self, _: crate::localization::Locale) {}
         pub fn set_shortcuts(&self, _: String, _: bool) {}
@@ -49,7 +50,7 @@ mod platform {
 }
 pub use overlay_model::{
     ascii_visualizer, empty_visualizer_levels, render_overlay_text, set_visualizer_level,
-    NoticeLevel, OverlayPrimary, RecordingIndicators,
+    waveform_for_level, NoticeLevel, OverlayPrimary, RecordingIndicators,
 };
 pub use platform::OverlayHandle;
 
@@ -57,6 +58,13 @@ pub use platform::OverlayHandle;
 impl OverlayHandle {
     pub fn start_recording(&self, _target_window: isize, indicators: RecordingIndicators) {
         self.send(overlay_model::OverlayCommand::StartRecording(indicators));
+    }
+
+    pub fn set_recording_transcript(&self, number: usize, text: &str) {
+        self.send(overlay_model::OverlayCommand::RecordingTranscript(
+            number,
+            overlay_model::recording_excerpt(text),
+        ));
     }
 
     pub fn set_shortcuts(&self, text: String, enabled: bool) {

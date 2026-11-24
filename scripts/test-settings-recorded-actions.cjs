@@ -13,6 +13,9 @@ const f=require('./settings-fixture.cjs');
   await new Promise(resolve=>f.server.listen(0,'127.0.0.1',resolve));browser=await chromium.launch({headless:true});const page=await browser.newPage();page.setDefaultTimeout(6000);
   await page.goto(`http://127.0.0.1:${f.server.address().port}/#token=${f.token}`);
   await page.locator('nav button[data-page=reading]').click();
+  const background=page.getByRole('switch',{name:'Turn pages in the background'});
+  assert(await background.isChecked());
+  await background.uncheck();
   assert.equal(await page.locator('#recorded-action').inputValue(),'Space');
   await page.getByRole('button',{name:'Record',exact:true}).click();
   await page.keyboard.press('Space');await page.waitForTimeout(140);await page.keyboard.press('Space');await page.waitForTimeout(200);await page.keyboard.press('Escape');
@@ -24,10 +27,15 @@ const f=require('./settings-fixture.cjs');
   await page.locator('#savebar button[type=submit]').click();
   await page.waitForFunction(()=>!document.querySelector('#savebar'));
   await page.reload();await page.locator('nav button[data-page=reading]').click();
+  assert(!(await background.isChecked()),'Windows background choice survives save and reload');
   assert.equal(await page.locator('#recorded-action').inputValue(),'Space → Space');
   for(const width of [360,768,1280]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);}
   if(process.env.SMALLTALKAI_TEST_SCREENSHOT)await page.screenshot({path:process.env.SMALLTALKAI_TEST_SCREENSHOT,fullPage:true});
   await page.getByRole('button',{name:'Reset',exact:true}).click();assert.equal(await page.locator('#recorded-action').inputValue(),'Space');
-  console.log('PASS timing trim, release pairing, focused recording, Escape stop, blur/empty cancellation, save/reload and responsive controls');
+  f.options.platform='linux';
+  await page.reload();await page.locator('nav button[data-page=reading]').click();
+  await page.locator('#recorded-action').waitFor();
+  assert.equal(await background.count(),0,'Linux has no Windows background control');
+  console.log('PASS recorded timing, key releases, cancellation, saved Windows background toggle and Linux visibility');
  }finally{await browser?.close();await new Promise(resolve=>f.server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1});

@@ -191,17 +191,13 @@ fn transcribe_once(
     timeout: Duration,
     connect_timeout: Duration,
 ) -> std::result::Result<String, AttemptError> {
+    use base64::Engine;
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
     let sequence = BOUNDARY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let boundary = format!("smalltalkai-{}-{timestamp}-{sequence}", std::process::id());
-    let body =
-        multipart_body(&boundary, config, audio, language).map_err(|error| AttemptError {
-            message: error.to_string(),
-            retryable: false,
-        })?;
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(connect_timeout)
@@ -211,13 +207,28 @@ fn transcribe_once(
             message: format!("building HTTP client: {error}"),
             retryable: false,
         })?;
-    let mut request = client
-        .post(endpoint.clone())
-        .header(
-            reqwest::header::CONTENT_TYPE,
-            format!("multipart/form-data; boundary={boundary}"),
-        )
-        .body(body);
+    let request = client.post(endpoint.clone());
+    let mut request = if endpoint.host_str() == Some("openrouter.ai") {
+        let data = base64::engine::general_purpose::STANDARD.encode(audio);
+        let mut body =
+            serde_json::json!({"model":config.model,"input_audio":{"data":data,"format":"wav"}});
+        if let Some(language) = language {
+            body["language"] = language.into();
+        }
+        request.json(&body)
+    } else {
+        let body =
+            multipart_body(&boundary, config, audio, language).map_err(|error| AttemptError {
+                message: error.to_string(),
+                retryable: false,
+            })?;
+        request
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(body)
+    };
     if let Some(token) = token.filter(|value| !value.trim().is_empty()) {
         request = request.bearer_auth(token);
     }

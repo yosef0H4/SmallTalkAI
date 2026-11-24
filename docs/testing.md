@@ -28,7 +28,7 @@ binaries are allowed only in isolated tests. During targeted
 development, run `cd web/settings && npm ci && npm run build`. The build writes
 `dist/index.html`, `dist/app.js`, `dist/styles.css`, and a deterministic
 `dist/manifest.json`. `python scripts/verify-settings-frontend.py` checks source
-and output hashes plus the 100 KiB gzipped JS/CSS and 376 KiB total asset budgets.
+and output hashes plus the 100 KiB gzipped JS/CSS and 385 KiB total asset budgets.
 The Rust build script independently rejects missing or stale frontend output.
 
 On Linux, also run `python scripts/test-linux-static.py`. Run the browser model
@@ -388,6 +388,8 @@ Linux desktop regression: `python scripts/test-linux-language.py --switch-layout
 
 Model selection regressions: `python scripts/test-settings-selection-api.py` exercises the real Settings HTTP server's current-format normalization, nullable selections, authenticated read-only discovery, unavailable Wayland, Save, and draft-only reset/import. Build the debug Settings binary first with `cargo build --bin smalltalkai-settings`. `node scripts/test-settings-model-selection.cjs` exercises the browser UI using Playwright; install Playwright or set `NODE_PATH` to the bundled Node packages. It tests searchable mouse/keyboard selection, deterministic matches, preserved None, unavailable files, saved removal guards, download events, Save/Reset/import, and narrow layouts.
 
+The first-run browser suite in `scripts/test-settings-model-setup.cjs` checks both preview waveforms, the transcribed text, and the custom text sent to the selected voice. On 2026-11-24, the packaged Windows Settings test played custom text with Kokoro CPU through the virtual cable and verified that the live waveform returned to idle after playback. Native Linux playback was outside that run.
+
 The Linux language regression also checks silent skipped starts, real shell toggle/stop state and clipboard preservation, and worker PID reuse when English and Arabic share a model. The Windows full smoke checks skipped starts and explicitly selects its installed fixture models; run `scripts\test-full.cmd` when validating on Windows. Windows cross-compilation verifies build compatibility but does not replace native keyboard, AHK, or Vulkan desktop tests; report those checks as unvalidated when no Windows host is available.
 
 
@@ -559,6 +561,11 @@ one-page backpressure, capture ownership, bounded recovery, and settling only
 after the recorded action completes. `node scripts/test-settings-provider-routes.cjs`
 checks saved connections, independent language credentials, fallback, and reload.
 The Windows native suite includes `ahk/tests/action-replay-smoke.ahk`.
+On Windows, `cargo test -p smalltalkai-reader background_page_turns_only_address_saved_windows`
+creates two hidden windows and checks that Read Along sends recorded Space, plain
+Space and click events only to the saved window. It also checks that disabling
+background page turns waits for foreground focus, and that the saved crop and
+click position scale after moving and resizing the selected window.
 
 Before a desktop handoff, record a short repeated-key action and a modifier
 chord, then test Stop and target focus changes in an isolated target window.

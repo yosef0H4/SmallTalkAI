@@ -13,6 +13,24 @@ Settings server without opening a window.
 
 ## Media
 
+Dictation and Read aloud each remember a processing mode. With no CLI
+override, `media transcribe` and `media speak` use the corresponding saved
+setting. **Chunked (recommended)** is the default. Pass
+`--processing-mode one-shot` for one request to the model, or
+`--processing-mode chunked` to override a saved One shot setting. Very large
+one-shot inputs can exceed model or device limits.
+
+The OpenAI-compatible HTTP server accepts `processing_mode` on
+`/v1/audio/transcriptions` and `/v1/audio/speech` and uses the host's saved mode
+when the field is omitted. It splits the uploaded audio
+or input text itself in chunked mode. Clients can request OpenAI-style
+transcript events with the multipart field `stream=true`. The transcript
+stream starts after the complete upload. Speech uses
+`stream_format: "audio"` with `response_format: "pcm"` for raw 24 kHz mono
+16-bit PCM. `processing_mode: "streaming"` selects the chunked engine and the
+respective streaming response. OpenRouter-style base64 `input_audio` JSON is
+also accepted for transcription.
+
 On Linux, `smalltalkai-linux` exposes non-interactive media operations under
 `smalltalkai-linux media`. They use the same saved model, voice, device, and provider
 configuration as the desktop services. Each command owns its inference workers

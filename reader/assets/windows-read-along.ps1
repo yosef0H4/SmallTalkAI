@@ -3,7 +3,8 @@ param(
     [string]$Action,
     [string]$Key,
     [int]$X = -1,
-    [int]$Y = -1
+    [int]$Y = -1,
+    [int]$RequireForeground = 0
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
@@ -21,7 +22,7 @@ public static class ReadAlongNative {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint processId);
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; public POINT(int x,int y){X=x;Y=y;} }
   [DllImport("user32.dll")] public static extern bool ScreenToClient(IntPtr h, ref POINT p);
-  [DllImport("user32.dll")] public static extern IntPtr PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+  [DllImport("user32.dll", SetLastError=true)] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
 }
 '@
 [void][ReadAlongNative]::SetProcessDpiAwarenessContext([IntPtr]::new(-4))
@@ -50,11 +51,12 @@ function Get-Window($target) {
 
 $target = Read-Target
 $live = Get-Window $target
-if ($live.Minimized -or [ReadAlongNative]::GetForegroundWindow() -ne [ReadAlongNative]::GetAncestor($live.Handle,2)) { exit 3 }
+if ($live.Minimized) { exit 3 }
+if ($RequireForeground -and [ReadAlongNative]::GetForegroundWindow() -ne [ReadAlongNative]::GetAncestor($live.Handle,2)) { exit 3 }
 if ($Action -eq 'key') {
     $vk = [int][Enum]::Parse([System.Windows.Forms.Keys], $Key, $true)
-    [void][ReadAlongNative]::PostMessage($live.Handle, 0x0100, [IntPtr]$vk, [IntPtr]::Zero)
-    [void][ReadAlongNative]::PostMessage($live.Handle, 0x0101, [IntPtr]$vk, [IntPtr]::Zero)
+    if (-not [ReadAlongNative]::PostMessage($live.Handle, 0x0100, [IntPtr]$vk, [IntPtr]1)) { throw 'Could not send key to the selected window.' }
+    if (-not [ReadAlongNative]::PostMessage($live.Handle, 0x0101, [IntPtr]$vk, [IntPtr]0xC0000001L)) { throw 'Could not release key in the selected window.' }
     exit 0
 }
 if ($Action -eq 'click') {
@@ -62,8 +64,8 @@ if ($Action -eq 'click') {
     $p = [ReadAlongNative+POINT]::new($live.Left+[int]$target.x+$X, $live.Top+[int]$target.y+$Y)
     if (-not [ReadAlongNative]::ScreenToClient($live.Handle,[ref]$p)) { throw 'Could not map click to selected window.' }
     $lp = (($p.Y -band 0xffff) -shl 16) -bor ($p.X -band 0xffff)
-    [void][ReadAlongNative]::PostMessage($live.Handle, 0x0201, [IntPtr]1, [IntPtr]$lp)
-    [void][ReadAlongNative]::PostMessage($live.Handle, 0x0202, [IntPtr]0, [IntPtr]$lp)
+    if (-not [ReadAlongNative]::PostMessage($live.Handle, 0x0201, [IntPtr]1, [IntPtr]$lp)) { throw 'Could not send click to the selected window.' }
+    if (-not [ReadAlongNative]::PostMessage($live.Handle, 0x0202, [IntPtr]0, [IntPtr]$lp)) { throw 'Could not release click in the selected window.' }
     exit 0
 }
 throw 'Action must be key or click.'

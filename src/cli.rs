@@ -4,8 +4,10 @@ mod one_shot;
 pub use one_shot::run_media;
 
 use crate::config::SpeechLanguage;
+use crate::infer::chunks::{next_chunk_end, pcm_energy, MAX_CHUNK_SECONDS, SAMPLE_RATE};
 use anyhow::{bail, Context, Result};
 use clap::Subcommand;
+use reader_core::processing::ProcessingMode;
 use serde::Serialize;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, IsTerminal, Read, Seek, SeekFrom, Write};
@@ -17,18 +19,21 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 const MAX_TEXT_BYTES: usize = 1024 * 1024;
 const MAX_WAV_BYTES: u64 = 512 * 1024 * 1024;
 const FFMPEG_TIMEOUT: Duration = Duration::from_secs(30 * 60);
-const SAMPLE_RATE: u32 = 16_000;
-const TARGET_CHUNK_SECONDS: u64 = 25;
-const MAX_CHUNK_SECONDS: u64 = 35;
-const SEARCH_BEFORE_SECONDS: u64 = 5;
-const SEARCH_AFTER_SECONDS: u64 = 5;
 
 /// The narrow host boundary for media operations. Implementations should use
 /// the existing capture and reader services rather than loading engines here.
 pub trait Backend {
+    fn saved_transcription_mode(&self) -> Result<ProcessingMode> {
+        Ok(ProcessingMode::Chunked)
+    }
     fn transcribe_wav(&mut self, wav: &Path, language: Option<&str>) -> Result<String>;
     /// `output == None` requests playback through the installed reader service.
-    fn speak_text(&mut self, text: &str, output: Option<&Path>) -> Result<()>;
+    fn speak_text(
+        &mut self,
+        text: &str,
+        output: Option<&Path>,
+        mode: Option<ProcessingMode>,
+    ) -> Result<()>;
     fn ocr_image(&mut self, image: &Path) -> Result<String>;
 }
 
@@ -40,6 +45,9 @@ pub enum MediaCommand {
         /// Override the saved speech language for this file.
         #[arg(long, value_enum)]
         language: Option<SpeechLanguage>,
+        /// Override the saved mode (chunked or one-shot).
+        #[arg(long)]
+        processing_mode: Option<ProcessingMode>,
         /// Emit a JSON object containing the transcript.
         #[arg(long)]
         json: bool,
@@ -60,6 +68,9 @@ pub enum MediaCommand {
         /// Play in the background and return after handing off the text.
         #[arg(long, conflicts_with = "output")]
         background: bool,
+        /// Override the saved mode (chunked or one-shot).
+        #[arg(long)]
+        processing_mode: Option<ProcessingMode>,
     },
     /// Extract text from an image file.
     Ocr {
@@ -75,10 +86,11 @@ pub fn dispatch_media<B: Backend>(command: MediaCommand, backend: &mut B) -> Res
         MediaCommand::Transcribe {
             input,
             language,
+            processing_mode,
             json,
         } => {
             let language = language.map(SpeechLanguage::as_str);
-            let text = transcribe_file(backend, &input, language)?;
+            let text = transcribe_file(backend, &input, language, processing_mode)?;
             print_text(&text, json)
         }
         MediaCommand::Speak {
@@ -86,10 +98,11 @@ pub fn dispatch_media<B: Backend>(command: MediaCommand, backend: &mut B) -> Res
             file,
             stdin,
             output,
+            processing_mode,
             ..
         } => {
             let text = speech_input(text, file, stdin)?;
-            backend.speak_text(&text, output.as_deref())
+            backend.speak_text(&text, output.as_deref(), processing_mode)
         }
         MediaCommand::Ocr { image, json } => {
             anyhow::ensure!(
@@ -126,6 +139,17 @@ pub fn transcribe_file<B: Backend>(
     backend: &mut B,
     input: &Path,
     language: Option<&str>,
+    mode: Option<ProcessingMode>,
+) -> Result<String> {
+    transcribe_file_with_updates(backend, input, language, mode, |_| Ok(()))
+}
+
+pub fn transcribe_file_with_updates<B: Backend>(
+    backend: &mut B,
+    input: &Path,
+    language: Option<&str>,
+    mode: Option<ProcessingMode>,
+    mut on_text: impl FnMut(&str) -> Result<()>,
 ) -> Result<String> {
     anyhow::ensure!(
         input.is_file(),
@@ -134,7 +158,20 @@ pub fn transcribe_file<B: Backend>(
     );
     let wav = TempWav::create()?;
     decode_to_wav(input, &wav.path)?;
-    transcribe_chunks(backend, &wav.path, language, &wav.dir)
+    let mode = match mode {
+        Some(mode) => mode,
+        None => backend.saved_transcription_mode()?,
+    };
+    match mode {
+        ProcessingMode::OneShot => {
+            let text = backend.transcribe_wav(&wav.path, language)?;
+            on_text(&text)?;
+            Ok(text)
+        }
+        ProcessingMode::Chunked => {
+            transcribe_chunks(backend, &wav.path, language, &wav.dir, on_text)
+        }
+    }
 }
 
 fn read_limited(mut reader: impl Read, source: &str) -> Result<String> {
@@ -220,6 +257,7 @@ fn transcribe_chunks<B: Backend>(
     source: &Path,
     language: Option<&str>,
     temp_dir: &Path,
+    mut on_text: impl FnMut(&str) -> Result<()>,
 ) -> Result<String> {
     let mut wav = File::open(source).context("opening decoded WAV")?;
     let (data_offset, data_len) = pcm_data_chunk(&mut wav)?;
@@ -229,14 +267,21 @@ fn transcribe_chunks<B: Backend>(
     let mut index = 0_u32;
     let mut transcripts = Vec::new();
     let hard_limit = SAMPLE_RATE as u64 * MAX_CHUNK_SECONDS;
-    let target = SAMPLE_RATE as u64 * TARGET_CHUNK_SECONDS;
+    let mut window = Vec::new();
     while start < samples {
-        let remaining = samples - start;
-        let end = if remaining <= hard_limit {
-            samples
-        } else {
-            choose_boundary(&mut wav, data_offset, start, samples, target, hard_limit)?
-        };
+        let end = next_chunk_end(start, samples, |offset, count| {
+            window.resize((count * 2) as usize, 0);
+            wav.seek(SeekFrom::Start(data_offset + offset * 2))?;
+            wav.read_exact(&mut window)?;
+            Ok(pcm_energy(
+                window
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .copied()
+                    .map(i16::from_le_bytes),
+            ))
+        })?;
         anyhow::ensure!(
             end > start && end - start <= hard_limit,
             "invalid audio chunk boundary"
@@ -245,6 +290,7 @@ fn transcribe_chunks<B: Backend>(
         write_pcm_wav_range(&mut wav, data_offset, start, end - start, &chunk_path)?;
         let text = backend.transcribe_wav(&chunk_path, language)?;
         if !text.trim().is_empty() {
+            on_text(text.trim())?;
             transcripts.push(text.trim().to_owned());
         }
         fs::remove_file(&chunk_path).context("removing temporary audio chunk")?;
@@ -300,40 +346,6 @@ fn pcm_data_chunk(file: &mut File) -> Result<(u64, u64)> {
         }
         offset = next;
     }
-}
-
-fn choose_boundary(
-    file: &mut File,
-    data_offset: u64,
-    start: u64,
-    samples: u64,
-    target: u64,
-    hard_limit: u64,
-) -> Result<u64> {
-    let nominal = start + target;
-    let low = start + target.saturating_sub(SAMPLE_RATE as u64 * SEARCH_BEFORE_SECONDS);
-    let high = (start + target + SAMPLE_RATE as u64 * SEARCH_AFTER_SECONDS)
-        .min(start + hard_limit)
-        .min(samples - 1);
-    let window = SAMPLE_RATE as u64 / 10;
-    let first = low / window * window;
-    let mut best_start = nominal.min(high).max(low);
-    let mut best_energy = u64::MAX;
-    let mut cursor = first;
-    let mut block = vec![0_u8; (window * 2) as usize];
-    while cursor + window <= high {
-        file.seek(SeekFrom::Start(data_offset + cursor * 2))?;
-        file.read_exact(&mut block)?;
-        let energy = block.as_chunks::<2>().0.iter().fold(0_u64, |sum, sample| {
-            sum + i16::from_le_bytes(*sample).unsigned_abs() as u64
-        });
-        if energy < best_energy {
-            best_energy = energy;
-            best_start = cursor + window / 2;
-        }
-        cursor += window;
-    }
-    Ok(best_start.clamp(start + 1, (start + hard_limit).min(samples - 1)))
 }
 
 fn write_pcm_wav_range(
@@ -441,7 +453,12 @@ mod tests {
             Ok("chunk".into())
         }
 
-        fn speak_text(&mut self, _text: &str, _output: Option<&Path>) -> Result<()> {
+        fn speak_text(
+            &mut self,
+            _text: &str,
+            _output: Option<&Path>,
+            _mode: Option<ProcessingMode>,
+        ) -> Result<()> {
             Ok(())
         }
 
@@ -489,7 +506,8 @@ mod tests {
         write_test_wav(&source, &samples);
 
         let mut backend = RecordingBackend::default();
-        let transcript = transcribe_chunks(&mut backend, &source, None, &temp.dir).unwrap();
+        let transcript =
+            transcribe_chunks(&mut backend, &source, None, &temp.dir, |_| Ok(())).unwrap();
 
         assert_eq!(backend.chunks.len(), 3);
         assert!(backend
@@ -513,7 +531,7 @@ mod tests {
         write_test_wav(&source, &samples);
         let mut backend = RecordingBackend::default();
 
-        transcribe_chunks(&mut backend, &source, None, &temp.dir).unwrap();
+        transcribe_chunks(&mut backend, &source, None, &temp.dir, |_| Ok(())).unwrap();
 
         assert_eq!(backend.chunks, vec![samples]);
     }

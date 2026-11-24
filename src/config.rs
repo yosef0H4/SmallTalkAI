@@ -326,6 +326,8 @@ pub struct AudioConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SpeechConfig {
+    #[serde(default)]
+    pub processing_mode: reader_core::processing::ProcessingMode,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub remote_languages: std::collections::BTreeMap<String, reader_core::routing::RemoteRoute>,
     pub provider: SpeechProvider,
@@ -529,6 +531,7 @@ impl Default for AppConfig {
                 stop_grace_ms: 250,
             },
             speech: SpeechConfig {
+                processing_mode: Default::default(),
                 remote_languages: Default::default(),
                 provider: SpeechProvider::Local,
                 remote_openai_compatible: RemoteSttConfig {

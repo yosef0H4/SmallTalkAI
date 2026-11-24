@@ -143,6 +143,7 @@
       if(path.startsWith("tts."))catalogView.feature="tts";
       else if(path.startsWith("ocr."))catalogView.feature="ocr";
       else if(path.startsWith("speech."))catalogView.feature="stt";
+      if (path.endsWith(".processing_mode")) catalogView.kind = "model";
     }
     ui.page = page;
     query = "";

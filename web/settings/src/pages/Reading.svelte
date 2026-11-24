@@ -10,6 +10,7 @@
   import SelectionCopy from "../components/SelectionCopy.svelte";
   import Group from "../components/Group.svelte";
   import Combo from "../components/Combo.svelte";
+  import Help from "../components/Help.svelte";
   let text = $state("");
   let serverToken = $state("");
   let speechKeySaved = $state(false); let ocrKeySaved = $state(false);
@@ -86,6 +87,12 @@
       onselect={value => { if (reading.config) reading.config.read_along.action = value as "key" | "click"; }}
     />
     {#if reading.config.read_along.action === "key"}<ActionRecorder />{/if}
+    {#if ui.state?.platform === "windows"}
+      <div class="field" data-setting-path="read_along.background_advance">
+        <div class="field-copy"><label for="read-along-background">{t("reading.read_along_background")}</label><Help text="reading.read_along_background_help" /></div>
+        <div class="control"><input id="read-along-background" type="checkbox" role="switch" bind:checked={reading.config.read_along.background_advance} /></div>
+      </div>
+    {/if}
     <div class="field"><label for="read-along-prefetch">{t("reading.read_along_prefetch")}</label><div class="control"><input id="read-along-prefetch" type="checkbox" role="switch" bind:checked={reading.config.read_along.prefetch} /></div></div>
     <div class="read-along-timing">
       <Range label="reading.read_along_delay" path="read_along.delay_ms" value={reading.config.read_along.delay_ms} min={0} max={10000} step={50} onchange={value=>{if(reading.config)reading.config.read_along.delay_ms=value;}}/>

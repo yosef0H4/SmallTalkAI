@@ -277,7 +277,7 @@ pub fn inventory(config: &AppConfig) -> Value {
     }).collect::<Vec<_>>();
     models.extend(crate::models::catalog_for_config(config).iter().map(|model| {
         let languages=model.languages.iter().filter_map(|label|label.rsplit_once('(').map(|(_,id)|id.trim_end_matches(')').to_owned())).collect::<Vec<_>>();
-        json!({"id":model.file,"feature":"stt","engine":"parakeet","label":format!("{} · {}",model.family,model.quant),"languages":languages,"installed":model.installed,"recommended":model.recommended,"recommendation":model.recommended.then_some("speech_model"),"asset":null})
+        json!({"id":model.file,"feature":"stt","engine":"parakeet","label":format!("{} · {}",model.family,model.quant),"languages":languages,"installed":model.installed,"recommended":model.recommended,"recommendation":model.recommended.then_some("speech_model"),"asset":null,"size_mb":model.size_mb,"benchmark_wer":crate::models::benchmark_wer(&model.file)})
     }));
     json!({"runtimes":runtimes,"models":models})
 }

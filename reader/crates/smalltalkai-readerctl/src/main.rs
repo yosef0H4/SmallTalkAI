@@ -38,6 +38,8 @@ enum CommandKind {
         text: Option<String>,
         #[arg(long, hide = true)]
         existing: bool,
+        #[arg(long)]
+        processing_mode: Option<reader_core::processing::ProcessingMode>,
     },
     ReadFile {
         path: PathBuf,
@@ -65,11 +67,24 @@ enum CommandKind {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum LocalRequest {
-    ReadStart { id: String, source: String },
-    ReadChunk { id: String, text: String },
-    ReadFinish { id: String },
-    ReadImage { path: String },
-    Action { action: String },
+    ReadStart {
+        id: String,
+        source: String,
+        processing_mode: Option<reader_core::processing::ProcessingMode>,
+    },
+    ReadChunk {
+        id: String,
+        text: String,
+    },
+    ReadFinish {
+        id: String,
+    },
+    ReadImage {
+        path: String,
+    },
+    Action {
+        action: String,
+    },
     Status,
     Shutdown,
 }
@@ -177,7 +192,12 @@ fn send(request: &LocalRequest, start_daemon: bool) -> Result<LocalReply> {
     }
     Ok(response)
 }
-fn read_text(source: &str, text: &str, start_daemon: bool) -> Result<()> {
+fn read_text(
+    source: &str,
+    text: &str,
+    start_daemon: bool,
+    processing_mode: Option<reader_core::processing::ProcessingMode>,
+) -> Result<()> {
     if text.len() > MAX_TEXT_BYTES {
         bail!("reading text is limited to 1 MiB")
     }
@@ -186,6 +206,7 @@ fn read_text(source: &str, text: &str, start_daemon: bool) -> Result<()> {
         &LocalRequest::ReadStart {
             id: id.clone(),
             source: source.to_owned(),
+            processing_mode,
         },
         start_daemon,
     )?;
@@ -357,7 +378,7 @@ fn dispatch(command: CommandKind, json: bool) -> Result<()> {
             },
             true,
         )?),
-        CommandKind::ReadClipboard => read_text("clipboard", &clipboard(false)?, true),
+        CommandKind::ReadClipboard => read_text("clipboard", &clipboard(false)?, true, None),
         CommandKind::ListenClipboard => show_reply(send(
             &LocalRequest::Action {
                 action: "toggle-clipboard-listening".into(),
@@ -418,16 +439,20 @@ fn read_region() -> Result<()> {
 
 fn read_input(command: CommandKind) -> Result<()> {
     match command {
-        CommandKind::ReadText { text, existing } => {
+        CommandKind::ReadText {
+            text,
+            existing,
+            processing_mode,
+        } => {
             let mut value = text.unwrap_or_default();
             if value.is_empty() {
                 std::io::stdin().read_to_string(&mut value)?;
             }
-            read_text("command", &value, !existing)
+            read_text("command", &value, !existing, processing_mode)
         }
         CommandKind::ReadFile { path } => {
             let text = std::fs::read_to_string(path).context("reading UTF-8 text file")?;
-            read_text("file", &text, true)
+            read_text("file", &text, true, None)
         }
         _ => unreachable!("dispatch only sends text inputs here"),
     }
@@ -508,6 +533,7 @@ fn run_utility(command: CommandKind) -> Result<()> {
             "test",
             "SmallTalkAI Reader is ready. This is a short local voice check.",
             true,
+            None,
         ),
         CommandKind::TestOcr { image } => {
             let path = image.context("provide --image with a screenshot crop")?;

@@ -1,5 +1,6 @@
 use super::{dispatch_media, Backend, MediaCommand};
 use anyhow::{ensure, Context, Result};
+use reader_core::processing::ProcessingMode;
 use serde_json::{json, Value};
 use std::fs;
 use std::io::IsTerminal;
@@ -21,12 +22,13 @@ pub fn run_media(command: MediaCommand) -> Result<()> {
         file,
         stdin,
         background: true,
+        processing_mode,
         ..
     } = command
     {
         let text = super::speech_input(text, file, stdin)?;
         // The desktop Reader survives the lifetime of the caller's shell.
-        crate::reader::read_in_background(&text)?;
+        crate::reader::read_in_background(&text, processing_mode)?;
         println!("Speech queued for background playback");
         return Ok(());
     }
@@ -220,19 +222,27 @@ impl OneShotBackend {
 }
 
 impl Backend for OneShotBackend {
+    fn saved_transcription_mode(&self) -> Result<ProcessingMode> {
+        Ok(crate::config::AppConfig::load()?.speech.processing_mode)
+    }
     fn transcribe_wav(&mut self, wav: &Path, language: Option<&str>) -> Result<String> {
         self.transcriber.transcribe_owned(wav, language)
     }
 
-    fn speak_text(&mut self, text: &str, output: Option<&Path>) -> Result<()> {
+    fn speak_text(
+        &mut self,
+        text: &str,
+        output: Option<&Path>,
+        mode: Option<ProcessingMode>,
+    ) -> Result<()> {
         let input = self.workspace.join("speech.txt");
         fs::write(&input, text)?;
         if output.is_some() {
             self.reader(
-                json!({"op":"render","input":input,"output":self.workspace.join(SPEECH_OUTPUT)}),
+                json!({"op":"render","input":input,"output":self.workspace.join(SPEECH_OUTPUT),"processing_mode":mode}),
             )?;
         } else {
-            self.reader(json!({"op":"play","input":input}))?;
+            self.reader(json!({"op":"play","input":input,"processing_mode":mode}))?;
         }
         Ok(())
     }

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { matchesCatalogSearch, moduleSearchText } from '../lib/search';
-  import { modules, refreshModules, catalogView, type Feature } from '../lib/modules.svelte';
+  import { modules, refreshModules, catalogView, type Feature, type ModuleModel } from '../lib/modules.svelte';
   import { ui, download, action, notice, markDirty, refreshState } from '../lib/state.svelte';
   import { reading } from '../lib/reading-state.svelte';
   import type { ReaderConfig } from '../lib/reader';
@@ -42,6 +42,35 @@
   });
   const feature = $derived(setup?.feature ?? catalogView.feature);
   const visibleKind = $derived(setup?.kind ?? catalogView.kind);
+  const scored = $derived(feature === 'stt' && visibleKind === 'model');
+  const columns = [
+    { key: 'name', label: 'module.sort_name' },
+    { key: 'size', label: 'module.sort_size' },
+    { key: 'wer', label: 'module.sort_wer' },
+    { key: 'efficiency', label: 'module.sort_efficiency' },
+  ] as const;
+  type SortKey = typeof columns[number]['key'];
+  const modelSort = $state<Partial<Record<Feature, { key: SortKey; descending: boolean }>>>({});
+  const sorting = $derived(modelSort[feature] ?? (feature === 'stt'
+    ? { key: 'efficiency', descending: true } as const
+    : { key: 'size', descending: false } as const));
+  function changeSort(key: SortKey) {
+    modelSort[feature] = { key, descending: sorting.key === key ? !sorting.descending : key === 'efficiency' };
+  }
+  function efficiency(row: ModuleModel) {
+    return row.benchmark_wer && row.size_mb ? 1000 / (row.benchmark_wer * row.size_mb) : null;
+  }
+  function compareModels(a: ModuleModel, b: ModuleModel) {
+    const missing = Number(a.benchmark_wer == null) - Number(b.benchmark_wer == null);
+    if (missing) return missing;
+    const { key, descending } = sorting;
+    const name = a.label.localeCompare(b.label);
+    const delta = key === 'name' ? name : key === 'size'
+      ? modelBytes(a) - modelBytes(b)
+      : key === 'wer' ? (a.benchmark_wer ?? 0) - (b.benchmark_wer ?? 0)
+      : (efficiency(a) ?? 0) - (efficiency(b) ?? 0);
+    return (descending ? -delta : delta) || name;
+  }
   const cleanupSelected = $derived(!setup && visibleKind === "model" && catalogView.panel === "cleanup");
   $effect(()=>{if(!setup)try {localStorage.setItem("smalltalkai-model-page",catalogView.kind);}catch { /* Storage can be disabled. */ }});
   $effect(() => { if (!setup) markDirty(); });
@@ -77,7 +106,9 @@
       && (!filter.installed || runtimeInstalled(row))
       && (!filter.query.trim() || matchesCatalogSearch(filter.query, row,
         moduleSearchText(row, modules.models, modules.runtimes, modules.assets?.assets))))
-      .sort((a, b) => Number(!!b.recommended) - Number(!!a.recommended) || a.label.localeCompare(b.label));
+      .sort((a, b) => a.kind === 'model' && b.kind === 'model'
+        ? compareModels(a, b)
+        : Number(!!b.recommended) - Number(!!a.recommended) || a.label.localeCompare(b.label));
   }
 
   function downloadValue(bar: HTMLProgressElement, value: number | null) {
@@ -111,9 +142,6 @@
       else await action('cancel_model_download', id);
     } catch (error) { notice(t('assets.failed'), 'error', String(error)); }
   }
-  function percent(downloaded: number, total: number) {
-    return Math.min(100, Math.floor(downloaded / total * 100));
-  }
   function megabytes(bytes: number) { return (bytes / 1024 / 1024).toFixed(1); }
   function languageSummary(languages: string[]) {
     return languages.slice(0, 3).map(languageName).join(', ');
@@ -122,19 +150,34 @@
     return asset ? modules.assets?.assets.find(entry => entry.id === asset)?.bytes
       : ((ui.state?.models.find(model => model.file === id)?.size_mb || 0) * 1024 * 1024);
   }
+  function modelBytes(model: ModuleModel) {
+    return size(model.id, actionAsset(model)) || (model.size_mb ?? 0) * 1024 * 1024;
+  }
   onMount(() => {
     void refreshModules().catch(error => notice(t('assets.failed'), 'error', String(error)));
     if (!setup) void loadReading().catch(error => notice(t('reading.failed'), 'error', String(error)));
   });
 </script>
 
+{#snippet downloadStatus(label: string, job: { phase?: string; downloaded: number; total: number }, summary = false)}
+  {@const phase = job.phase || 'downloading'}
+  {@const status = t(phase === 'queued' ? 'module.queued' : `assets.${phase}`)}
+  {@const percent = phase === 'downloading' && job.total > 0 ? Math.min(99, Math.floor(job.downloaded / job.total * 100)) : null}
+  <div class="download-detail">
+    <span>{summary ? label : status}</span>
+    {#if percent !== null}
+      <bdi dir="ltr">{#if !summary}{megabytes(job.downloaded)} / {megabytes(job.total)} MB · {/if}{percent}%</bdi>
+    {:else if summary}<span>{status}</span>{/if}
+  </div>
+  <progress max={100} use:downloadValue={percent} aria-label={`${status} ${label}`}></progress>
+{/snippet}
+
 {#if !setup}
 {#if activeDownloads.length}
   <section class="setup-downloads" aria-label={t('settings.downloads')}>
     <h2>{t('settings.downloads')}</h2>
     {#each activeDownloads as job (job.id)}
-      <div class="download-detail"><span>{job.label}</span><span>{job.phase === 'queued' ? t('module.queued') : job.total > 0 ? percent(job.downloaded, job.total) + '%' : ''}</span></div>
-      <progress max={job.total} use:downloadValue={job.total ? job.downloaded : null} aria-label={job.label}></progress>
+      {@render downloadStatus(job.label, job, true)}
     {/each}
   </section>
 {/if}
@@ -165,7 +208,7 @@
 {@const rows = catalogRows(kind, filter, selectedEngine)}
 {@const searchLabel = t(kind === 'runtime' ? 'module.search_runtimes' : 'module.search_models')}
 <section class="catalog" id="{kind}-section" aria-labelledby="{kind}-heading" data-catalog="{feature}.{kind}">
-  <h2 id="{kind}-heading">{t(section.label)}</h2>
+  <h2 id="{kind}-heading">{t(section.label)}{#if scored} <Help text="module.benchmark_help" />{/if}</h2>
   <div class="catalog-toolbar" data-setting-path="{kind}-search">
     <div class="search-input"><Icon name="search" /><input id="{kind}-search" type="search" dir="auto" aria-label={searchLabel}
       placeholder={searchLabel} bind:value={filter.query} oninput={() => filter.limit = 30} /></div>
@@ -180,7 +223,18 @@
     {/if}
     <label class="installed-filter"><input type="checkbox" bind:checked={filter.installed} />{t('ui.installed.7bb440')}</label>
   </div>
-  <div id="{kind}-results" class="model-results">
+  <div id="{kind}-results" class="model-results" class:sortable={kind === 'model'} class:scored>
+    {#if kind === 'model'}
+      <div class="model-columns" role="group" aria-label={t('module.sort_models')}>
+        {#each (scored ? columns : columns.slice(0, 2)) as column (column.key)}
+          <button type="button" aria-pressed={sorting.key === column.key} data-sort={column.key}
+            aria-label={t(column.label) + (sorting.key === column.key ? ' · ' + t(sorting.descending ? 'module.descending' : 'module.ascending') : '')}
+            onclick={() => changeSort(column.key)}>{t(column.label)}
+            <span class:up={!sorting.descending} class:inactive={sorting.key !== column.key} aria-hidden="true"><Icon name="chevron" size={12} /></span>
+          </button>
+        {/each}
+      </div>
+    {/if}
     {#each rows.slice(0, filter.limit) as row (`${row.kind}-${row.id}`)}
       {@const actionId = actionAsset(row)}
       {@const asset = modules.assets?.assets.find(entry => entry.id === actionId)}
@@ -189,14 +243,14 @@
       {@const phase = job?.phase || (job ? 'downloading' : '')}
       {@const busy = activePhases.includes(phase)}
       {@const title = row.kind === 'runtime' ? runtimeLabel(row) : row.label}
-      {@const bytes = row.kind === 'runtime' && (row.bundled || installed) ? 0 : size(row.id, actionId)}
+      {@const bytes = row.kind === 'model' ? modelBytes(row) : row.bundled || installed ? 0 : size(row.id, actionId)}
       <article class="model-result" data-model-id={row.id}>
         <div class="model-copy">
           <strong dir="auto">{title}</strong>
           {#if row.recommended}<span class="recommendation" title={recommendationLabel(row.recommendation)}><Icon name="check" size={14} />{t('ui.recommended.9ef937')}</span>{/if}
           {#if row.kind === 'model' && row.installed && !installedRuntimes.some(runtime => runtime.engine === row.engine)}<span>{t('module.runtime_missing')}</span>{/if}
-          {#if row.languages.length || bytes}
-            <span>{languageSummary(row.languages)}{#if row.languages.length > 3}{' '}<span class="language-overflow"><bdi dir="ltr">+{row.languages.length - 3}</bdi><Help text={row.languages.map(languageName).join(', ')} /></span>{/if}{#if row.languages.length && bytes}{' · '}{/if}{#if bytes}<bdi dir="ltr">{Math.ceil(bytes / 1024 / 1024)} MB</bdi>{/if}</span>
+          {#if row.languages.length || (row.kind === 'runtime' && bytes)}
+            <span>{languageSummary(row.languages)}{#if row.languages.length > 3}{' '}<span class="language-overflow"><bdi dir="ltr">+{row.languages.length - 3}</bdi><Help text={row.languages.map(languageName).join(', ')} /></span>{/if}{#if row.kind === 'runtime' && bytes}<bdi dir="ltr">{Math.ceil(bytes / 1024 / 1024)} MB</bdi>{/if}</span>
           {/if}
           {#if row.kind === 'runtime'}
             <span dir="auto">{runtimeHardware(row)}</span>
@@ -204,10 +258,17 @@
               <span>{t('module.runtime.cuda_tradeoff')}</span>
               {#if row.action_asset}<span>{t('module.nvidia_shared')}</span>{/if}
             {/if}
-          {:else}
+          {:else if !scored}
             <small dir="ltr">{row.id}</small>
           {/if}
         </div>
+        {#if row.kind === 'model'}
+          <bdi class="model-metric" dir="ltr">{bytes ? Math.ceil(bytes / 1024 / 1024) + ' MB' : '—'}</bdi>
+          {#if scored}
+            <bdi class="model-metric" dir="auto">{row.benchmark_wer == null ? t('module.score_unknown') : row.benchmark_wer.toFixed(2) + '%'}</bdi>
+            <bdi class="model-metric" dir="ltr">{efficiency(row)?.toFixed(2) ?? '—'}</bdi>
+          {/if}
+        {/if}
         <div class="model-actions">
           {#if row.kind === 'runtime'}
             {#if busy}
@@ -236,10 +297,7 @@
         </div>
         {#if busy && job}
           <div class="item-download" role="status">
-            <div class="download-detail"><span>{t(phase === 'queued' ? 'module.queued' : `assets.${phase}`)}</span>
-              {#if job.total > 0}<bdi dir="ltr">{megabytes(job.downloaded)} / {megabytes(job.total)} MB · {percent(job.downloaded, job.total)}%</bdi>{/if}
-            </div>
-            <progress max={job.total} use:downloadValue={job.total ? job.downloaded : null} aria-label={`${t('assets.downloading')} ${title}`}></progress>
+            {@render downloadStatus(title, job)}
           </div>
         {:else if phase === 'failed' && job && 'error' in job && job.error}
           <details class="download-error"><summary>{t('assets.failed')} · {t('ui.details.dc3dec')}</summary><pre dir="auto">{job.error}</pre></details>
@@ -280,6 +338,32 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
   }
+  .sortable {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) repeat(2, max-content);
+    column-gap: 6px;
+  }
+  .scored { grid-template-columns: minmax(0, 1fr) repeat(4, max-content); }
+  .sortable > * { grid-column: 1 / -1; }
+  .sortable .model-result, .model-columns {
+    display: grid;
+    grid-template-columns: subgrid;
+  }
+  .sortable .model-result { padding-block: 8px; }
+  .sortable .model-actions { justify-self: end; }
+  .model-columns button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2px;
+    min-width: 0;
+    padding: 4px;
+    font-size: 12px;
+  }
+  .model-columns span { display: flex; }
+  .model-columns .up { transform: rotate(180deg); }
+  .model-columns .inactive { visibility: hidden; }
+  .model-metric { text-align: end; font-size: 12px; font-variant-numeric: tabular-nums; }
   .item-download, .download-error { grid-column: 1 / -1; min-width: 0; }
   .download-detail { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
   .download-detail bdi { font-variant-numeric: tabular-nums; }

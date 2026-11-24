@@ -1,4 +1,4 @@
-use crate::localization::Locale;
+use crate::localization::{translate, Locale};
 use std::time::{Duration, Instant};
 
 pub const BAR_COUNT: usize = 10;
@@ -51,6 +51,7 @@ pub(super) enum OverlayCommand {
     SystemDark(bool),
     SetShortcuts(String, bool),
     StartRecording(RecordingIndicators),
+    RecordingTranscript(usize, String),
     SetPrimary(OverlayPrimary),
     Notify {
         level: NoticeLevel,
@@ -87,6 +88,7 @@ pub(super) struct OverlayContent {
     shortcuts: String,
     shortcut_reminders: bool,
     indicators: RecordingIndicators,
+    recording_transcript: Option<(usize, String)>,
     notice: Option<Notice>,
 }
 
@@ -102,6 +104,7 @@ impl Default for OverlayContent {
             shortcuts: String::new(),
             shortcut_reminders: true,
             indicators: RecordingIndicators::default(),
+            recording_transcript: None,
             notice: None,
         }
     }
@@ -128,8 +131,19 @@ impl OverlayContent {
                 self.primary = OverlayPrimary::Recording;
                 self.indicators = indicators;
                 self.notice = None;
+                self.recording_transcript = None;
             }
-            OverlayCommand::SetPrimary(primary) => self.primary = primary,
+            OverlayCommand::RecordingTranscript(number, text) => {
+                if self.primary == OverlayPrimary::Recording {
+                    self.recording_transcript = Some((number, text));
+                }
+            }
+            OverlayCommand::SetPrimary(primary) => {
+                self.primary = primary;
+                if primary != OverlayPrimary::Recording {
+                    self.recording_transcript = None;
+                }
+            }
             OverlayCommand::Notify {
                 level,
                 text,
@@ -155,6 +169,7 @@ impl OverlayContent {
             OverlayCommand::Hide => {
                 self.primary = OverlayPrimary::Hidden;
                 self.notice = None;
+                self.recording_transcript = None;
             }
         }
     }
@@ -188,13 +203,26 @@ impl OverlayContent {
     }
 
     pub(super) fn text(&self, levels: &VisualizerLevels, show_shortcuts: bool) -> String {
-        let content = render_overlay_text_with_locale(
+        let mut content = render_overlay_text_with_locale(
             self.primary,
             self.notice.as_ref().map(|notice| notice.text.as_str()),
             levels,
             self.indicators,
             self.locale,
         );
+        if let Some((number, text)) = &self.recording_transcript {
+            content.push('\n');
+            content.push_str(&translate(
+                self.locale,
+                "notice.recordingChunk",
+                &[("number", &number.to_string())],
+            ));
+            if !text.is_empty() {
+                content.push_str(" · \u{2068}");
+                content.push_str(text);
+                content.push('\u{2069}');
+            }
+        }
         if show_shortcuts && content.is_empty() {
             self.shortcuts.clone()
         } else {
@@ -205,6 +233,22 @@ impl OverlayContent {
             )
         }
     }
+}
+
+/// Keep the most recent words visible without growing the overlay with the recording.
+pub(super) fn recording_excerpt(text: &str) -> String {
+    const MAX_CHARACTERS: usize = 140;
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let Some((index, previous)) = text.char_indices().rev().nth(MAX_CHARACTERS) else {
+        return text;
+    };
+    let tail = &text[index + previous.len_utf8()..];
+    let words = if previous == ' ' {
+        tail
+    } else {
+        tail.split_once(' ').map_or(tail, |(_, words)| words)
+    };
+    format!("…{words}")
 }
 
 pub type VisualizerLevels = [f32; BAR_COUNT];
@@ -221,6 +265,12 @@ pub fn set_visualizer_level(levels: &mut VisualizerLevels, level: f32) {
         let envelope = (1.0 - distance * 0.72).max(0.18);
         *slot = level * envelope;
     }
+}
+
+pub fn waveform_for_level(level: f32) -> String {
+    let mut levels = empty_visualizer_levels();
+    set_visualizer_level(&mut levels, level);
+    ascii_visualizer(&levels)
 }
 
 pub fn ascii_visualizer(levels: &VisualizerLevels) -> String {
@@ -402,6 +452,40 @@ pub(super) fn windows_tooltip_text(text: &str, locale: Locale) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recording_excerpt_sits_below_waveform_and_clears_at_stop() {
+        let mut content = OverlayContent {
+            locale: Locale::En,
+            ..Default::default()
+        };
+        let now = Instant::now();
+        let levels = empty_visualizer_levels();
+        content.apply(OverlayCommand::StartRecording(Default::default()), now);
+        content.apply(
+            OverlayCommand::RecordingTranscript(1, recording_excerpt("first\nمرحبا")),
+            now,
+        );
+        let visible = content.text(&levels, false);
+        assert!(visible.starts_with("🎙"));
+        assert!(visible.ends_with("\nChunk 1 · \u{2068}first مرحبا\u{2069}"));
+        let next = format!("{}last words", "earlier words ".repeat(20));
+        content.apply(
+            OverlayCommand::RecordingTranscript(2, recording_excerpt(&next)),
+            now,
+        );
+        let visible = content.text(&levels, false);
+        assert!(visible.contains("\nChunk 2 · \u{2068}…"));
+        assert!(visible.ends_with("last words\u{2069}"));
+        assert!(!visible.contains("Chunk 1"));
+        content.apply(
+            OverlayCommand::SetPrimary(OverlayPrimary::Transcribing),
+            now,
+        );
+        assert!(!content.text(&levels, false).contains("Chunk 2"));
+        content.apply(OverlayCommand::StartRecording(Default::default()), now);
+        assert!(!content.text(&levels, false).contains("Chunk 2"));
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

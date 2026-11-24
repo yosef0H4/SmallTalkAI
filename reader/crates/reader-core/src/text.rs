@@ -52,6 +52,18 @@ pub fn normalize_source(text: &str) -> Result<String> {
     Ok(normalized)
 }
 
+pub fn plan_speech(text: &str, mode: crate::processing::ProcessingMode) -> Result<Vec<SpeechUnit>> {
+    match mode {
+        crate::processing::ProcessingMode::Chunked => plan_units(text, 240),
+        crate::processing::ProcessingMode::OneShot => Ok(vec![SpeechUnit {
+            sentence_index: 0,
+            unit_index: 0,
+            text: normalize_source(text)?,
+            starts_in_code: false,
+        }]),
+    }
+}
+
 /// Keep sentence identity stable while splitting long units near word
 /// boundaries, so progress and replay remain sentence-oriented.
 pub fn plan_units(text: &str, max_bytes: usize) -> Result<Vec<SpeechUnit>> {

@@ -123,6 +123,7 @@ const models = [
     file: "english-q4.gguf",
     languages: ["English (en)"],
     size_mb: 100,
+    benchmark_wer: 4,
     installed: true,
     recommended: false,
   },
@@ -132,6 +133,7 @@ const models = [
     file: "english-q8.gguf",
     languages: ["English (en)"],
     size_mb: 180,
+    benchmark_wer: 2,
     installed: true,
     recommended: false,
   },
@@ -214,7 +216,7 @@ const readBody = (req) =>
   });
 let readerConfig = {
   revision:1,
-  read_along:{prefetch:true,advance_key:"Space",action:"key",delay_ms:900,retry_count:5},
+  read_along:{prefetch:true,background_advance:true,advance_key:"Space",action:"key",delay_ms:900,retry_count:5},
   request_budgets:{connect_timeout_secs:3,queue_timeout_secs:30,cold_model_load_timeout_secs:180,warm_model_load_timeout_secs:30,warm_inference_timeout_secs:60,stream_inactivity_timeout_secs:60,total_timeout_secs:300},
   speech:{fallback_to_local:false,selection:{mode:"auto_detect",single:{runtime:null,model:null,device:"auto"},languages:{}},provider:{kind:"local_kokoro"},voice:"af_heart",language:"en-us",speed:1,device:"auto",model_dir:"/assets/kokoro",runtime_dir:"/assets/sherpa-cpu",worker_library:null},
   ocr:{fallback_to_local:false,selection:{mode:"single_model",single:{runtime:null,model:null,device:"auto"},languages:{}},provider:{kind:"local_paddle"},language:"en",model_dir:"/assets/paddle-ar-en",runtime_dir:"/assets/sherpa-cpu",device:"auto",idle_timeout_secs:300,worker_library:null},
@@ -247,7 +249,7 @@ const moduleModels = [
 ];
 function inventory() {
   const recommend = row => options.recommendations && Object.hasOwn(options.recommendations,row.id) ? {...row,recommended:!!options.recommendations[row.id],recommendation:options.recommendations[row.id]} : row;
-  return {runtimes:runtimes.map(r=>recommend({...r,installed:r.asset ? !!assets.find(a=>a.id===r.asset)?.installed : !!r.installed})),models:[...models.map(m=>recommend({id:m.file,feature:"stt",engine:"parakeet",label:m.family,languages:m.languages.map(l=>l.match(/\(([^)]+)\)/)?.[1]).filter(Boolean),installed:m.installed,asset:null,recommended:m.recommended})),...moduleModels.map(m=>recommend({...m,installed:!!assets.find(a=>a.id===m.asset)?.installed}))]};
+  return {runtimes:runtimes.map(r=>recommend({...r,installed:r.asset ? !!assets.find(a=>a.id===r.asset)?.installed : !!r.installed})),models:[...models.map(m=>recommend({id:m.file,feature:"stt",engine:"parakeet",label:m.family,languages:m.languages.map(l=>l.match(/\(([^)]+)\)/)?.[1]).filter(Boolean),installed:m.installed,asset:null,recommended:m.recommended,size_mb:m.size_mb,benchmark_wer:m.benchmark_wer??null})),...moduleModels.map(m=>recommend({...m,installed:!!assets.find(a=>a.id===m.asset)?.installed}))]};
 }
 function installFixture(id) {
   const asset=assets.find(a=>a.id===id); const model=models.find(m=>m.file===id); const runtime=runtimes.find(r=>r.id===id);

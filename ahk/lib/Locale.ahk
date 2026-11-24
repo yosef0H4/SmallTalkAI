@@ -1,5 +1,5 @@
 ; Generated from desktop catalogs and tray menu. Run node web/settings/tools/locales.mjs.
-; catalog-sha256: c42571457ad4d2e67025114e2fdbd820bbac1ea03ce49e0d517ff27f00b4b443
+; catalog-sha256: 829123bfc661421f0d906cbca12c10c82475f6023d637afb51cd7114f77f7d3e
 UiSetLanguage(language := "auto") {
     global SmallTalkAIUiLocale
     if language = "auto"
@@ -9,6 +9,7 @@ UiSetLanguage(language := "auto") {
 UiText(id, args := unset) {
     global SmallTalkAIUiLocale
     static english := Map(
+        "notice.recordingChunk", "Chunk {number}",
         "capture.previewBusy", "Finish the current dictation before recording a preview.",
         "overlay.screenContext", "Screen",
         "overlay.transcribing", "🎙 Transcribing...",
@@ -204,6 +205,9 @@ UiText(id, args := unset) {
         "reader.phase.paused", "Paused",
         "reader.phase.error", "Reading failed",
         "reader.copied", "Text copied",
+        "reader.ocr_clipboard_failed", "Could not write to the clipboard",
+        "reader.ocr_empty", "No text found in the selected area",
+        "reader.ocr_failed", "Could not recognize screen text",
         "reader.failed", "Reading failed",
         "reader.language.ar", "Arabic",
         "reader.language.en", "English",
@@ -231,6 +235,7 @@ UiText(id, args := unset) {
         "reader.next.preparing", "Next page · preparing"
     )
     static arabic := Map(
+        "notice.recordingChunk", "المقطع {number}",
         "capture.previewBusy", "أنهِ الإملاء الحالي قبل تسجيل عينة.",
         "overlay.screenContext", "الشاشة",
         "overlay.transcribing", "🎙 جارٍ التفريغ…",
@@ -426,6 +431,9 @@ UiText(id, args := unset) {
         "reader.phase.paused", "متوقف مؤقتًا",
         "reader.phase.error", "تعذّرت القراءة",
         "reader.copied", "نُسخ النص",
+        "reader.ocr_clipboard_failed", "تعذّر نسخ النص إلى الحافظة",
+        "reader.ocr_empty", "لم يُعثر على نص في المنطقة المحدّدة",
+        "reader.ocr_failed", "تعذّر التعرّف على نص الشاشة",
         "reader.failed", "تعذّرت القراءة",
         "reader.language.ar", "العربية",
         "reader.language.en", "الإنجليزية",

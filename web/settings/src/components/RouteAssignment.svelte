@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import Combo from "./Combo.svelte";
   import { t, languageName } from "../lib/i18n";
   import { markDirty } from "../lib/state.svelte";
@@ -8,13 +9,14 @@
   import ModelRouteCard from "./ModelRouteCard.svelte";
   import IconButton from "./IconButton.svelte";
 
-  let { feature, language, path, binding, defaultRemote, defaultFallback, onremove, onchange }: {
+  let { feature, language, path, binding, defaultRemote, defaultFallback, onremove, onchange, processing }: {
     feature: Feature;
     language: string;
     path: string;
     binding: Binding;
     defaultRemote: boolean;
     defaultFallback: boolean;
+    processing?: Snippet;
     onremove?: () => void;
     onchange: (value: Binding) => void;
   } = $props();
@@ -54,6 +56,7 @@
       ]}
       onselect={value => update(value === "default" ? null : { ...remote, enabled: value === "remote" })}
     />
+    {@render processing?.()}
     {#if selected === "remote"}
       <ConnectionEditor {feature} path={`${path}.primary`} connection={remote.primary} onchange={primary => update({ ...remote, primary })} />
       <div class="field">

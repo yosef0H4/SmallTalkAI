@@ -1,17 +1,20 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use crossbeam_channel::{bounded, select, tick, unbounded, Receiver, Sender};
+use reader_core::processing::ProcessingMode;
 use smalltalkai::capture::audio::{self, AudioEvent};
 use smalltalkai::capture::inference_supervisor::{
     nonzero_pid, shutdown_shared, shutdown_shared_if_current, WorkerConfig, WorkerSupervisor,
 };
 use smalltalkai::capture::ipc_server::{self, ControlRequest};
 use smalltalkai::capture::overlay::{OverlayHandle, OverlayPrimary};
+use smalltalkai::capture::recording_chunks::RecordingChunks;
 use smalltalkai::capture::screen_context;
 use smalltalkai::capture::state::ServiceState;
 use smalltalkai::cleanup::{self, CleanupHistoryEntry};
 use smalltalkai::common::shell_protocol::{NoticeLevel, ServiceEvent, ShellCommand, ShellResponse};
 use smalltalkai::config::{AppConfig, CleanupConfig, ModelSelectionMode};
+use smalltalkai::infer::chunks::transcribe_pcm_chunks;
 use smalltalkai::localization::tr;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
@@ -50,9 +53,12 @@ struct Args {
 struct Recording {
     session_id: u64,
     preview: bool,
+    remote_stt: bool,
+    processing_mode: ProcessingMode,
     worker_config: WorkerConfig,
     screen_context: Arc<ScreenCaptureSlot>,
     samples: Vec<i16>,
+    chunks: RecordingChunks,
     started: Instant,
     stop_deadline: Option<Instant>,
     stop_ready: bool,
@@ -60,6 +66,64 @@ struct Recording {
 }
 
 impl Recording {
+    fn capture_frame(
+        &mut self,
+        frame: &[i16],
+        worker: &Arc<Mutex<WorkerSupervisor>>,
+        cancel_generation: &Arc<AtomicU64>,
+        warming: bool,
+        overlay: &OverlayHandle,
+    ) {
+        self.samples.extend_from_slice(frame);
+        if self.preview || self.remote_stt || self.processing_mode != ProcessingMode::Chunked {
+            return;
+        }
+        if let Some(result) = self.chunks.poll(&mut self.samples) {
+            match result {
+                Ok((number, text)) => {
+                    tracing::info!(
+                        target: "smalltalkai_privacy",
+                        session_id = self.session_id,
+                        chunk = number,
+                        transcript_chars = text.chars().count(),
+                        "recording chunk transcribed"
+                    );
+                    overlay.set_recording_transcript(number, &text);
+                }
+                Err(error) => {
+                    tracing::warn!(session_id = self.session_id, %error, "retrying recording chunk after stop");
+                }
+            }
+        }
+        if warming || self.stop_deadline.is_some() {
+            return;
+        }
+        if let Some(task) = self.chunks.queue(&self.samples) {
+            let session_id = self.session_id;
+            let worker_config = self.worker_config.clone();
+            let worker = Arc::clone(worker);
+            let generation = cancel_generation.load(Ordering::SeqCst);
+            let cancel_generation = Arc::clone(cancel_generation);
+            std::thread::spawn(move || {
+                tracing::debug!(
+                    session_id,
+                    samples = task.samples.len(),
+                    "transcribing recording chunk"
+                );
+                let result = transcribe_recording_pcm(
+                    &worker,
+                    &worker_config,
+                    &cancel_generation,
+                    generation,
+                    session_id,
+                    &task.samples,
+                    ProcessingMode::Chunked,
+                );
+                let _ = task.result.send(result);
+            });
+        }
+    }
+
     fn schedule_stop(&mut self, now: Instant, milliseconds: u64) -> bool {
         if self.stop_ready {
             return false;
@@ -74,6 +138,25 @@ impl Recording {
         self.countdown_shown = Some(countdown_millis(Duration::from_millis(milliseconds)));
         true
     }
+}
+
+fn transcribe_recording_pcm(
+    worker: &Mutex<WorkerSupervisor>,
+    config: &WorkerConfig,
+    cancel_generation: &AtomicU64,
+    generation: u64,
+    session_id: u64,
+    samples: &[i16],
+    mode: ProcessingMode,
+) -> Result<String> {
+    let mut worker = worker
+        .lock()
+        .map_err(|_| anyhow::anyhow!("inference worker mutex poisoned"))?;
+    if cancel_generation.load(Ordering::SeqCst) != generation {
+        anyhow::bail!("transcription superseded before inference");
+    }
+    worker.replace_config(config.clone())?;
+    worker.transcribe_pcm_with_mode(session_id, samples, mode)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -479,7 +562,10 @@ fn main() -> Result<()> {
                     });
                 }
             },
-            recv(frame_rx) -> message => if let (Some(recording), Ok(frame)) = (&mut active, message) { recording.samples.extend_from_slice(&frame); },
+            recv(frame_rx) -> message => if let (Some(recording), Ok(frame)) = (&mut active, message) {
+                let warming = warming.contains(&recording.session_id);
+                recording.capture_frame(&frame, &worker, &cancel_generation, warming, &overlay);
+            },
             recv(audio_event_rx) -> message => if let Ok(audio_event) = message {
                 match audio_event {
                     AudioEvent::StreamError { generation, error } => {
@@ -853,10 +939,11 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
             superseded.extend(warming.iter().copied());
             superseded.extend(cleaning.iter().copied());
             superseded.extend(delivering.iter().copied());
+            let mut cancel_worker = !transcribing.is_empty() || !warming.is_empty();
             if let Some(recording) = active.take() {
                 superseded.insert(recording.session_id);
+                cancel_worker |= recording.chunks.is_pending();
             }
-            let cancel_worker = !transcribing.is_empty() || !warming.is_empty();
             if !superseded.is_empty() {
                 recording_active.store(false, Ordering::Relaxed);
                 transcribing.clear();
@@ -969,6 +1056,8 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
             *active = Some(Recording {
                 session_id,
                 preview,
+                remote_stt,
+                processing_mode: config.speech.processing_mode,
                 worker_config: frozen_worker.clone(),
                 screen_context: Arc::new(ScreenCaptureSlot {
                     value: Mutex::new(
@@ -981,6 +1070,7 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                     ready: Condvar::new(),
                 }),
                 samples: Vec::new(),
+                chunks: RecordingChunks::default(),
                 started: Instant::now(),
                 stop_deadline: None,
                 stop_ready: false,
@@ -1361,14 +1451,16 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
             let duration_ms = recording.started.elapsed().as_millis();
             let frozen_worker = recording.worker_config;
             let samples = recording.samples;
+            let chunks = recording.chunks;
+            let recorded_samples = chunks.recorded_samples(samples.len());
             let screen_context = Arc::clone(&recording.screen_context);
             tracing::info!(
                 session_id,
                 duration_ms,
-                samples = samples.len(),
+                samples = recorded_samples,
                 "recording stop"
             );
-            if samples.len() < MIN_RECORDING_SAMPLES {
+            if recorded_samples < MIN_RECORDING_SAMPLES as u64 {
                 if preview {
                     return message_response(false, "notice.recordingShort");
                 }
@@ -1381,9 +1473,8 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                 ));
                 return message_response(true, "capture.recordingShort");
             }
-            let remote_stt = !preview
-                && config.speech.provider_for(&frozen_worker.speech_language)
-                    == smalltalkai::config::SpeechProvider::RemoteOpenAiCompatible;
+            let remote_stt = recording.remote_stt;
+            let mode = recording.processing_mode;
             if !remote_stt && !frozen_worker.model_path.is_file() {
                 if preview {
                     return message_response(false, "notice.dictationSkipped");
@@ -1416,36 +1507,27 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
             let generation = cancel_generation.load(Ordering::SeqCst);
             let cancel_generation = Arc::clone(cancel_generation);
             let tx = background_tx.clone();
-            let next_worker: Result<WorkerConfig> = Ok(frozen_worker);
-            let remote_config = config.speech.remote_for(
-                next_worker
-                    .as_ref()
-                    .map(|worker| worker.speech_language.as_str())
-                    .unwrap_or("single"),
-            );
+            let remote_config = config.speech.remote_for(&frozen_worker.speech_language);
             let fallback_enabled = remote_config.fallback_to_local;
             let fallback_config = config.clone();
-            let remote_language = if next_worker
-                .as_ref()
-                .is_ok_and(|worker| worker.speech_language != "single")
-            {
-                next_worker
-                    .as_ref()
-                    .ok()
-                    .map(|worker| worker.speech_language.clone())
-            } else {
-                None
-            };
+            let remote_language = (frozen_worker.speech_language != "single")
+                .then(|| frozen_worker.speech_language.clone());
             std::thread::spawn(move || {
                 if cancel_generation.load(Ordering::SeqCst) != generation {
                     return;
                 }
                 let result = if remote_stt {
-                    let remote = smalltalkai::remote_stt::transcribe_pcm(
-                        &remote_config,
-                        &samples,
-                        remote_language.as_deref(),
-                    );
+                    let submit = |audio: &[i16]| {
+                        smalltalkai::remote_stt::transcribe_pcm(
+                            &remote_config,
+                            audio,
+                            remote_language.as_deref(),
+                        )
+                    };
+                    let remote = match mode {
+                        ProcessingMode::OneShot => submit(&samples),
+                        ProcessingMode::Chunked => transcribe_pcm_chunks(&samples, submit),
+                    };
                     smalltalkai::remote_stt::with_local_fallback(remote, fallback_enabled, || {
                         if cancel_generation.load(Ordering::SeqCst) != generation {
                             anyhow::bail!("transcription superseded before local fallback");
@@ -1462,22 +1544,23 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                             .lock()
                             .map_err(|_| anyhow::anyhow!("inference worker mutex poisoned"))?;
                         worker.replace_config(next)?;
-                        worker.transcribe_pcm(session_id, &samples)
+                        worker.transcribe_pcm_with_mode(session_id, &samples, mode)
                     })
                     .map_err(|error| error.to_string())
                 } else {
-                    next_worker
-                        .map_err(|error| error.to_string())
-                        .and_then(|next| {
-                            let mut worker = worker.lock().unwrap();
-                            if cancel_generation.load(Ordering::SeqCst) != generation {
-                                return Err("transcription superseded before inference".to_owned());
-                            }
-                            worker
-                                .replace_config(next)
-                                .and_then(|_| worker.transcribe_pcm(session_id, &samples))
-                                .map_err(|error| error.to_string())
+                    chunks
+                        .finish(samples, |samples| {
+                            transcribe_recording_pcm(
+                                &worker,
+                                &frozen_worker,
+                                &cancel_generation,
+                                generation,
+                                session_id,
+                                samples,
+                                mode,
+                            )
                         })
+                        .map_err(|error| error.to_string())
                 };
                 if preview {
                     let _ = tx.send(BackgroundResult::CliTranscription {
@@ -1508,16 +1591,12 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
             {
                 return ShellResponse::error("Dictation preview is no longer recording");
             }
-            use smalltalkai::capture::overlay::{
-                ascii_visualizer, empty_visualizer_levels, set_visualizer_level,
-            };
             let level = f32::from_bits(overlay.level_cell().load(Ordering::Relaxed));
-            let mut levels = empty_visualizer_levels();
-            set_visualizer_level(&mut levels, level);
             let mut response = ShellResponse::ok("Dictation preview waveform");
-            response
-                .values
-                .insert("waveform".into(), ascii_visualizer(&levels));
+            response.values.insert(
+                "waveform".into(),
+                smalltalkai::capture::overlay::waveform_for_level(level),
+            );
             response
         }
         ShellCommand::CancelRecordingPreview { session_id } => {
@@ -1589,7 +1668,10 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                 }
             });
             let generation = cancel_generation.fetch_add(1, Ordering::SeqCst) + 1;
-            let had_recording = active.take().is_some();
+            let recording = active.take();
+            let had_recording = recording.is_some();
+            let had_recording_chunk =
+                recording.is_some_and(|recording| recording.chunks.is_pending());
             let had_transcribing = !transcribing.is_empty();
             let had_warming = !warming.is_empty();
             let had_cleaning = !cleaning.is_empty();
@@ -1610,7 +1692,7 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                 had_delivering,
                 "global cancellation requested"
             );
-            if had_transcribing || had_warming {
+            if had_transcribing || had_warming || had_recording_chunk {
                 let worker = Arc::clone(worker);
                 let tracker = Arc::clone(worker_pid);
                 let tx = background_tx.clone();
@@ -2630,12 +2712,15 @@ mod tests {
         Recording {
             session_id,
             preview: false,
+            remote_stt: false,
+            processing_mode: ProcessingMode::Chunked,
             worker_config: idle_worker_config(&AppConfig::default()).unwrap(),
             screen_context: Arc::new(ScreenCaptureSlot {
                 value: Mutex::new(ScreenCaptureState::Complete(None)),
                 ready: Condvar::new(),
             }),
             samples: vec![1],
+            chunks: RecordingChunks::default(),
             started: Instant::now(),
             stop_deadline: None,
             stop_ready: false,

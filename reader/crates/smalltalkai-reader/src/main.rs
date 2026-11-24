@@ -11551,10 +11551,10 @@ mod server_model_tests {
             Duration::from_secs(1),
         );
         let a = bridge
-            .transcribe(serde_json::json!({"path":"one"}), &first)
+            .transcribe(serde_json::json!({"path":"one"}), &first, |_| Ok(()))
             .unwrap();
         let b = bridge
-            .transcribe(serde_json::json!({"path":"two"}), &second)
+            .transcribe(serde_json::json!({"path":"two"}), &second, |_| Ok(()))
             .unwrap();
         assert_eq!(a["text"], "ok");
         assert_eq!(

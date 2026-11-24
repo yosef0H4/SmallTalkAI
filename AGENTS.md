@@ -24,6 +24,21 @@ docs/testing.md
 docs/memory-cleanup-validation.md
 ```
 
+## Build output cleanup
+
+Treat related builds, tests, and packaging commands as one validation cycle.
+After completing the cycle and installing or copying the latest required
+deliverables out of the Cargo target directory, run `cargo clean` from the
+workspace root. Clean any additional Cargo target directories used during the
+cycle as well. This removes accumulated dependencies and incremental builds;
+the next cycle will rebuild them.
+
+Apply the same cleanup after a failed or interrupted cycle once build and test
+processes have stopped. Before handoff, verify the target directories are
+removed or empty. Preserve installed binaries, tracked frontend `dist/` assets,
+user settings, and models. Keep only the latest generated package for each
+platform and package format in the package output directory.
+
 ## Hard architecture boundaries
 
 Share Windows and Linux feature logic, action identifiers, state transitions,

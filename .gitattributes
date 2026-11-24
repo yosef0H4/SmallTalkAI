@@ -1,5 +1,6 @@
 *.sh text eol=lf
 # Asset fingerprints must match on Linux and Windows checkouts.
 web/settings/** text eol=lf
+assets/fonts/LICENSE-NotoSansArabic.txt text eol=lf
 # Compiler output can contain literal whitespace in JavaScript strings.
 web/settings/dist/** linguist-generated=true -whitespace

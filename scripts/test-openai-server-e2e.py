@@ -7,11 +7,14 @@ Creates private headless host/client profiles; never contacts OpenAI's cloud.
 import base64
 import copy
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
+from http.client import HTTPConnection
 import io
 import json
 import os
 from pathlib import Path
 import secrets
+import select
 import signal
 import socket
 import subprocess
@@ -91,11 +94,13 @@ def descendants(parent):
     queue = [parent]
     while queue:
         pid = queue.pop()
-        path = Path(f'/proc/{pid}/task/{pid}/children')
-        try:
-            children = [int(value) for value in path.read_text().split()]
-        except OSError:
-            continue
+        children = set()
+        # A request thread can spawn the bridge and its inference worker.
+        for path in Path(f'/proc/{pid}/task').glob('*/children'):
+            try:
+                children.update(map(int, path.read_text().split()))
+            except OSError:
+                continue
         queue.extend(children)
         for child in children:
             try:
@@ -126,6 +131,36 @@ def valid_wav(data):
         assert audio.getnframes() > 1000 and audio.getframerate() >= 8000
         samples = audio.readframes(audio.getnframes())
         assert any(samples), 'silent audio response'
+
+
+def test_uploaded_audio_stream(port):
+    audio = io.BytesIO()
+    with wave.open(str(ROOT / 'fixtures/parakeet-smoke.wav')) as fixture:
+        with wave.open(audio, 'wb') as long_wav:
+            long_wav.setparams(fixture.getparams())
+            long_wav.writeframes(fixture.readframes(fixture.getnframes()) * 6)
+    payload = json.dumps({
+        'model': 'configured-stt',
+        'input_audio': {'format': 'wav', 'data': base64.b64encode(audio.getvalue()).decode()},
+        'language': 'en',
+        'stream': True,
+    }).encode()
+    with closing(HTTPConnection('127.0.0.1', port, timeout=120)) as client:
+        client.putrequest('POST', '/v1/audio/transcriptions')
+        client.putheader('Authorization', f'Bearer {token}')
+        client.putheader('Content-Type', 'application/json')
+        client.putheader('Content-Length', str(len(payload)))
+        client.endheaders()
+        client.send(payload[:-1])
+        assert not select.select([client.sock], [], [], .3)[0], 'response started before upload finished'
+        client.send(payload[-1:])
+        with client.getresponse() as response:
+            assert response.status == 200 and response.getheader('Content-Type').startswith('text/event-stream')
+            events = [json.loads(line[6:]) for line in response if line.startswith(b'data: ')]
+    deltas = [event['delta'] for event in events if event['type'] == 'transcript.text.delta']
+    assert len(deltas) > 1, 'omitting processing_mode should use the saved chunked mode'
+    assert events[-1]['type'] == 'transcript.text.done' and events[-1]['text'] == ''.join(deltas)
+    print('PASS OpenRouter JSON audio, no response before complete upload, and saved chunked mode', flush=True)
 
 
 def assert_no_internal_content(data_dir):
@@ -174,7 +209,8 @@ def main():
     reader.setdefault('privacy', {})['log_content'] = False
     app['speech'].update(provider='local', selection_mode='single_model',
         single_model_filename=app['speech']['language_models']['en'], inference_device='cpu',
-        runtime_dir=str(INSTALLED / 'assets' / STT_RUNTIME), idle_worker_timeout_secs=2)
+        runtime_dir=str(INSTALLED / 'assets' / STT_RUNTIME), idle_worker_timeout_secs=2,
+        processing_mode='chunked')
     app['cleanup']['enabled'] = False
     port = free_port()
     url = f'http://127.0.0.1:{port}/v1'
@@ -259,6 +295,7 @@ def main():
         assert response.headers['transfer-encoding'] == 'chunked'
     assert len(pcm) > 1000 and len(pcm) % 2 == 0 and any(pcm)
     print('PASS SDK SSE transcript and streamed PCM speech', flush=True)
+    test_uploaded_audio_stream(port)
     assert_no_internal_content(host_data)
     remote_reader = copy.deepcopy(reader)
     remote_reader['server'] = {'enabled': False}

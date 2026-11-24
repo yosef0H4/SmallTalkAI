@@ -255,7 +255,11 @@ const f = require('./settings-fixture.cjs');
     await heading('Keyboard setup').waitFor();
     assert.equal(await page.locator('[data-setting-path="linux.shortcut.record"] output').textContent(), 'Meta+Z');
     await button('Refresh or register system shortcuts').click();
-    await button('Set up shortcuts').click();
+    await Promise.all([
+      page.waitForResponse(response => response.request().method() === 'POST' &&
+        response.request().postDataJSON()?.action === 'configure_shortcuts'),
+      button('Set up shortcuts').click(),
+    ]);
     assert(f.actions.some(item => item.action === 'sync_shortcuts'));
     assert(f.actions.some(item => item.action === 'configure_shortcuts'));
     await page.close();

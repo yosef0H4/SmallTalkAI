@@ -205,10 +205,32 @@ fn capture_windows(
 
 #[cfg(target_os = "linux")]
 fn capture_linux(config: &ScreenshotConfig) -> Result<Option<DynamicImage>> {
-    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+    anyhow::ensure!(
+        linux_capture_can_check_exclusions(config, wayland),
+        "screen context skipped because this screenshot backend cannot verify the excluded apps",
+    );
+    if wayland {
         return capture_wayland_portal(config);
     }
     capture_x11(config)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_capture_can_check_exclusions(config: &ScreenshotConfig, wayland: bool) -> bool {
+    config.excluded_apps.is_empty() || (!wayland && config.scope == ScreenshotScope::ActiveWindow)
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[test]
+fn linux_screenshots_require_a_backend_that_can_check_exclusions() {
+    let mut config = crate::config::AppConfig::default().cleanup.screenshot;
+    assert!(linux_capture_can_check_exclusions(&config, false));
+    assert!(!linux_capture_can_check_exclusions(&config, true));
+    config.scope = ScreenshotScope::FullScreen;
+    assert!(!linux_capture_can_check_exclusions(&config, false));
+    config.excluded_apps.clear();
+    assert!(linux_capture_can_check_exclusions(&config, true));
 }
 
 #[cfg(target_os = "linux")]
@@ -266,19 +288,28 @@ fn capture_x11(config: &ScreenshotConfig) -> Result<Option<DynamicImage>> {
     } else {
         active_window.clone()
     };
-    let title = Command::new("xdotool")
-        .args(["getwindowname", &active_window])
-        .output()
-        .ok()
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    if config
-        .excluded_apps
-        .iter()
-        .any(|name| title.contains(&name.to_ascii_lowercase()))
-    {
-        return Ok(None);
+    if !config.excluded_apps.is_empty() {
+        let title = Command::new("xdotool")
+            .args(["getwindowname", &active_window])
+            .output()
+            .context("reading the active X11 window title")?;
+        let class = Command::new("xprop")
+            .args(["-id", &active_window, "WM_CLASS"])
+            .output()
+            .context("reading the active X11 window class")?;
+        let class_text = String::from_utf8(class.stdout)?;
+        let class_name = class_text.strip_prefix("WM_CLASS(STRING) = ");
+        if !title.status.success() || !class.status.success() || class_name.is_none() {
+            return Ok(None);
+        }
+        let identity = format!("{}\n{class_text}", String::from_utf8(title.stdout)?).to_lowercase();
+        if config
+            .excluded_apps
+            .iter()
+            .any(|name| identity.contains(&name.to_lowercase()))
+        {
+            return Ok(None);
+        }
     }
     let output = Command::new("import")
         .args(["-window", &window, "png:-"])

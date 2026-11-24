@@ -196,5 +196,7 @@ the service, Tailscale route, tailnet access policy, or host firewall needs
 checking. An inference error needs the service journal; model installation and
 successful inference are separate checks.
 
-New server configurations default to `0.0.0.0:8765`; the server remains disabled
-until explicitly enabled. Existing saved addresses are preserved.
+New server configurations start disabled and listen on `127.0.0.1:8765` when
+enabled. To serve on a Tailscale or LAN interface, set `server.listen` to that
+interface's IP and port and set `server.allow_remote` to `true`. The same bearer
+token is required. Existing saved addresses are preserved.

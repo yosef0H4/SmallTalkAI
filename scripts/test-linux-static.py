@@ -147,7 +147,7 @@ if '--bins' in package_build or 'smalltalkai_mock_infer' in package_build:
 need("scripts/test-linux-package.py", 'bundled-runtimes', 'instances/installed/config.json', 'data/smalltalkai/models', '--headless')
 
 # Public source snapshots must exclude local agent permissions and coverage data.
-need("scripts/package-linux-release.sh", "--exclude='./.claude'", "--exclude='./lcov.info'", "--exclude='./.env'")
+need("scripts/package-linux-release.sh", "ls-files --cached --deduplicate", "':!.claude'", "':!lcov.info'", "':!.env'")
 
 
 need("src/bin/smalltalkai_capture.rs", "begin_delivery_session", "OverlayPrimary::WaitingForKeys")

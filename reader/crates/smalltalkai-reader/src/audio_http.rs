@@ -37,7 +37,7 @@ impl Stream {
         let mut writer = request.into_writer();
         write!(
             writer,
-            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nTransfer-Encoding: chunked\r\nCache-Control: no-cache\r\n\r\n"
+            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nTransfer-Encoding: chunked\r\nConnection: close\r\nCache-Control: no-cache\r\n\r\n"
         )?;
         writer.flush()?;
         Ok(Self(writer))

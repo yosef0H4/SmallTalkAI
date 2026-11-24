@@ -1480,7 +1480,8 @@ fn capture_command(
         service.protocol == SHELL_PROTOCOL_VERSION,
         "capture protocol mismatch"
     );
-    let mut stream = TcpStream::connect_timeout(&service.address.parse()?, Duration::from_secs(1))?;
+    let mut stream =
+        TcpStream::connect_timeout(&service.loopback_address()?, Duration::from_secs(1))?;
     stream.set_read_timeout(Some(Duration::from_secs(6)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
     write_json(
@@ -1727,10 +1728,12 @@ fn settings_session_path(instance_id: &str) -> PathBuf {
 
 fn write_session(session: &SettingsSession) -> Result<()> {
     let path = settings_session_path(&session.instance_id);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, serde_json::to_vec(session)?)?;
+    let parent = path.parent().context("settings session has no parent")?;
+    fs::create_dir_all(parent)?;
+    let mut file = tempfile::NamedTempFile::new_in(parent)?;
+    serde_json::to_writer(&mut file, session)?;
+    file.persist(path)
+        .context("saving the private Settings session")?;
     Ok(())
 }
 

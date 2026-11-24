@@ -342,8 +342,8 @@ impl Default for ServerSettings {
     fn default() -> Self {
         Self {
             enabled: false,
-            listen: "0.0.0.0:8765".into(),
-            allow_remote: true,
+            listen: "127.0.0.1:8765".into(),
+            allow_remote: false,
             max_clients: 4,
             max_text_bytes: 1_048_576,
             max_image_pixels: 20_000_000,
@@ -621,6 +621,24 @@ impl ConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_server_requires_opt_in_and_defaults_to_loopback() {
+        let mut config: AppConfig = serde_json::from_str("{}").unwrap();
+        assert!(!config.server.enabled);
+        assert_eq!(config.server.listen, "127.0.0.1:8765");
+        assert!(!config.server.allow_remote);
+        config.server.enabled = true;
+        config.validate().unwrap();
+
+        let explicit: ServerSettings = serde_json::from_value(serde_json::json!({
+            "listen": "192.0.2.5:8765",
+            "allow_remote": true
+        }))
+        .unwrap();
+        assert_eq!(explicit.listen, "192.0.2.5:8765");
+        assert!(explicit.allow_remote);
+    }
 
     #[test]
     fn read_along_accepts_an_explicit_key_without_a_recorded_sequence() {

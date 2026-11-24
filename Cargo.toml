@@ -119,6 +119,7 @@ path = "src/bin/overlay_e2e.rs"
 
 [workspace]
 resolver = "2"
+exclude = ["vendor/tiny_http"]
 members = ["reader/crates/reader-core", "reader/crates/smalltalkai-tts", "reader/crates/smalltalkai-ocr", "reader/crates/smalltalkai-reader", "reader/crates/smalltalkai-readerctl", "desktop/settings"]
 
 [workspace.package]
@@ -148,3 +149,6 @@ uuid = { version = "1", features = ["v4", "serde"] }
 [[bin]]
 name = "smalltalkai-reader-hud"
 path = "src/bin/reader_hud.rs"
+
+[patch.crates-io]
+tiny_http = { path = "vendor/tiny_http" }

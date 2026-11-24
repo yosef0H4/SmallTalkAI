@@ -47,7 +47,7 @@ def zombie_children(parent):
     return zombies
 
 
-def exercise(bins, root):
+def exercise(bins, root, cycles):
     class Capture(socketserver.StreamRequestHandler):
         def emit(self, item):
             self.wfile.write(json.dumps(item).encode() + b"\n")
@@ -131,7 +131,18 @@ def exercise(bins, root):
         try:
             token_path = wait_for(lambda: next((root / "data").rglob("linux-token"), None),
                                   "persistent daemon did not create a capture token")
+            assert token_path.stat().st_mode & 0o777 == 0o600
             token = token_path.read_text().strip()
+            duplicate = subprocess.Popen([bins / "smalltalkai-linux", "daemon", "--config", config],
+                                         env=env, cwd=root, stdout=subprocess.DEVNULL,
+                                         stderr=subprocess.DEVNULL, start_new_session=True)
+            try:
+                assert duplicate.wait(timeout=3) != 0, "duplicate capture daemon started"
+                assert token_path.read_text().strip() == token, "duplicate launch rotated the active token"
+            finally:
+                if duplicate.poll() is None:
+                    os.killpg(duplicate.pid, signal.SIGKILL)
+                    duplicate.wait(timeout=3)
             state_dir = token_path.parent / "state"
             state_dir.mkdir(exist_ok=True)
             (state_dir / "linux-capture-state.json").write_text(json.dumps({
@@ -171,14 +182,26 @@ def exercise(bins, root):
                     release_stop.set()
                     wait_for(lambda: not reading.is_set(), "Reader continued playing")
 
-            for index in range(5):
+            capture_pid = wait_for(
+                lambda: (root / "capture.pid").read_text().strip() if (root / "capture.pid").exists() else None,
+                "capture child did not start",
+            )
+            def resident_kib():
+                status = Path(f"/proc/{daemon.pid}/status").read_text().splitlines()
+                return int(next(line.split()[1] for line in status if line.startswith("VmRSS:")))
+
+            warm_rss = resident_kib()
+            for index in range(cycles - 1):
                 exercise_abort(index, reader_present=True)
+                wait_for(lambda: child_pids(daemon.pid) == {capture_pid},
+                         "Abort did not settle to the owned capture child")
+                if index == 4:
+                    warm_rss = resident_kib()
             reader.shutdown()
             reader_socket.unlink()
-            exercise_abort(5, reader_present=False)
-            wait_for(lambda: (root / "daemon.log").read_text().count("] cancelled") == 6,
+            exercise_abort(cycles - 1, reader_present=False)
+            wait_for(lambda: (root / "daemon.log").read_text().count("] cancelled") == cycles,
                      "daemon did not finish all Abort actions")
-            capture_pid = (root / "capture.pid").read_text().strip()
             try:
                 wait_for(lambda: child_pids(daemon.pid) == {capture_pid},
                          "Abort helpers did not exit and get reaped")
@@ -186,7 +209,14 @@ def exercise(bins, root):
                 raise AssertionError(f"{error}. Zombie children: {zombie_children(daemon.pid)}") from None
             assert not reader_socket.exists(), "Abort started an absent Reader"
             assert daemon.poll() is None, "daemon exited before zombie inspection"
-            print("PASS repeated tray and shortcut Abort stopped dictation and Reader with zero zombie children")
+            print(f"PASS {cycles} tray and shortcut Abort actions stopped dictation and Reader with zero zombie children")
+            print(f"Daemon RSS after warm-up and after Abort stress: {warm_rss} -> {resident_kib()} KiB")
+            # The stub acknowledges shutdown over the socket but keeps waiting.
+            # The parent must terminate and reap the owned capture child itself.
+            daemon.send_signal(signal.SIGTERM)
+            assert daemon.wait(timeout=10) == 0
+            assert not Path(f"/proc/{capture_pid}").exists(), "capture child survived daemon shutdown"
+            print("PASS signal shutdown reaped the unresponsive capture child")
         except Exception:
             print((root / "daemon.log").read_text(), file=sys.stderr)
             raise
@@ -206,11 +236,15 @@ def exercise(bins, root):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bin-dir", type=Path, default=Path("target/debug"))
+    parser.add_argument("--cycles", type=int, default=6, help="Number of Abort actions to exercise")
     parser.add_argument("--private", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.cycles < 2:
+        parser.error("--cycles must be at least 2")
     if args.private:
         with tempfile.TemporaryDirectory(prefix="smalltalkai-abort-", dir="/tmp") as directory:
-            exercise(args.bin_dir.resolve(), Path(directory))
+            exercise(args.bin_dir.resolve(), Path(directory), args.cycles)
     else:
         subprocess.run(["dbus-run-session", "--", "xvfb-run", "-a",
-                        sys.executable, __file__, "--private", "--bin-dir", str(args.bin_dir)], check=True)
+                        sys.executable, __file__, "--private", "--bin-dir", str(args.bin_dir),
+                        "--cycles", str(args.cycles)], check=True)

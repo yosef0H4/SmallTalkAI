@@ -740,7 +740,7 @@ fn start_clipboard_listener(app: App, epoch: u64) -> Result<()> {
             .stderr(Stdio::null())
             .spawn()
             .context("starting Wayland clipboard watcher (install wl-clipboard)")?;
-        let identity = match ChildKill::new(child.id(), Uuid::new_v4().to_string()) {
+        let identity = match ChildKill::new(&child, Uuid::new_v4().to_string()) {
             Ok(identity) => identity,
             Err(error) => {
                 let _ = child.kill();
@@ -1071,10 +1071,8 @@ struct ChildKill {
 #[cfg(windows)]
 struct ChildKill {
     incarnation: String,
-    process: windows_sys::Win32::Foundation::HANDLE,
+    process: std::os::windows::io::OwnedHandle,
 }
-#[cfg(windows)]
-unsafe impl Send for ChildKill {}
 #[cfg(not(any(windows, target_os = "linux")))]
 struct ChildKill {
     incarnation: String,
@@ -1473,30 +1471,7 @@ impl WorkerSupervisor {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(identity) = killer.as_ref() {
             self.retiring.store(true, Ordering::Release);
-            #[cfg(target_os = "linux")]
-            unsafe {
-                let result = libc::syscall(
-                    libc::SYS_pidfd_send_signal,
-                    identity.pidfd.as_raw_fd(),
-                    libc::SIGKILL,
-                    std::ptr::null::<libc::siginfo_t>(),
-                    0,
-                );
-                if result < 0 && *libc::__errno_location() != libc::ESRCH {
-                    bail!("could not terminate speech worker through pidfd")
-                }
-            }
-            #[cfg(windows)]
-            unsafe {
-                if windows_sys::Win32::System::Threading::TerminateProcess(identity.process, 1) == 0
-                {
-                    bail!("could not terminate speech worker process")
-                }
-            }
-            #[cfg(not(any(windows, target_os = "linux")))]
-            {
-                bail!("safe worker termination is unsupported on this OS")
-            }
+            identity.terminate("speech worker")?;
         }
         *killer = None;
         Ok(())
@@ -1510,7 +1485,7 @@ impl WorkerSupervisor {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take()
         {
-            let _ = worker.child.wait();
+            terminate_and_reap_child(&mut worker.child);
             worker
                 .model_lifecycle
                 .write()
@@ -2199,14 +2174,17 @@ impl WorkerSupervisor {
         }
     }
     fn spawn_into(&self, slot: &mut Option<WorkerHandle>, config: &AppConfig) -> Result<()> {
-        let (worker, kill) = spawn_tts(
+        let (mut worker, kill) = spawn_tts(
             config,
             Arc::clone(&self.retiring),
             Arc::clone(&self.model_lifecycle),
             self.events.clone(),
         )?;
         self.retiring.store(false, Ordering::Release);
-        self.install_cancel_writer(&worker)?;
+        if let Err(error) = self.install_cancel_writer(&worker) {
+            terminate_and_reap_child(&mut worker.child);
+            return Err(error);
+        }
         *self
             .kill
             .lock()
@@ -2221,20 +2199,10 @@ impl WorkerSupervisor {
     ) -> Result<()> {
         let mut cpu = config.clone();
         cpu.speech.device = DevicePreference::Cpu;
-        let (mut worker, kill) = spawn_tts(
-            &cpu,
-            Arc::clone(&self.retiring),
-            Arc::clone(&self.model_lifecycle),
-            self.events.clone(),
-        )?;
-        self.retiring.store(false, Ordering::Release);
-        worker.fingerprint = fingerprint(config);
-        self.install_cancel_writer(&worker)?;
-        *self
-            .kill
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(kill);
-        *slot = Some(worker);
+        self.spawn_into(slot, &cpu)?;
+        if let Some(worker) = slot {
+            worker.fingerprint = fingerprint(config);
+        }
         Ok(())
     }
 }
@@ -2252,28 +2220,7 @@ impl Drop for WorkerSupervisor {
 }
 
 fn terminate_child(identity: &ChildKill) -> Result<()> {
-    #[cfg(target_os = "linux")]
-    unsafe {
-        let result = libc::syscall(
-            libc::SYS_pidfd_send_signal,
-            identity.pidfd.as_raw_fd(),
-            libc::SIGKILL,
-            std::ptr::null::<libc::siginfo_t>(),
-            0,
-        );
-        if result < 0 && *libc::__errno_location() != libc::ESRCH {
-            bail!("could not terminate speech worker through pidfd")
-        }
-    }
-    #[cfg(windows)]
-    unsafe {
-        if windows_sys::Win32::System::Threading::TerminateProcess(identity.process, 1) == 0 {
-            bail!("could not terminate speech worker process")
-        }
-    }
-    #[cfg(not(any(windows, target_os = "linux")))]
-    bail!("safe worker termination is unsupported on this OS");
-    Ok(())
+    identity.terminate("speech worker")
 }
 
 fn paused_release_is_current(inner: &AppInner, generation: u64, lease: u64) -> bool {
@@ -2461,22 +2408,13 @@ fn spawn_tts(
         .stderr(Stdio::inherit());
     let mut child = command.spawn().context("starting native speech worker")?;
     let incarnation = WorkerIncarnation::fresh().0.to_string();
-    let stdin = child.stdin.take().context("speech worker stdin missing")?;
-    let cancel_stdin = duplicate_child_stdin(&stdin)?;
-    let stdin_write_gate = Arc::new(Mutex::new(()));
-    let stdout = BufReader::new(
-        child
-            .stdout
-            .take()
-            .context("speech worker stdout missing")?,
-    );
-    let kill = ChildKill::new(child.id(), incarnation.clone())?;
-    // Hello confirms protocol compatibility; model allocations remain deferred until Prepare or speech.
-    let mut worker = WorkerHandle {
+    let (stdin, cancel_stdin, stdout, kill) =
+        start_tts_transport(&mut child, &incarnation, Duration::from_secs(5))?;
+    let worker = WorkerHandle {
         child,
         stdin,
         cancel_stdin,
-        stdin_write_gate,
+        stdin_write_gate: Arc::new(Mutex::new(())),
         stdout,
         fingerprint: fingerprint(config),
         keep_warm_seconds: config.playback.keep_warm_seconds,
@@ -2496,15 +2434,101 @@ fn spawn_tts(
         loading: false,
         loaded: false,
     };
-    worker.write_request(&WorkerRequest::Hello {
-        protocol: 1,
-        incarnation: incarnation.clone(),
-    })?;
-    match read_worker_frame::<WorkerEvent>(&mut worker.stdout)? {
-        WorkerFrame::Control(WorkerEvent::Ready { .. }) => {}
-        _ => bail!("speech worker handshake failed"),
-    }
     Ok((worker, kill))
+}
+
+fn start_tts_transport(
+    child: &mut Child,
+    incarnation: &str,
+    timeout: Duration,
+) -> Result<(ChildStdin, File, BufReader<ChildStdout>, ChildKill)> {
+    let started = open_tts_transport(child, incarnation, timeout);
+    if started.is_err() {
+        terminate_and_reap_child(child);
+    }
+    started
+}
+
+fn open_tts_transport(
+    child: &mut Child,
+    incarnation: &str,
+    timeout: Duration,
+) -> Result<(ChildStdin, File, BufReader<ChildStdout>, ChildKill)> {
+    let mut stdin = child.stdin.take().context("speech worker stdin missing")?;
+    let cancel_stdin = duplicate_child_stdin(&stdin)?;
+    let mut stdout = BufReader::new(
+        child
+            .stdout
+            .take()
+            .context("speech worker stdout missing")?,
+    );
+    let kill = ChildKill::new(child, incarnation.to_owned())?;
+    // Hello confirms protocol compatibility before the worker allocates a model.
+    write_json_frame(
+        &mut stdin,
+        &WorkerRequest::Hello {
+            protocol: 1,
+            incarnation: incarnation.to_owned(),
+        },
+    )?;
+    let expected_incarnation = incarnation.to_owned();
+    let (send, receive) = mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name("speech-worker-hello".into())
+        .spawn(move || {
+            let response = match read_worker_frame::<WorkerEvent>(&mut stdout) {
+                Ok(WorkerFrame::Control(WorkerEvent::Ready { incarnation, .. }))
+                    if incarnation == expected_incarnation =>
+                {
+                    Ok(stdout)
+                }
+                Ok(_) => Err(anyhow::anyhow!("speech worker handshake failed")),
+                Err(error) => Err(error.context("reading speech worker Hello response")),
+            };
+            let _ = send.send(response);
+        })?;
+    let stdout = receive
+        .recv_timeout(timeout)
+        .context("waiting for the speech worker Hello response")??;
+    Ok((stdin, cancel_stdin, stdout, kill))
+}
+
+fn terminate_and_reap_child(child: &mut Child) {
+    if !matches!(child.try_wait(), Ok(Some(_))) {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[test]
+fn failed_tts_start_reaps_the_exact_child() {
+    for (script, expected) in [
+        (
+            "exec sleep 10",
+            "waiting for the speech worker Hello response",
+        ),
+        (
+            "printf '\\001\\000\\000\\000?'; exec sleep 10",
+            "reading speech worker Hello response",
+        ),
+    ] {
+        let mut child = Command::new("sh")
+            .args(["-c", script])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let error = start_tts_transport(&mut child, "test", Duration::from_millis(750))
+            .err()
+            .expect("fixture did not send a valid Hello");
+        assert!(error.to_string().contains(expected), "{error:#}");
+        assert!(
+            !Path::new(&format!("/proc/{pid}")).exists(),
+            "speech worker survived startup failure"
+        );
+    }
 }
 
 fn discard_worker(worker: &mut Option<WorkerHandle>) {
@@ -2538,7 +2562,8 @@ fn worker_alive(worker: &mut Option<WorkerHandle>) -> bool {
 
 #[cfg(target_os = "linux")]
 impl ChildKill {
-    fn new(pid: u32, incarnation: String) -> Result<Self> {
+    fn new(child: &Child, incarnation: String) -> Result<Self> {
+        let pid = child.id();
         use std::os::fd::FromRawFd;
         let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) } as i32;
         if fd < 0 {
@@ -2567,34 +2592,31 @@ impl ChildKill {
 }
 #[cfg(windows)]
 impl ChildKill {
-    fn new(pid: u32, incarnation: String) -> Result<Self> {
-        let process = unsafe {
-            windows_sys::Win32::System::Threading::OpenProcess(
-                windows_sys::Win32::System::Threading::PROCESS_TERMINATE
-                    | windows_sys::Win32::System::Threading::PROCESS_SYNCHRONIZE,
-                0,
-                pid,
-            )
-        };
-        if process.is_null() {
-            bail!("could not retain a stable Windows speech-worker process handle")
-        };
+    fn new(child: &Child, incarnation: String) -> Result<Self> {
+        use std::os::windows::io::AsHandle;
+        let process = child
+            .as_handle()
+            .try_clone_to_owned()
+            .context("retaining a stable Windows worker process handle")?;
         Ok(Self {
             incarnation,
             process,
         })
     }
     fn terminate(&self, label: &str) -> Result<()> {
-        if unsafe { windows_sys::Win32::System::Threading::TerminateProcess(self.process, 1) } == 0
-        {
-            bail!("could not terminate {label} process")
-        };
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::System::Threading::{TerminateProcess, WaitForSingleObject};
+        let handle = self.process.as_raw_handle();
+        // A worker can exit normally just before it receives a stop request.
+        if unsafe { TerminateProcess(handle, 1) == 0 && WaitForSingleObject(handle, 0) != 0 } {
+            bail!("could not terminate {label} process");
+        }
         Ok(())
     }
 }
 #[cfg(not(any(windows, target_os = "linux")))]
 impl ChildKill {
-    fn new(_pid: u32, incarnation: String) -> Result<Self> {
+    fn new(_child: &Child, incarnation: String) -> Result<Self> {
         Ok(Self { incarnation })
     }
     fn terminate(&self, label: &str) -> Result<()> {
@@ -5732,7 +5754,17 @@ impl App {
         {
             stop.store(true, Ordering::Release);
         }
-        self.unload_server_workers()
+        let result = self.unload_server_workers();
+        // The server threads can keep App alive after the command returns.
+        // Retire the API-owned transcription bridge while its parent can reap it.
+        let bridge = self
+            .inner
+            .media_bridge
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        drop(bridge);
+        result
     }
     fn unload_server_workers(&self) -> Result<()> {
         self.inner
@@ -6702,7 +6734,7 @@ fn with_ocr_worker<T>(
         }
     };
     *app.inner.ocr_kill.lock().unwrap() = Some((
-        ChildKill::new(worker.child.id(), Uuid::new_v4().to_string())?,
+        ChildKill::new(&worker.child, Uuid::new_v4().to_string())?,
         is_copy,
     ));
     let response = if current() {
@@ -9848,7 +9880,7 @@ fn read_region_hotkey_inner(app: &App, generation: u64, repeat_revision: u64) ->
             .spawn()
             .context("starting the Windows screen-region selector")?;
         let incarnation = Uuid::new_v4().to_string();
-        let identity = ChildKill::new(child.id(), incarnation.clone())?;
+        let identity = ChildKill::new(&child, incarnation.clone())?;
         if let Err(error) = app.publish_capture(generation, identity, "screen selector") {
             let _ = child.wait();
             let _ = std::fs::remove_file(selector);
@@ -9913,7 +9945,7 @@ fn run_owned_output(
         .spawn()
         .with_context(|| format!("starting {label}"))?;
     let incarnation = Uuid::new_v4().to_string();
-    let identity = ChildKill::new(child.id(), incarnation.clone())?;
+    let identity = ChildKill::new(&child, incarnation.clone())?;
     let lifecycle = app
         .inner
         .pause_lifecycle_gate

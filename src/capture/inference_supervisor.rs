@@ -16,6 +16,10 @@ use std::time::{Duration, Instant};
 const SHARED_SHUTDOWN_OVERHEAD: Duration = Duration::from_millis(250);
 const SHARED_SHUTDOWN_RECOVERY: Duration = Duration::from_secs(2);
 
+pub fn shared_shutdown_budget(grace: Duration) -> Duration {
+    grace + SHARED_SHUTDOWN_OVERHEAD + SHARED_SHUTDOWN_RECOVERY * 2
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkerConfig {
     pub executable: PathBuf,

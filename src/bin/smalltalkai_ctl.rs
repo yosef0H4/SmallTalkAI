@@ -312,17 +312,18 @@ fn run(args: Args) -> Result<ShellResponse> {
     let state_file = args
         .state_file
         .context("--state-file is required for service commands")?;
-    let token = args
-        .token
-        .context("--token is required for service commands")?;
     let state = ServiceState::load(&state_file)?;
+    let token = match args.token {
+        Some(token) => token,
+        None => state.authentication_token()?.trim().to_owned(),
+    };
     anyhow::ensure!(
         state.protocol == SHELL_PROTOCOL_VERSION,
         "capture state uses protocol {}, helper expects {}",
         state.protocol,
         SHELL_PROTOCOL_VERSION
     );
-    let mut stream = TcpStream::connect(&state.address)
+    let mut stream = TcpStream::connect(state.loopback_address()?)
         .with_context(|| format!("connecting to capture service at {}", state.address))?;
     stream.set_read_timeout(Some(Duration::from_secs(30)))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;

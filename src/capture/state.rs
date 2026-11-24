@@ -15,7 +15,37 @@ pub struct ServiceState {
     pub started_unix_ms: u128,
 }
 
+#[cfg(test)]
+#[test]
+fn control_state_accepts_only_numeric_loopback_endpoints() {
+    for address in ["127.0.0.1:8765", "[::1]:8765"] {
+        assert!(ServiceState::new(address.into()).loopback_address().is_ok());
+    }
+    for address in [
+        "192.0.2.5:8765",
+        "0.0.0.0:8765",
+        "localhost:8765",
+        "127.0.0.1:0",
+    ] {
+        assert!(ServiceState::new(address.into())
+            .loopback_address()
+            .is_err());
+    }
+}
+
 impl ServiceState {
+    pub fn loopback_address(&self) -> Result<std::net::SocketAddr> {
+        let address: std::net::SocketAddr = self
+            .address
+            .parse()
+            .context("parsing the capture control address")?;
+        anyhow::ensure!(
+            address.ip().is_loopback() && address.port() != 0,
+            "capture control requires a loopback address with a nonzero port"
+        );
+        Ok(address)
+    }
+
     pub fn new(address: String) -> Self {
         Self {
             protocol: SHELL_PROTOCOL_VERSION,

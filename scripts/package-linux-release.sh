@@ -26,15 +26,16 @@ trap cleanup EXIT
 
 mkdir -p "$snapshot"
 source_date_epoch="${SOURCE_DATE_EPOCH:-$(git -C "$root" log -1 --format=%ct 2>/dev/null || date +%s)}"
-tar -C "$root" --sort=name --mtime="@$source_date_epoch" \
+# Use tracked paths so release archives cannot absorb local configuration,
+# downloads, or other files from the working directory.
+git -C "$root" ls-files --cached --deduplicate -z -- . \
+  ':!target' ':!external' ':!.codex' ':!.agents' ':!.claude' ':!.vscode' ':!.idea' \
+  ':!lcov.info' ':!.env' ':!artifacts' ':!web/settings/node_modules' \
+  ':!desktop/settings/gen' ':!resources/bin' | tar -C "$root" \
+  --mtime="@$source_date_epoch" --no-recursion \
   --owner=0 --group=0 --numeric-owner \
-  --exclude='./.git' --exclude='./target' --exclude='./external' \
-  --exclude='./.codex' --exclude='./.agents' --exclude='./.claude' \
-  --exclude='./.vscode' --exclude='./.idea' --exclude='./lcov.info' \
-  --exclude='./.env' \
   --exclude='__pycache__' --exclude='*.pyc' \
-  --exclude='./artifacts' --exclude='./web/settings/node_modules' --exclude='./desktop/settings/gen' \
-  --exclude='./resources/bin' -czf "$source_archive_tmp" .
+  -czf "$source_archive_tmp" --null -T -
 tar -xzf "$source_archive_tmp" -C "$snapshot"
 sha256sum "$source_archive_tmp" | awk '{print $1}' > "$source_hash_file"
 source_archive="$out/smalltalkai-$version-source-$(cut -c1-12 "$source_hash_file").tar.gz"

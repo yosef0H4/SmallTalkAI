@@ -9,10 +9,9 @@ use smalltalkai::localization::tr;
 use smalltalkai::localization::Locale;
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command as ProcessCommand, Stdio};
-#[cfg(target_os = "linux")]
+use std::process::{Child, Command as ProcessCommand, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -243,19 +242,53 @@ fn clipboard_cache_status() -> Result<()> {
     bail!("clipboard cache status is Linux-only")
 }
 
+struct OwnedChild(Child);
+
+impl OwnedChild {
+    fn wait_for(&mut self, timeout: Duration) -> std::io::Result<Option<ExitStatus>> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let status = self.0.try_wait()?;
+            if status.is_some() || Instant::now() >= deadline {
+                return Ok(status);
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+}
+
+impl Drop for OwnedChild {
+    fn drop(&mut self) {
+        if !matches!(self.0.try_wait(), Ok(Some(_))) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+}
+
 fn daemon(config: Option<PathBuf>) -> Result<()> {
     if let Some(path) = &config {
         std::env::set_var("SMALLTALKAI_CONFIG", path);
     }
     ensure_dirs()?;
+    let daemon_lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(data_dir().join("linux-daemon.lock"))?;
+    daemon_lock
+        .try_lock()
+        .context("this SmallTalkAI profile already has a capture daemon")?;
     #[cfg(target_os = "linux")]
     fs::write(shortcut_state_file(), "{}\n")?;
     #[cfg(target_os = "linux")]
     wait_for_graphical_environment(Duration::from_secs(60));
     let capture = find_exe("smalltalkai-capture")?;
     let mut cmd = ProcessCommand::new(capture);
-    cmd.arg("--token")
-        .arg(token()?)
+    write_capture_token()?;
+    cmd.arg("--token-file")
+        .arg(token_file())
         .arg("--state-file")
         .arg(state_file());
     if let Some(path) = config.as_ref() {
@@ -264,23 +297,12 @@ fn daemon(config: Option<PathBuf>) -> Result<()> {
         cmd.arg("--config").arg(AppConfig::config_path());
     }
     cmd.env("SMALLTALKAI_LINUX", "1");
-    let child = Arc::new(Mutex::new(Some(
-        cmd.spawn().context("starting capture service")?,
-    )));
-    let child_pid = child
-        .lock()
-        .unwrap()
-        .as_ref()
-        .map(std::process::Child::id)
-        .unwrap_or(0);
+    let mut child = OwnedChild(cmd.spawn().context("starting capture service")?);
+    let child_pid = child.0.id();
     fs::write(pid_file(), format!("{}\n", std::process::id()))
         .context("writing linux daemon pid file")?;
     let _runtime_markers = RuntimeMarkerGuard;
     println!("[{APP}] capture service pid={child_pid}");
-
-    #[cfg(target_os = "linux")]
-    let cache_supervisor_stop =
-        start_clipboard_cache_supervisor(config.clone().unwrap_or_else(AppConfig::config_path));
 
     #[cfg(target_os = "linux")]
     let _tray_handle = start_linux_tray();
@@ -288,38 +310,33 @@ fn daemon(config: Option<PathBuf>) -> Result<()> {
     #[cfg(target_os = "linux")]
     start_linux_hotkeys()?;
 
-    let shutdown_child = Arc::clone(&child);
+    let stopping = Arc::new(AtomicBool::new(false));
+    let signal = Arc::clone(&stopping);
+    ctrlc::set_handler(move || signal.store(true, Ordering::SeqCst))
+        .context("installing signal handler")?;
     #[cfg(target_os = "linux")]
-    let shutdown_cache = Arc::clone(&cache_supervisor_stop);
-    ctrlc::set_handler(move || {
-        #[cfg(target_os = "linux")]
-        {
-            shutdown_cache.store(true, Ordering::SeqCst);
-            let _ = smalltalkai::common::wayland_clipboard::set_cache_enabled(
-                &clipboard_cache_socket(),
-                false,
-            );
-        }
-        if smalltalkai::reader::status().is_some() {
-            let _ = smalltalkai::reader::action("shutdown", "");
-        }
-        let _ = run_ctl(["shutdown"], Duration::from_secs(5), false);
-        if let Some(mut child) = shutdown_child.lock().unwrap().take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        cleanup_runtime_markers();
-        std::process::exit(0);
-    })
-    .context("installing signal handler")?;
+    let cache_supervisor_stop =
+        start_clipboard_cache_supervisor(config.unwrap_or_else(AppConfig::config_path));
 
-    let status = child
-        .lock()
-        .unwrap()
-        .as_mut()
-        .context("capture child missing")?
-        .wait()
-        .context("waiting for capture service")?;
+    let status = loop {
+        if stopping.load(Ordering::SeqCst) {
+            let _ = run_ctl(["shutdown"], Duration::from_secs(5), false);
+            let grace = AppConfig::load_from(&AppConfig::config_path())
+                .unwrap_or_default()
+                .speech
+                .worker_shutdown_grace_ms;
+            let budget = smalltalkai::capture::inference_supervisor::shared_shutdown_budget(
+                Duration::from_millis(grace),
+            );
+            let _ = child.wait_for(budget + Duration::from_secs(1));
+            break Ok(None);
+        }
+        match child.wait_for(Duration::from_millis(100)) {
+            Ok(None) => continue,
+            result => break result,
+        }
+    };
+    drop(child);
     #[cfg(target_os = "linux")]
     {
         cache_supervisor_stop.store(true, Ordering::SeqCst);
@@ -331,11 +348,10 @@ fn daemon(config: Option<PathBuf>) -> Result<()> {
     if smalltalkai::reader::status().is_some() {
         let _ = smalltalkai::reader::action("shutdown", "");
     }
-    if status.success() {
-        Ok(())
-    } else {
-        bail!("capture service exited with {status}")
+    if let Some(status) = status.context("waiting for capture service")? {
+        anyhow::ensure!(status.success(), "capture service exited with {status}");
     }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -1021,7 +1037,7 @@ fn memory_delivery_command_with_timeout(
     };
     use std::io::{BufRead, BufReader};
     let service = smalltalkai::capture::state::ServiceState::load(&state_file())?;
-    let mut stream = std::net::TcpStream::connect(&service.address)?;
+    let mut stream = std::net::TcpStream::connect(service.loopback_address()?)?;
     stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(timeout))?;
     let mut reader = BufReader::new(stream.try_clone()?);
@@ -1341,11 +1357,7 @@ fn settings(headless: bool) -> Result<()> {
     ensure_dirs()?;
     let executable = find_exe("smalltalkai-settings")?;
     let mut command = ProcessCommand::new(executable);
-    command
-        .arg("--state-file")
-        .arg(state_file())
-        .arg("--service-token")
-        .arg(token()?);
+    command.arg("--state-file").arg(state_file());
     if headless {
         let status = command.arg("--headless").status()?;
         anyhow::ensure!(status.success(), "Settings exited with {status}");
@@ -2829,22 +2841,34 @@ fn find_native_paste_helper() -> Result<PathBuf> {
 
 fn run_ctl<const N: usize>(args: [&str; N], timeout: Duration, check: bool) -> Result<CtlResult> {
     let ctl = find_exe("smalltalkai-ctl")?;
-    let output = ProcessCommand::new(ctl)
-        .arg("--state-file")
-        .arg(state_file())
-        .arg("--token")
-        .arg(token()?)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .with_context(|| format!("running control command: {}", args.join(" ")))?;
-    let raw = String::from_utf8_lossy(&output.stdout).to_string();
-    if !output.status.success() && check {
+    // Separate temporary handles drain both streams without waiting for pipe readers.
+    let mut stdout = tempfile::tempfile()?;
+    let mut stderr = tempfile::tempfile()?;
+    let mut child = OwnedChild(
+        ProcessCommand::new(ctl)
+            .arg("--state-file")
+            .arg(state_file())
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(stdout.try_clone()?)
+            .stderr(stderr.try_clone()?)
+            .spawn()
+            .with_context(|| format!("running control command: {}", args.join(" ")))?,
+    );
+    let status = child
+        .wait_for(timeout)?
+        .with_context(|| format!("control command timed out: {}", args.join(" ")))?;
+    stdout.rewind()?;
+    let mut bytes = Vec::new();
+    stdout.read_to_end(&mut bytes)?;
+    let raw = String::from_utf8_lossy(&bytes);
+    if !status.success() && check {
+        stderr.rewind()?;
+        let mut error_output = Vec::new();
+        stderr.read_to_end(&mut error_output)?;
         bail!(
-            "smalltalkai-ctl failed ({}):\n{}\n{}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr),
+            "smalltalkai-ctl failed ({status}):\n{}\n{}",
+            String::from_utf8_lossy(&error_output),
             raw
         );
     }
@@ -2852,7 +2876,6 @@ fn run_ctl<const N: usize>(args: [&str; N], timeout: Duration, check: bool) -> R
     if check && !result.ok {
         bail!("{}", result.message);
     }
-    let _ = timeout;
     Ok(result)
 }
 
@@ -2935,19 +2958,17 @@ fn ensure_dirs() -> Result<()> {
 }
 
 fn token() -> Result<String> {
-    ensure_dirs()?;
-    if token_file().exists() {
-        return Ok(fs::read_to_string(token_file())?.trim().to_owned());
-    }
-    let value = format!(
-        "linux-token-{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    );
-    fs::write(token_file(), format!("{value}\n"))?;
-    Ok(value)
+    Ok(fs::read_to_string(token_file())?.trim().to_owned())
+}
+
+fn write_capture_token() -> Result<()> {
+    let bytes: [u8; 32] = rand::random();
+    let token: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    let mut file = tempfile::NamedTempFile::new_in(data_dir())?;
+    writeln!(file, "{token}")?;
+    file.persist(token_file())
+        .context("saving capture authentication token")?;
+    Ok(())
 }
 
 fn read_session() -> Result<SessionState> {

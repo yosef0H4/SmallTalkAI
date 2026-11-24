@@ -107,3 +107,11 @@ smalltalkai serve
 ```
 
 Generate the file once and reuse it for later starts. `--stdout` never reads the keyring or saves anything itself. It prints only the new token. An environment override prevents accidental vault rotation; unset it to manage the vault token.
+
+## Linux cleanup screenshots
+
+With app exclusions configured, cleanup uses text alone on Wayland or for a
+full-screen capture. Those screenshot backends cannot verify which applications
+appear in the selected image. X11 active-window capture checks the selected
+window title and class before obtaining its pixels. Wayland uses the desktop
+screenshot portal when the exclusion list is empty.

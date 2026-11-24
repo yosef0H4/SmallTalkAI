@@ -41,8 +41,14 @@ const DEVICE_RETRY_DELAYS: [Duration; 5] = [
     about = "Persistent lightweight SmallTalkAI audio capture service"
 )]
 struct Args {
-    #[arg(long)]
-    token: String,
+    #[arg(
+        long,
+        required_unless_present = "token_file",
+        conflicts_with = "token_file"
+    )]
+    token: Option<String>,
+    #[arg(long, required_unless_present = "token")]
+    token_file: Option<PathBuf>,
     #[arg(long)]
     state_file: Option<PathBuf>,
     #[arg(long)]
@@ -451,6 +457,15 @@ impl EventBuffer {
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    let token = match (&args.token, &args.token_file) {
+        (Some(token), None) => token.clone(),
+        (None, Some(path)) => std::fs::read_to_string(path)
+            .context("reading capture authentication token")?
+            .trim()
+            .to_owned(),
+        _ => anyhow::bail!("provide one capture authentication source"),
+    };
+    anyhow::ensure!(!token.is_empty(), "capture authentication token is empty");
     if let Some(config) = &args.config {
         std::env::set_var("SMALLTALKAI_CONFIG", config);
     }
@@ -510,12 +525,12 @@ fn main() -> Result<()> {
     #[cfg(windows)]
     let _capture_token = if state_file == AppConfig::service_state_path() {
         Some(smalltalkai::capture::state::PublishedCaptureToken::new(
-            &args.token,
+            &token,
         )?)
     } else {
         None
     };
-    let server = ipc_server::spawn(args.token, control_tx)?;
+    let server = ipc_server::spawn(token, control_tx)?;
     ServiceState::new(server.address.clone()).save_atomic(&state_file)?;
     tracing::info!(address = %server.address, state_file = %state_file.display(), "capture service ready");
 

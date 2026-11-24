@@ -3,7 +3,7 @@ use crate::common::shell_protocol::{
 };
 use anyhow::{Context, Result};
 use crossbeam_channel::{bounded, Receiver, Sender};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::thread;
 use std::time::Duration;
@@ -23,19 +23,33 @@ pub struct IpcServer {
     _join: thread::JoinHandle<()>,
 }
 
+struct ConnectionPermit(Receiver<()>);
+
+impl Drop for ConnectionPermit {
+    fn drop(&mut self) {
+        let _ = self.0.try_recv();
+    }
+}
+
 pub fn spawn(token: String, control_tx: Sender<ControlRequest>) -> Result<IpcServer> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .context("binding local capture-service control listener")?;
     let address = listener.local_addr()?.to_string();
     let listen_address = address.clone();
     let join = thread::spawn(move || {
+        let (occupied, released) = bounded(32);
         tracing::info!(address = %listen_address, "shell IPC server listening on loopback only");
         for incoming in listener.incoming() {
             match incoming {
                 Ok(stream) => {
+                    if occupied.try_send(()).is_err() {
+                        continue;
+                    }
+                    let permit = ConnectionPermit(released.clone());
                     let token = token.clone();
                     let control_tx = control_tx.clone();
                     thread::spawn(move || {
+                        let _permit = permit;
                         if let Err(error) = handle_client(stream, &token, &control_tx) {
                             tracing::warn!(%error, "shell IPC client failed");
                         }
@@ -136,11 +150,12 @@ fn handle_client(
 }
 
 fn read_json_line<T: serde::de::DeserializeOwned>(reader: &mut impl BufRead) -> Result<T> {
-    let mut line = String::new();
-    let count = reader.read_line(&mut line)?;
+    const MAX_LINE: u64 = 1024 * 1024;
+    let mut line = Vec::new();
+    let count = reader.take(MAX_LINE + 1).read_until(b'\n', &mut line)?;
     anyhow::ensure!(count > 0, "unexpected EOF");
-    anyhow::ensure!(line.len() <= 1024 * 1024, "IPC line exceeded 1 MiB");
-    serde_json::from_str(line.trim_end()).context("parsing IPC JSON")
+    anyhow::ensure!(count as u64 <= MAX_LINE, "IPC line exceeded 1 MiB");
+    serde_json::from_slice(&line).context("parsing IPC JSON")
 }
 fn write_json_line<T: serde::Serialize>(writer: &mut impl Write, message: &T) -> Result<()> {
     serde_json::to_writer(&mut *writer, message)?;

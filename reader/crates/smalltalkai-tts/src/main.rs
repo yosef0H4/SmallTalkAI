@@ -913,7 +913,14 @@ fn process_request(
             Ok(false)
         }
         WorkerRequest::Prepare { device } => {
-            prepare(args, state, &device)?;
+            if let Err(error) = prepare(args, state, &device) {
+                emit(&WorkerEvent::Error {
+                    job_id: None,
+                    generation: None,
+                    code: "tts_failed".into(),
+                    message: format!("{error:#}"),
+                })?;
+            }
             Ok(false)
         }
         WorkerRequest::Synthesize {
@@ -954,7 +961,20 @@ fn process_request(
                     emit(&WorkerEvent::Cancelled { job_id, generation })?;
                     return Ok(false);
                 }
-                let Some(samples) = result? else {
+                let samples = match result {
+                    Ok(samples) => samples,
+                    Err(error) => {
+                        *state = EngineState::default();
+                        emit(&WorkerEvent::Error {
+                            job_id: Some(job_id),
+                            generation: Some(generation),
+                            code: "tts_failed".into(),
+                            message: format!("{error:#}"),
+                        })?;
+                        return Ok(false);
+                    }
+                };
+                let Some(samples) = samples else {
                     if state.engine.is_some() {
                         emit_local_ready(args, &job_id, state)?;
                     }
@@ -1238,6 +1258,10 @@ fn prepare(args: &Args, state: &mut EngineState, device: &str) -> Result<()> {
 fn load_engine(args: &Args, state: &mut EngineState, device: &str) -> Result<()> {
     if args.webgpu {
         let provider = if device == "cpu" { "cpu" } else { "webgpu" };
+        #[cfg(target_os = "linux")]
+        if provider == "webgpu" {
+            reader_core::vulkan::require_webgpu_adapter()?;
+        }
         let engine = NativeTts::load(args, provider);
         state.engine = Some(if provider == "webgpu" {
             engine.context("gpu_unavailable: WebGPU speech could not initialize")?
@@ -1270,6 +1294,9 @@ fn load_engine(args: &Args, state: &mut EngineState, device: &str) -> Result<()>
             state.engine = Some(NativeTts::load(args, "cpu")?);
             state.provider = "cpu".into();
             state.device = "CPU model loaded · CUDA setup failed".into();
+        }
+        Err(error) if device == "cuda" => {
+            return Err(error).context("gpu_unavailable: CUDA speech could not initialize");
         }
         Err(error) => return Err(error),
     }
@@ -1346,7 +1373,7 @@ fn verify_cuda_or_fallback(
     }
     if request.device != "auto" {
         anyhow::bail!(
-            "CUDA was requested but this worker could not prove its own NVIDIA allocation after inference"
+            "gpu_unavailable: CUDA was requested but this worker could not prove its own NVIDIA allocation after inference"
         );
     }
     tracing::warn!("CUDA provider did not prove an allocation for this worker; switching to CPU");

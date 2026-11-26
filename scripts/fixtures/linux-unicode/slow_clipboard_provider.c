@@ -19,7 +19,7 @@ static gboolean stall_requests;
 static gchar *request_log;
 static const char *ready_path;
 static GtkWidget *provider_window;
-static const guint8 custom_payload[] = {0, 1, 'S','i','m','p','l','e','-','S','T','T',' ', 'c','l','i','p','b','o','a','r','d',' ', 'f','i','x','t','u','r','e', 255};
+static const guint8 custom_payload[] = {0, 1, 'S','m','a','l','l','T','a','l','k','A','I',' ', 'c','l','i','p','b','o','a','r','d',' ', 'f','i','x','t','u','r','e', 255};
 static const guint8 png_payload[] = {
     0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a,0x00,0x00,0x00,0x0d,
     0x49,0x48,0x44,0x52,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,

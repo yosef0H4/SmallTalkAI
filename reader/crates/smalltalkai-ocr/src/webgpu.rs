@@ -38,6 +38,8 @@ impl Options {
             return Ok((environment, false));
         }
         ensure!(device != "cpu", "WebGPU is incompatible with --device cpu");
+        #[cfg(target_os = "linux")]
+        reader_core::vulkan::require_webgpu_adapter()?;
         let mut ep = ort::ep::WebGPU::default();
         if let Ok(index) = std::env::var(reader_core::routing::WEBGPU_ADAPTER_ENV) {
             ep = ep.with_arbitrary_config("adapterIndex", index.parse::<u32>()?.to_string());

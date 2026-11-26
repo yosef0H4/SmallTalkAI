@@ -1,11 +1,11 @@
 # Runtime packaging
 
-Parakeet Vulkan is the smallest cataloged GPU runtime for Dictation on Windows and Linux. Read aloud and Image text share one native ONNX Runtime WebGPU asset per platform. Both native packages include a Sherpa C API adapter built from the same patch. Linux downloads the WebGPU inference library when selected. [Runtime selection](../src/modules.rs) · [Runtime catalog](../assets/catalog/modules.json) · [Sherpa WebGPU patch](../scripts/sherpa-webgpu.patch)
+Parakeet Vulkan is the smallest cataloged GPU runtime for Dictation on Windows and Linux. Read aloud and Image text share one bundled native ONNX Runtime WebGPU asset per platform. Both native packages include a Sherpa C API adapter built from the same patch. [Runtime selection](../src/modules.rs) · [Runtime catalog](../assets/catalog/modules.json) · [Sherpa WebGPU patch](../scripts/sherpa-webgpu.patch)
 
 ## Shared CUDA 12.8
 
 The optional NVIDIA download covers Dictation, Read aloud, and Image text. The
-base app still bundles Parakeet Vulkan and Sherpa CPU. Both operating systems
+base app bundles Parakeet Vulkan, Sherpa CPU, and WebGPU. Both operating systems
 use CUDA 12.8, cuBLAS 12.8.3.14, cuDNN 9.10.2, and the same Parakeet and
 Sherpa-ONNX versions. Parakeet and Sherpa load the same installed cudart and
 cuBLAS files on each system. Sherpa also uses the pinned cuDNN, NVRTC and
@@ -25,8 +25,8 @@ pins still needs a native test. [Linux engine release](https://github.com/yosef0
 
 ## Linux WebGPU
 
-On Linux x86-64, both features use the same optional ONNX Runtime 1.31.1
-download. The pinned archive is 115,391,311 bytes and the app extracts the
+On Linux x86-64, both features use the same bundled ONNX Runtime 1.31.1
+library. The package builder fetches the pinned 115,391,311-byte archive and extracts the
 47,552,704-byte Linux library. The Linux package builds the Sherpa adapter
 with CMake and Ninja. Both features use the system Vulkan loader and driver
 through Dawn. [Linux adapter build](../scripts/build-sherpa-webgpu.sh) · [ONNX Runtime WebGPU requirements](https://onnxruntime.ai/docs/execution-providers/WebGPU-ExecutionProvider.html#requirements)
@@ -104,6 +104,6 @@ Use the URLs and expected SHA-256 digests in `assets/catalog/downloads.json`. Op
 
 ## Bundled defaults and shared NVIDIA package
 
-- First-run setup preselects Parakeet Vulkan for Dictation and Sherpa CPU for Read aloud and Image text. Windows also bundles WebGPU for Read aloud and Image text. Model downloads remain separate.
+- With a dedicated Vulkan GPU and bundled runtimes available, first-run setup preselects Vulkan for Dictation, WebGPU for Read aloud, and CPU for Image text. Without a dedicated GPU it preselects CPU for all three. Models download separately.
 - One NVIDIA asset job covers the engine-specific CUDA backends and reuses verified components. Removing it restores the bundled runtime for each affected route and preserves the selected models.
 - On Windows with an RTX 5080, an isolated package test completed the NVIDIA download from a verified partial cache, ran CUDA speech, and removed NVIDIA from all three runtime lists. Vulkan transcription, CPU and WebGPU speech, and CPU and WebGPU image text also passed with real inputs.

@@ -155,7 +155,7 @@ fn load_ocr(args: &Args) -> Result<OcrEngine> {
     if use_cuda {
         anyhow::ensure!(
             ort::ep::CUDA::default().is_available().unwrap_or(false),
-            "CUDA execution provider is unavailable in the selected ONNX Runtime"
+            "gpu_unavailable: CUDA execution provider is unavailable in the selected ONNX Runtime"
         );
     }
     let providers = if use_webgpu {
@@ -234,6 +234,8 @@ fn load_ocr(args: &Args) -> Result<OcrEngine> {
     };
     let pipeline = if use_webgpu {
         pipeline.context("gpu_unavailable: WebGPU OCR could not initialize")?
+    } else if use_cuda {
+        pipeline.context("gpu_unavailable: CUDA OCR could not initialize")?
     } else {
         pipeline?
     };
@@ -258,7 +260,7 @@ fn native_ocr(
     if engine.cuda && !engine.proven {
         anyhow::ensure!(
             reader_core::cuda::onnx_cuda_verified(),
-            "CUDA requested but PaddleOCR could not prove a GPU allocation for this worker"
+            "gpu_unavailable: CUDA requested but PaddleOCR could not prove a GPU allocation for this worker"
         );
         engine.proven = true;
         eprintln!("PaddleOCR CUDA verified: provider loaded and worker owns GPU allocation");
@@ -607,7 +609,18 @@ fn main() -> Result<()> {
             WorkerRequest::Shutdown => break,
             WorkerRequest::Prepare { device: _ } => {
                 if args.provider == "local_paddle" && native_engine.is_none() {
-                    native_engine = Some(load_ocr(&args)?);
+                    match load_ocr(&args) {
+                        Ok(engine) => native_engine = Some(engine),
+                        Err(error) => {
+                            emit(&WorkerEvent::Error {
+                                job_id: None,
+                                generation: None,
+                                code: "ocr_failed".into(),
+                                message: format!("{error:#}"),
+                            })?;
+                            continue;
+                        }
+                    }
                 }
                 emit(&WorkerEvent::Ready {
                     incarnation: "prepared".into(),

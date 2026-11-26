@@ -4985,6 +4985,7 @@ name = "reader-core"
 version = "0.3.1"
 dependencies = [
  "anyhow",
+ "ash",
  "dirs 6.0.0",
  "fasttext",
  "regex",
@@ -5701,7 +5702,6 @@ name = "smalltalkai"
 version = "0.3.1"
 dependencies = [
  "anyhow",
- "ash",
  "ashpd",
  "async-io",
  "base64 0.22.1",

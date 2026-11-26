@@ -176,7 +176,7 @@ unsafe fn select_windows_vulkan_device() -> Result<()> {
     }
     // The Windows runtime only exports the Parakeet C API, not ggml's
     // enumeration API. Query the same Vulkan loader before ggml initializes.
-    let result = vulkan_devices();
+    let result = reader_core::vulkan::parakeet_devices();
     match result {
         Ok(devices) => {
             if let Some(index) = preferred_gpu_device(&devices) {
@@ -221,60 +221,12 @@ unsafe fn set_windows_native_env(key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(any(windows, target_os = "linux"))]
-unsafe fn vulkan_devices() -> Result<Vec<(String, String, c_int)>> {
-    use ash::{vk, Entry};
-    let entry = Entry::load().context("loading Vulkan driver")?;
-    let application = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_2);
-    let info = vk::InstanceCreateInfo::default().application_info(&application);
-    let instance = entry
-        .create_instance(&info, None)
-        .map_err(|error| anyhow!("creating Vulkan instance: {error:?}"))?;
-    let result = (|| {
-        let physical_devices = instance
-            .enumerate_physical_devices()
-            .map_err(|error| anyhow!("enumerating Vulkan devices: {error:?}"))?;
-        Ok(physical_devices
-            .iter()
-            .enumerate()
-            .map(|(index, device)| {
-                let properties = instance.get_physical_device_properties(*device);
-                let description = CStr::from_ptr(properties.device_name.as_ptr())
-                    .to_string_lossy()
-                    .into_owned();
-                let compute = instance
-                    .get_physical_device_queue_family_properties(*device)
-                    .iter()
-                    .any(|queue| queue.queue_flags.contains(vk::QueueFlags::COMPUTE));
-                let mut vulkan11 = vk::PhysicalDeviceVulkan11Features::default();
-                let mut features = vk::PhysicalDeviceFeatures2::default().push_next(&mut vulkan11);
-                instance.get_physical_device_features2(*device, &mut features);
-                let kind = if !compute
-                    || properties.api_version < vk::API_VERSION_1_2
-                    || vulkan11.storage_buffer16_bit_access == vk::FALSE
-                {
-                    0
-                } else if properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU {
-                    1
-                } else if properties.device_type == vk::PhysicalDeviceType::INTEGRATED_GPU {
-                    2
-                } else {
-                    0
-                };
-                (format!("Vulkan{index}"), description, kind)
-            })
-            .collect())
-    })();
-    instance.destroy_instance(None);
-    result
-}
-
 pub(crate) fn has_dedicated_vulkan_gpu() -> bool {
     #[cfg(any(windows, target_os = "linux"))]
     {
         // Only the first-run Settings flow uses this probe. Workers validate
         // and select their actual device independently.
-        unsafe { vulkan_devices() }
+        reader_core::vulkan::parakeet_devices()
             .is_ok_and(|devices| devices.iter().any(|(_, _, kind)| *kind == 1))
     }
     #[cfg(not(any(windows, target_os = "linux")))]

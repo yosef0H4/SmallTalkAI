@@ -13,9 +13,10 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def start_settings_server(binary, config, runtime_root, data_home):
+def start_settings_server(binary, config, runtime_root, data_home, **extra_env):
     env = dict(os.environ, SMALLTALKAI_CONFIG=str(config),
                SMALLTALKAI_RUNTIME_ROOT=str(runtime_root), XDG_DATA_HOME=str(data_home))
+    env.update(extra_env)
     if os.name != 'nt':
         env.update(XDG_SESSION_TYPE='wayland', WAYLAND_DISPLAY='unavailable-test-display',
                    DBUS_SESSION_BUS_ADDRESS='unix:path=/unavailable-test-bus')
@@ -147,5 +148,34 @@ def main():
             process.wait(timeout=5)
 
 
+def test_first_run_preserves_user_choice():
+    binary = ROOT / 'target/debug' / ('smalltalkai-settings.exe' if os.name == 'nt' else 'smalltalkai-settings')
+    with tempfile.TemporaryDirectory(prefix='smalltalkai-first-run-api-') as temporary:
+        folder = Path(temporary)
+        config = folder / 'config.json'
+        no_driver = str(folder / 'missing-vulkan-driver.json')
+        process, api = start_settings_server(
+            binary, config, folder / 'runtime', folder / 'data',
+            SMALLTALKAI_READER_DATA=str(folder / 'reader'),
+            VK_DRIVER_FILES=no_driver, VK_ICD_FILENAMES=no_driver,
+        )
+        try:
+            assert api('/api/model-setup')['step'] == 0
+            state = api('/api/state')
+            assert state['config']['speech']['inference_device'] == 'cpu'
+            reader = api('/api/reader')['config']
+            assert reader['ocr']['selection']['single']['device'] == 'cpu'
+            assert reader['speech']['selection']['single']['device'] == 'cpu'
+            state['config']['speech']['inference_device'] = 'gpu'
+            api('/api/save', {'config': state['config'], 'expected_hash': state['config_hash']})
+            api('/api/model-setup')
+            assert api('/api/state')['config']['speech']['inference_device'] == 'gpu'
+            assert (folder / 'model-setup.json').is_file()
+            print('PASS first-run CPU defaults with no driver and preservation of an explicit user choice')
+        finally:
+            stop_settings_server(process)
+
+
 if __name__ == '__main__':
     main()
+    test_first_run_preserves_user_choice()

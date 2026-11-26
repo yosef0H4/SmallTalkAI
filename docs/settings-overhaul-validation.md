@@ -47,3 +47,11 @@ to that behavior.
 
 Reproduce with the browser/RSS commands in `docs/testing.md`. Baseline assets
 and local reports are ignored artifacts, not shipped runtime dependencies.
+
+## Windows close confirmation and model setup
+
+The native test verified title-bar drag with an unsaved draft, the retro close confirmation, and all three choices. Save and close persisted the value across relaunch. The first-run test and the real Settings API verified model-only setup and resuming an old draft from its model picker. The full Windows suite passed. The Linux desktop interaction remains to be checked on Linux.
+
+## First-run graphics defaults
+
+A Windows first-run test selected Vulkan dictation, WebGPU read-aloud, and CPU OCR with the dedicated NVIDIA GPU visible. Hiding the Vulkan driver selected CPU for all three. Both profiles kept edits after restarting Settings. Native Vulkan rejected the hidden driver, and WebGPU speech and OCR rejected an invalid adapter. All three workers used dedicated VRAM with a valid GPU. The Windows Settings and AutoHotkey desktop checks passed in isolated reruns. Linux static and package script checks passed. Native Linux adapter selection and package installation remain unverified.

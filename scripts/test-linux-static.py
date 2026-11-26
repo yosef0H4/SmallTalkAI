@@ -45,7 +45,7 @@ need(
     '.filter(|device| device.id().is_ok_and',
     'cfg(target_os = "linux")',
 )
-need("src/infer/parakeet_native.rs", "select_native_gpu_device", "preferred_gpu_device", "ggml_backend_dev_type", "GPU mode requires an available physical GPU", 'libparakeet.so', 'parakeet.so', 'parakeet_capi_load')
+need("src/infer/parakeet_native.rs", "select_native_gpu_device", "preferred_gpu_device", "ggml_backend_dev_type", "gpu_unavailable: the selected runtime requires an available physical GPU", 'libparakeet.so', 'parakeet.so', 'parakeet_capi_load')
 need("src/capture/inference_supervisor.rs", 'native_paths::configure_worker_libraries')
 need("reader/crates/reader-core/src/native_paths.rs", 'LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH',
      'asset_receipt', 'dependency.required')

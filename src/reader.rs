@@ -426,6 +426,7 @@ pub fn hud_text(
                 "reader.ocr_clipboard_failed" => ("⚠️", "reader.ocr_clipboard_failed"),
                 "reader.ocr_empty" => ("🔍", "reader.ocr_empty"),
                 "reader.ocr_failed" => ("⚠️", "reader.ocr_failed"),
+                "notice.gpuUnavailable" => ("⚠️", "notice.gpuUnavailable"),
                 value if value.starts_with("Clipboard listening enabled") => {
                     ("📋", "reader.listening")
                 }

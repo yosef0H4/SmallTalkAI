@@ -161,9 +161,12 @@ async function main() {
           await panel.waitFor();
           if (section === "models") {
             for (const [kind, features] of [["model", ["stt", "tts", "ocr", "cleanup"]], ["runtime", ["stt", "tts", "ocr"]]]) {
-              await panel.locator(`[data-download-kind="${kind}"]`).click();
               for (const feature of features) {
                 await panel.locator(`[data-catalog-feature="${feature}"]`).click();
+                const disclosure = panel.locator('.optional-runtimes');
+                if (kind === "runtime" && await disclosure.count() && await disclosure.getAttribute("open") === null) {
+                  await disclosure.locator("summary").click();
+                }
                 if (kind === "model" && feature === "stt") {
                   const more = panel.locator(".model-results > button");
                   await more.waitFor({ state: "attached" });
@@ -171,7 +174,7 @@ async function main() {
                       process.env.SETTINGS_LAYOUT_SCREENSHOTS) {
                     await more.evaluate(button => button.scrollIntoView({ block: "center" }));
                     const button = await more.boundingBox();
-                    const catalog = await panel.locator(".catalog").boundingBox();
+                    const catalog = await panel.locator('[data-catalog="stt.model"]').boundingBox();
                     await page.screenshot({
                       path: path.join(process.env.SETTINGS_LAYOUT_SCREENSHOTS, "catalog-spacing-420.png"),
                       clip: { x: catalog.x, y: button.y - 74, width: catalog.width, height: button.height + 114 },

@@ -11,6 +11,7 @@
     path,
     id: inputId,
     value,
+    selectedLabel,
     items,
     onselect,
     custom = false,
@@ -27,6 +28,7 @@
     path: string;
     id?: string;
     value: string;
+    selectedLabel?: string;
     items: (ComboItem & { search?: string })[];
     onselect: (value: string) => void;
     custom?: boolean;
@@ -45,8 +47,8 @@
     input: HTMLInputElement,
     root: HTMLDivElement;
   const selected = $derived(
-    items.find((i) => i.value === value)?.label ||
-      (unavailable ? `${t("ui.unavailable.2c9c1f")} · ${value}` : value),
+    selectedLabel ?? (items.find((i) => i.value === value)?.label ||
+      (unavailable ? `${t("ui.unavailable.2c9c1f")} · ${value}` : value)),
   );
   const filtered = $derived(
     items.filter((i) =>

@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
+const benchmarkScores = new Map(require('../assets/catalog/modules.json').models.map(model => [model.id, model.benchmark_score]));
 
 const root = path.resolve(__dirname, "..");
 const webRoot = path.resolve(
@@ -225,6 +226,7 @@ let readerConfig = {
   selection_copy:{backend:"auto",shortcut:"ctrl_insert",allow_clipboard_copy:true,show_clipboard_notice:true},selection_copy_overrides:[],privacy:{hide_text_in_notifications:true},server:{enabled:false,listen:"127.0.0.1:8765",allow_remote:false,max_clients:4,max_text_bytes:1048576,max_image_pixels:20000000},
 };
 const assets = [
+  {id:"nvidia-runtime",label:"NVIDIA",kind:"runtime",bytes:0,installed:false,available:true,dependencies:["parakeet-cuda","sherpa-cuda"]},
   {id:"parakeet-vulkan",label:"Parakeet · Vulkan",kind:"dictation",bytes:18482077,installed:true,available:true,directory:"/assets/parakeet-vulkan",dependencies:[]},
   {id:"parakeet-cuda",label:"Parakeet · CUDA",kind:"dictation",bytes:563569811,installed:false,available:true,directory:"/assets/parakeet-cuda",dependencies:[]},
   {id:"sherpa-cpu",label:"Sherpa ONNX · CPU",kind:"reading",bytes:9816899,installed:true,available:true,directory:"/assets/sherpa-cpu",dependencies:[]},
@@ -236,15 +238,15 @@ const assets = [
 for (const asset of assets) asset.installed = false;
 const runtimes = [
   {id:"parakeet-vulkan",feature:"stt",engine:"parakeet",backend:"vulkan",label:"Parakeet Vulkan",asset:"parakeet-vulkan",directory:"/assets/parakeet-vulkan"},
-  {id:"parakeet-cuda",feature:"stt",engine:"parakeet",backend:"cuda",label:"Parakeet CUDA",asset:"parakeet-cuda",directory:"/assets/parakeet-cuda"},
+  {id:"parakeet-cuda",feature:"stt",engine:"parakeet",backend:"cuda",label:"Parakeet CUDA",asset:"parakeet-cuda",action_asset:"nvidia-runtime",directory:"/assets/parakeet-cuda"},
   {id:"sherpa-cpu",feature:"tts",engine:"sherpa",backend:"cpu",label:"Sherpa ONNX · CPU",asset:"sherpa-cpu",directory:"/assets/sherpa-cpu"},
   {id:"sherpa-cuda",feature:"tts",engine:"sherpa",backend:"cuda",label:"Sherpa ONNX · CUDA",asset:"sherpa-cuda",directory:"/assets/sherpa-cuda"},
   {id:"paddle-cpu",feature:"ocr",engine:"paddleocr",backend:"cpu",label:"Sherpa ONNX · CPU",asset:"sherpa-cpu",directory:"/assets/sherpa-cpu"},
   {id:"paddle-cuda",feature:"ocr",engine:"paddleocr",backend:"cuda",label:"Sherpa ONNX · CUDA",asset:"sherpa-cuda",directory:"/assets/sherpa-cuda"},
 ];
 const moduleModels = [
-  {id:"kokoro",feature:"tts",engine:"sherpa",label:"Kokoro · English",languages:["en"],asset:"kokoro",recommended:true},
-  {id:"supertonic3",feature:"tts",engine:"sherpa",label:"Supertonic 3",languages:["ar","en"],asset:"supertonic3"},
+  {id:"kokoro",feature:"tts",engine:"sherpa",label:"Kokoro · English",languages:["en"],asset:"kokoro",recommended:true,benchmark_score:benchmarkScores.get('kokoro')},
+  {id:"supertonic3",feature:"tts",engine:"sherpa",label:"Supertonic 3",languages:["ar","en"],asset:"supertonic3",benchmark_score:benchmarkScores.get('supertonic3')},
   {id:"paddle-ar-en",feature:"ocr",engine:"paddleocr",label:"PaddleOCR Arabic + English",languages:["ar","en"],asset:"paddle-ar-en"},
 ];
 function inventory() {

@@ -1,5 +1,5 @@
 ; Generated from desktop catalogs and tray menu. Run node web/settings/tools/locales.mjs.
-; catalog-sha256: 582ac70d20dff14196fde7a79ee98d2fed2e96b1f57ad7d137bbb8dedcfb30cc
+; catalog-sha256: e766c0a62b6ca3a7324146d4de2a9be717180291b4fcd7d0913046352e6d78ff
 UiSetLanguage(language := "auto") {
     global SmallTalkAIUiLocale
     if language = "auto"
@@ -9,6 +9,10 @@ UiSetLanguage(language := "auto") {
 UiText(id, args := unset) {
     global SmallTalkAIUiLocale
     static english := Map(
+        "settings.close_unsaved_warning", "You have unsaved changes. Closing Settings without saving will discard them.",
+        "settings.keep_editing", "Keep editing",
+        "settings.discard_and_close", "Discard and close",
+        "settings.save_and_close", "Save and close",
         "notice.recordingChunk", "Chunk {number}",
         "capture.previewBusy", "Finish the current dictation before recording a preview.",
         "overlay.screenContext", "Screen",
@@ -32,6 +36,7 @@ UiText(id, args := unset) {
         "notice.microphoneSwitching", "Microphone settings changed — switching…",
         "notice.modelUnloaded", "Speech recognition unloaded",
         "notice.engineFailed", "Speech engine failed — see log",
+        "notice.gpuUnavailable", "Could not start GPU processing. Choose CPU in Settings.",
         "notice.workerFailed", "Speech-worker settings failed — see log",
         "notice.modelWarming", "Speech recognition warming up…",
         "notice.modelReady", "Speech recognition ready",
@@ -173,6 +178,7 @@ UiText(id, args := unset) {
         "reader.ready", "Voice ready",
         "reader.unloaded", "Voice unloaded",
         "module.runtime", "Runtime",
+        "module.runtime.compatible_gpu", "Compatible NVIDIA, AMD, and Intel GPUs.",
         "module.refresh", "Refresh models and runtimes",
         "module.find_downloads", "Find & download",
         "module.search_downloads", "Search models & runtimes",
@@ -181,6 +187,7 @@ UiText(id, args := unset) {
         "module.all_features", "All features",
         "module.all_types", "Models & runtimes",
         "module.runtimes", "Runtimes",
+        "module.optional_runtimes", "Optional accelerators",
         "module.stt", "Voice recognition",
         "module.tts", "Read aloud",
         "module.ocr", "Image text",
@@ -236,6 +243,10 @@ UiText(id, args := unset) {
         "reader.next.preparing", "Next page · preparing"
     )
     static arabic := Map(
+        "settings.close_unsaved_warning", "لديك تغييرات غير محفوظة. ستفقدها إذا أغلقت الإعدادات دون حفظها.",
+        "settings.keep_editing", "متابعة التحرير",
+        "settings.discard_and_close", "تجاهل التغييرات والإغلاق",
+        "settings.save_and_close", "حفظ وإغلاق",
         "notice.recordingChunk", "المقطع {number}",
         "capture.previewBusy", "أنهِ الإملاء الحالي قبل تسجيل عينة.",
         "overlay.screenContext", "الشاشة",
@@ -259,6 +270,7 @@ UiText(id, args := unset) {
         "notice.microphoneSwitching", "جارٍ تبديل الميكروفون…",
         "notice.modelUnloaded", "أُفرغ التعرّف على الكلام",
         "notice.engineFailed", "تعذّر التفريغ — راجع السجل",
+        "notice.gpuUnavailable", "تعذّر تشغيل المعالجة على بطاقة الرسومات. اختر CPU في الإعدادات.",
         "notice.workerFailed", "تعذّر تطبيق إعدادات النموذج — راجع السجل",
         "notice.modelWarming", "جارٍ تجهيز التعرّف على الكلام…",
         "notice.modelReady", "التعرّف على الكلام جاهز",
@@ -400,6 +412,7 @@ UiText(id, args := unset) {
         "reader.ready", "الصوت جاهز",
         "reader.unloaded", "أُفرغ الصوت",
         "module.runtime", "المحرك",
+        "module.runtime.compatible_gpu", "بطاقات الرسومات المتوافقة من NVIDIA وAMD وIntel.",
         "module.refresh", "تحديث المحركات والنماذج",
         "module.find_downloads", "بحث وتنزيل",
         "module.search_downloads", "ابحث عن نموذج أو محرك",
@@ -408,6 +421,7 @@ UiText(id, args := unset) {
         "module.all_features", "كل الميزات",
         "module.all_types", "النماذج والمحركات",
         "module.runtimes", "المحركات",
+        "module.optional_runtimes", "مسرّعات اختيارية",
         "module.stt", "التعرف على الصوت",
         "module.tts", "قراءة النص",
         "module.ocr", "نص الصور",

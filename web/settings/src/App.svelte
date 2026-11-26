@@ -25,13 +25,14 @@
     if (next.theme && ui.config) ui.config.general.ui_theme = next.theme;
     if (next.done) {
       catalogView.feature = "stt";
-      catalogView.kind = "model";
       catalogView.panel = "models";
       ui.page = "models";
       void run(load);
     }
   }
   let maximized = $state(document.documentElement.dataset.maximized === "true");
+  let closeDialog: HTMLDialogElement;
+  let closing = $state(false);
   function updateFrameState() {
     maximized = document.documentElement.dataset.maximized === "true";
   }
@@ -143,7 +144,6 @@
       if(path.startsWith("tts."))catalogView.feature="tts";
       else if(path.startsWith("ocr."))catalogView.feature="ocr";
       else if(path.startsWith("speech."))catalogView.feature="stt";
-      if (path.endsWith(".processing_mode")) catalogView.kind = "model";
     }
     ui.page = page;
     query = "";
@@ -175,18 +175,43 @@
     }
     if (event.key === "Escape") query = "";
   }
-  async function close() {
-    if (ui.dirty && !window.confirm(t("settings.discard_changes"))) return;
-    if (!window.dispatchEvent(new Event("settings-close-approved", { cancelable: true }))) return;
-    await api("/api/close", {});
-    window.close();
+  function close() {
+    if (closing || ui.saving) return;
+    if (ui.dirty) {
+      if (!closeDialog.open) closeDialog.showModal();
+      return;
+    }
+    void finishClose();
+  }
+  async function finishClose(saveFirst = false) {
+    if (closing || ui.saving) return;
+    closing = true;
+    try {
+      if (saveFirst) {
+        await save();
+        if (ui.dirty || ui.noticeKind === "error") {
+          closeDialog.close();
+          return;
+        }
+      }
+      if (!window.dispatchEvent(new Event("settings-close-approved", { cancelable: true }))) return;
+      await run(async () => {
+        await api("/api/close", {});
+        window.close();
+      });
+      closeDialog.close();
+    } finally {
+      closing = false;
+    }
   }
 </script>
 
 <svelte:window
   onresize={() => { viewportWidth = window.innerWidth; viewportHeight = window.innerHeight; }}
   onbeforeunload={(event) => {
-    if (ui.dirty) {
+    // Native title-bar commands use intercepted navigation in the desktop WebView.
+    // Its explicit close event owns the save warning.
+    if (!desktop && !closing && ui.dirty) {
       event.preventDefault();
       event.returnValue = "";
     }
@@ -336,3 +361,38 @@
   </footer>{/if}
 </div>{/if}
 </div>
+<dialog bind:this={closeDialog} class="close-confirmation" aria-labelledby="close-title"
+  aria-describedby="close-description" oncancel={event => { if (closing) event.preventDefault(); }}>
+  <h2 id="close-title">{t("ui.unsaved_changes.292672")}</h2>
+  <div class="close-content">
+    <p id="close-description">{t("settings.close_unsaved_warning")}</p>
+    <div class="close-actions" aria-busy={closing}>
+      <button type="button" disabled={closing} onclick={() => closeDialog.close()}>{t("settings.keep_editing")}</button>
+      <button type="button" disabled={closing} onclick={() => finishClose()}>{t("settings.discard_and_close")}</button>
+      <button type="button" class="primary" disabled={closing} onclick={() => finishClose(true)}>
+        {t(ui.saving ? "Saving…" : "settings.save_and_close")}
+      </button>
+    </div>
+  </div>
+</dialog>
+
+<style>
+  .close-confirmation {
+    inline-size: min(440px, calc(100% - 24px));
+    max-block-size: calc(100% - 24px);
+    background: var(--paper);
+    padding: 3px;
+    box-shadow: var(--raised-edge), 0 6px 18px #0003;
+    text-align: start;
+  }
+  .close-confirmation h2 {
+    margin: 0;
+    padding: 5px 8px;
+    background: var(--title-bar);
+    color: var(--title-ink);
+    font-size: 14px;
+  }
+  .close-content { padding: 12px; }
+  .close-content p { margin-block: 0 12px; line-height: 1.45; }
+  .close-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+</style>

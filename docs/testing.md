@@ -28,7 +28,7 @@ binaries are allowed only in isolated tests. During targeted
 development, run `cd web/settings && npm ci && npm run build`. The build writes
 `dist/index.html`, `dist/app.js`, `dist/styles.css`, and a deterministic
 `dist/manifest.json`. `python scripts/verify-settings-frontend.py` checks source
-and output hashes plus the 100 KiB gzipped JS/CSS and 385 KiB total asset budgets.
+and output hashes plus the 100 KiB gzipped JS/CSS and 387 KiB total asset budgets.
 The Rust build script independently rejects missing or stale frontend output.
 
 On Linux, also run `python scripts/test-linux-static.py`. Run the browser model

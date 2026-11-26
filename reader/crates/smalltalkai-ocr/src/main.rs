@@ -142,7 +142,10 @@ fn load_ocr(args: &Args) -> Result<OcrEngine> {
     reader_core::native_paths::configure_windows_dll_search(runtime_dir, library)?;
     let environment = ort::init_from(library)
         .with_context(|| format!("loading ONNX Runtime from {}", library.display()))?;
-    let (environment, use_webgpu) = args.webgpu.configure(environment, &args.device)?;
+    let (environment, use_webgpu) = args
+        .webgpu
+        .configure(environment, &args.device)
+        .context("gpu_unavailable: WebGPU OCR could not initialize")?;
     environment.commit();
     #[cfg(target_os = "linux")]
     if use_webgpu {
@@ -220,16 +223,19 @@ fn load_ocr(args: &Args) -> Result<OcrEngine> {
         && profile.detection_preset == DetectionPreset::Default
         && profile.reverse_arabic
     {
-        LocalPipeline::Arabic(Box::new(arabic_pipeline::ArabicPipeline::new(
-            model_dir, &profile, ort_config,
-        )?))
+        arabic_pipeline::ArabicPipeline::new(model_dir, &profile, ort_config)
+            .map(|pipeline| LocalPipeline::Arabic(Box::new(pipeline)))
     } else {
-        LocalPipeline::Standard(Box::new(
-            builder
-                .ort_session(ort_config)
-                .build()
-                .map_err(|error| anyhow::anyhow!("loading PaddleOCR models: {error}"))?,
-        ))
+        builder
+            .ort_session(ort_config)
+            .build()
+            .map(|pipeline| LocalPipeline::Standard(Box::new(pipeline)))
+            .map_err(|error| anyhow::anyhow!("loading PaddleOCR models: {error}"))
+    };
+    let pipeline = if use_webgpu {
+        pipeline.context("gpu_unavailable: WebGPU OCR could not initialize")?
+    } else {
+        pipeline?
     };
     Ok(OcrEngine {
         pipeline,

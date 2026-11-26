@@ -26,7 +26,7 @@ async function verifyDownload(page, id, theme) {
   }
   const job = fixture.assetJobs.find(entry => entry.job_id === id);
   job.total = 0;
-  await page.locator(".catalog-toolbar button").click();
+  await page.locator(".catalog").filter({ has: row }).locator(".catalog-toolbar button").click();
   await row.locator("progress:not([value])").waitFor();
   assert.equal(await progress.evaluate(element => element.position), -1,
     "Unknown download size uses indeterminate progress");
@@ -51,8 +51,8 @@ async function main() {
       await page.goto(url);
       await page.waitForFunction(expected => getComputedStyle(document.documentElement).colorScheme === expected, theme);
       await page.locator('[data-page="models"]').click();
-      await page.locator(`[data-download-kind="${kind}"]`).click();
       await page.locator(`[data-catalog-feature="${feature}"]`).click();
+      if (kind === "runtime") await page.locator('[data-download-kind="runtime"]').click();
       await verifyDownload(page, id, theme);
       await page.close();
     }

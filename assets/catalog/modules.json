@@ -98,7 +98,8 @@
       "languages": [
         "en"
       ],
-      "asset": "kokoro"
+      "asset": "kokoro",
+      "benchmark_score": 1.46
     },
     {
       "id": "supertonic3",
@@ -138,7 +139,8 @@
         "uk",
         "vi"
       ],
-      "asset": "supertonic3"
+      "asset": "supertonic3",
+      "benchmark_score": 1.54
     },
     {
       "id": "paddle-ar-en",
@@ -248,6 +250,7 @@
         "ja"
       ],
       "asset": "paddle-pp-ocrv5-mobile-rec",
+      "benchmark_score": 73.7,
       "paddle": {
         "detector": "pp-ocrv5_mobile_det.onnx",
         "recognizer": "pp-ocrv5_mobile_rec.onnx",
@@ -267,6 +270,7 @@
         "ja"
       ],
       "asset": "paddle-pp-ocrv5-server-rec",
+      "benchmark_score": 78.1,
       "paddle": {
         "detector": "pp-ocrv5_server_det.onnx",
         "recognizer": "pp-ocrv5_server_rec.onnx",
@@ -910,6 +914,7 @@
         "qu"
       ],
       "asset": "paddle-pp-ocrv6-tiny-rec",
+      "benchmark_score": 73.5,
       "paddle": {
         "detector": "pp-ocrv6_tiny_det.onnx",
         "recognizer": "pp-ocrv6_tiny_rec.onnx",
@@ -975,6 +980,7 @@
         "ja"
       ],
       "asset": "paddle-pp-ocrv6-small-rec",
+      "benchmark_score": 81.3,
       "paddle": {
         "detector": "pp-ocrv6_small_det.onnx",
         "recognizer": "pp-ocrv6_small_rec.onnx",
@@ -1040,6 +1046,7 @@
         "ja"
       ],
       "asset": "paddle-pp-ocrv6-medium-rec",
+      "benchmark_score": 83.2,
       "paddle": {
         "detector": "pp-ocrv6_medium_det.onnx",
         "recognizer": "pp-ocrv6_medium_rec.onnx",

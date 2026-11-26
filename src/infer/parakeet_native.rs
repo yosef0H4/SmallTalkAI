@@ -134,17 +134,37 @@ impl Api {
 
 #[cfg(windows)]
 unsafe fn select_windows_native_device(runtime_dir: &Path) -> Result<()> {
-    if runtime_dir.join("bin/ggml-cuda.dll").is_file()
-        || runtime_dir.join("ggml-cuda.dll").is_file()
-    {
-        let device = if std::env::var("PARAKEET_DEVICE").as_deref() == Ok("cpu") {
-            "cpu"
-        } else {
-            "CUDA0"
-        };
-        return set_windows_native_env("PARAKEET_DEVICE", device);
+    let cuda_library = ["bin/ggml-cuda.dll", "ggml-cuda.dll"]
+        .iter()
+        .map(|name| runtime_dir.join(name))
+        .find(|path| path.is_file());
+    if cuda_library.is_some() {
+        let requested = std::env::var("PARAKEET_DEVICE").ok();
+        if requested.as_deref() == Some("cpu") {
+            return set_windows_native_env("PARAKEET_DEVICE", "cpu");
+        }
+        if requested.is_some() {
+            // Parakeet otherwise silently falls back to CPU when a named
+            // device is absent. Check the same CUDA registry it uses.
+            require_windows_backend(runtime_dir, c"CUDA0")
+                .context("gpu_unavailable: CUDA requires an available NVIDIA GPU")?;
+        }
+        return set_windows_native_env("PARAKEET_DEVICE", "CUDA0");
     }
     select_windows_vulkan_device()
+}
+
+#[cfg(windows)]
+unsafe fn require_windows_backend(runtime_dir: &Path, device: &CStr) -> Result<()> {
+    let path = parakeet_library_path(runtime_dir)?.with_file_name("ggml.dll");
+    let ggml = Library::new(path).context("loading the runtime's device registry")?;
+    let find: unsafe extern "C" fn(*const c_char) -> Ctx =
+        sym(&ggml, b"ggml_backend_dev_by_name\0")?;
+    anyhow::ensure!(
+        !find(device.as_ptr()).is_null(),
+        "GPU device is unavailable"
+    );
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -156,7 +176,7 @@ unsafe fn select_windows_vulkan_device() -> Result<()> {
     }
     // The Windows runtime only exports the Parakeet C API, not ggml's
     // enumeration API. Query the same Vulkan loader before ggml initializes.
-    let result = windows_vulkan_devices();
+    let result = vulkan_devices();
     match result {
         Ok(devices) => {
             if let Some(index) = preferred_gpu_device(&devices) {
@@ -170,12 +190,12 @@ unsafe fn select_windows_vulkan_device() -> Result<()> {
             }
             anyhow::ensure!(
                 requested.is_none(),
-                "GPU mode requires an available physical GPU in the selected runtime"
+                "gpu_unavailable: Vulkan requires an available physical GPU"
             );
         }
         Err(error) => {
             if requested.is_some() {
-                return Err(error).context("GPU mode requires an available Vulkan GPU");
+                return Err(error).context("gpu_unavailable: Vulkan could not initialize");
             }
             tracing::warn!(%error, "Vulkan unavailable; automatic mode uses CPU");
         }
@@ -201,8 +221,8 @@ unsafe fn set_windows_native_env(key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(windows)]
-unsafe fn windows_vulkan_devices() -> Result<Vec<(String, String, c_int)>> {
+#[cfg(any(windows, target_os = "linux"))]
+unsafe fn vulkan_devices() -> Result<Vec<(String, String, c_int)>> {
     use ash::{vk, Entry};
     let entry = Entry::load().context("loading Vulkan driver")?;
     let application = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_2);
@@ -249,6 +269,18 @@ unsafe fn windows_vulkan_devices() -> Result<Vec<(String, String, c_int)>> {
     result
 }
 
+pub(crate) fn has_dedicated_vulkan_gpu() -> bool {
+    #[cfg(any(windows, target_os = "linux"))]
+    {
+        // Only the first-run Settings flow uses this probe. Workers validate
+        // and select their actual device independently.
+        unsafe { vulkan_devices() }
+            .is_ok_and(|devices| devices.iter().any(|(_, _, kind)| *kind == 1))
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    false
+}
+
 // Keep native backend enumeration inside the disposable inference process.
 #[cfg(target_os = "linux")]
 unsafe fn select_native_gpu_device(lib: &Library) -> Result<()> {
@@ -278,7 +310,7 @@ unsafe fn select_native_gpu_device(lib: &Library) -> Result<()> {
     } else {
         anyhow::ensure!(
             requested.is_none(),
-            "GPU mode requires an available physical GPU in the selected runtime"
+            "gpu_unavailable: the selected runtime requires an available physical GPU"
         );
         // Automatic mode may fall back to CPU, explicit GPU mode may not.
         std::env::set_var("PARAKEET_DEVICE", "cpu");

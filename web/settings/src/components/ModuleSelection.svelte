@@ -53,7 +53,7 @@
         remote: language ? speech?.remote_languages?.[language] : undefined,
         runtime: (language ? speech?.language_runtimes?.[language] : null) ?? singleSttRuntime,
         model: language ? speech?.language_models[language] || null : speech?.single_model_filename || null,
-        device: language ? speech?.language_devices?.[language] || "auto" : speech?.inference_device || "auto",
+        device: (language ? speech?.language_devices?.[language] : undefined) ?? speech?.inference_device ?? "auto",
       };
     }
     const choices = selection();
@@ -93,6 +93,8 @@
     if (!choices || !code || choices.languages[code]) return;
     choices.languages[code] = {
       ...emptyBinding(),
+      runtime: choices.single.runtime,
+      device: choices.single.device,
       clean_text: choices.single.clean_text,
       currency_words: choices.single.currency_words,
       speed_percent: choices.single.speed_percent,

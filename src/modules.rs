@@ -16,6 +16,60 @@ pub fn catalog_stt_runtime_path(path: &Path) -> bool {
         .filter_map(stt_runtime_path)
         .any(|candidate| candidate == path)
 }
+
+pub(crate) fn apply_first_run_runtimes() -> anyhow::Result<()> {
+    use crate::config::InferenceDevice;
+    use routing::{Device, Feature};
+
+    let dedicated = crate::infer::parakeet_native::has_dedicated_vulkan_gpu();
+    let registry = routing::registry();
+    let root = crate::assets::root();
+    let available = |id| {
+        registry
+            .runtimes
+            .iter()
+            .find(|runtime| runtime.id == id && routing::runtime_installed(runtime, &root))
+    };
+    let _lock = crate::config::lock_config()?;
+    let mut app = AppConfig::load()?;
+    if app.speech.inference_device == InferenceDevice::Auto {
+        let vulkan = available("parakeet-vulkan").and_then(stt_runtime_path);
+        let using_vulkan = vulkan.as_ref().is_some_and(|path| {
+            app.speech.runtime_dir.is_empty() || app.parakeet_runtime_dir_path() == *path
+        });
+        app.speech.inference_device = if dedicated && using_vulkan {
+            InferenceDevice::Gpu
+        } else {
+            InferenceDevice::Cpu
+        };
+        if let Some(path) = vulkan.filter(|_| using_vulkan) {
+            app.speech.runtime_dir = path.to_string_lossy().into_owned();
+        }
+        app.save()?;
+    }
+    let mut reader = crate::reader::load()?;
+    let mut changed = false;
+    for (feature, selection, cpu_id) in [
+        (Feature::Tts, &mut reader.speech.selection, "sherpa-cpu"),
+        (Feature::Ocr, &mut reader.ocr.selection, "paddle-cpu"),
+    ] {
+        let binding = &mut selection.single;
+        if binding.device != Device::Auto
+            || binding.runtime.as_deref().is_some_and(|id| id != cpu_id)
+        {
+            continue;
+        }
+        let webgpu = feature == Feature::Tts && dedicated && available("sherpa-webgpu").is_some();
+        binding.runtime = Some(if webgpu { "sherpa-webgpu" } else { cpu_id }.into());
+        binding.device = if webgpu { Device::Gpu } else { Device::Cpu };
+        changed = true;
+    }
+    if changed {
+        let revision = reader.revision;
+        crate::reader::store().save(reader, revision)?;
+    }
+    Ok(())
+}
 pub fn stt_runtime(config: &AppConfig, language: &str) -> Option<PathBuf> {
     let language_runtime = config
         .speech
@@ -67,11 +121,16 @@ pub fn choose_runtime(id: &str) -> anyhow::Result<bool> {
         let _lock = crate::config::lock_config()?;
         let mut config = AppConfig::load()?;
         config.speech.runtime_dir = path.to_string_lossy().into_owned();
+        config.speech.inference_device = crate::config::InferenceDevice::Gpu;
         for language in config.speech.language_models.keys() {
             config
                 .speech
                 .language_runtimes
                 .insert(language.clone(), Some(id.into()));
+            config
+                .speech
+                .language_devices
+                .insert(language.clone(), crate::config::InferenceDevice::Gpu);
         }
         config.save()?;
         return Ok(true);
@@ -94,15 +153,16 @@ pub fn choose_runtime(id: &str) -> anyhow::Result<bool> {
                 "Model and runtime use different engines"
             );
         }
-        if binding.runtime.as_deref() == Some(id) {
+        let device = if runtime.backend == "cpu" {
+            routing::Device::Cpu
+        } else {
+            routing::Device::Gpu
+        };
+        if binding.runtime.as_deref() == Some(id) && binding.device == device {
             continue;
         }
         binding.runtime = Some(id.into());
-        binding.device = if runtime.backend == "cpu" {
-            routing::Device::Cpu
-        } else {
-            routing::Device::Auto
-        };
+        binding.device = device;
         binding.webgpu_adapter = None;
     }
     let revision = config.revision;
@@ -280,10 +340,25 @@ pub fn inventory(config: &AppConfig) -> Value {
         let recommendation = runtime_recommendation(&runtime.id, nvidia_cuda12);
         json!({"id":runtime.id,"feature":runtime.feature,"engine":runtime.engine,"backend":runtime.backend,"label":runtime.label,"installed":installed,"bundled":bundled,"default":default,"selected":selected,"directory":directory,"asset":runtime.asset,"action_asset":action_asset,"recommended":recommendation.is_some(),"recommendation":recommendation})
     }).collect::<Vec<_>>();
-    let mut models=registry.models.iter().map(|model| {
-        let recommendation = model_recommendation(&model.id, usable_nvidia_voice);
-        json!({"id":model.id,"feature":model.feature,"engine":model.engine,"label":model.label,"languages":model.languages,"installed":routing::asset_installed(&model.asset,&crate::assets::root()),"asset":model.asset,"recommended":recommendation.is_some(),"recommendation":recommendation})
-    }).collect::<Vec<_>>();
+    let mut models = registry
+        .models
+        .iter()
+        .map(|model| {
+            let recommendation = model_recommendation(&model.id, usable_nvidia_voice);
+            json!({
+                "id": model.id,
+                "feature": model.feature,
+                "engine": model.engine,
+                "label": model.label,
+                "languages": model.languages,
+                "installed": routing::asset_installed(&model.asset, &crate::assets::root()),
+                "asset": model.asset,
+                "recommended": recommendation.is_some(),
+                "recommendation": recommendation,
+                "benchmark_score": model.benchmark_score,
+            })
+        })
+        .collect::<Vec<_>>();
     models.extend(crate::models::catalog_for_config(config).iter().map(|model| {
         let languages=model.languages.iter().filter_map(|label|label.rsplit_once('(').map(|(_,id)|id.trim_end_matches(')').to_owned())).collect::<Vec<_>>();
         json!({"id":model.file,"feature":"stt","engine":"parakeet","label":format!("{} · {}",model.family,model.quant),"languages":languages,"installed":model.installed,"recommended":model.recommended,"recommendation":model.recommended.then_some("speech_model"),"asset":null,"size_mb":model.size_mb,"benchmark_wer":crate::models::benchmark_wer(&model.file)})
@@ -476,7 +551,15 @@ fn auto_select_stt(
                     .language_runtimes
                     .get(language)
                     .and_then(Option::as_ref)
-                    .is_none_or(|existing| existing == &runtime.id)
+                    .map_or_else(
+                        || {
+                            config.speech.inference_device == crate::config::InferenceDevice::Auto
+                                || config.speech.runtime_dir.is_empty()
+                                || stt_runtime_path(runtime)
+                                    .is_some_and(|path| config.parakeet_runtime_dir_path() == path)
+                        },
+                        |existing| existing == &runtime.id,
+                    )
             });
             let model = models.iter().find(|model| {
                 config
@@ -540,11 +623,20 @@ fn auto_select_reader(
                 languages.iter().map(|l| routing::primary(l)).collect();
             targets.extend(selection.languages.keys().cloned());
             for language in targets {
-                let mut binding = selection
-                    .languages
-                    .get(&language)
-                    .cloned()
-                    .unwrap_or_default();
+                let mut binding =
+                    selection
+                        .languages
+                        .get(&language)
+                        .cloned()
+                        .unwrap_or_else(|| routing::Binding {
+                            runtime: selection
+                                .single
+                                .runtime
+                                .clone()
+                                .filter(|_| selection.single.device != routing::Device::Auto),
+                            device: selection.single.device,
+                            ..Default::default()
+                        });
                 if fill_reader_binding(&mut binding, feature, Some(&language), completed, inventory)
                 {
                     selection.languages.insert(language, binding);

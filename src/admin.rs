@@ -696,7 +696,7 @@ fn assets(command: AssetCommand) -> Result<()> {
             runtime,
             language,
         } => {
-            select_assets(feature, &model, &runtime, language.as_deref(), true)?;
+            select_assets(feature, &model, Some(&runtime), language.as_deref(), true)?;
             print(&json!({"selected": true}))
         }
     }
@@ -711,7 +711,7 @@ fn install_job(jobs: Vec<crate::assets::Progress>, id: &str) -> Result<crate::as
 pub(crate) fn select_assets(
     feature: Feature,
     model: &str,
-    runtime: &str,
+    runtime: Option<&str>,
     language: Option<&str>,
     require_installed: bool,
 ) -> Result<()> {
@@ -722,12 +722,19 @@ pub(crate) fn select_assets(
         Feature::Tts => routing::Feature::Tts,
         Feature::Ocr => routing::Feature::Ocr,
     };
-    let runtime = registry
-        .runtimes
-        .iter()
-        .find(|r| r.id == runtime && r.feature == feature_id)
-        .context("unknown runtime ID for this feature; use assets list")?;
-    if let Some(asset) = runtime.asset.as_ref().filter(|_| require_installed) {
+    let runtime = runtime
+        .map(|id| {
+            registry
+                .runtimes
+                .iter()
+                .find(|r| r.id == id && r.feature == feature_id)
+                .context("unknown runtime ID for this feature; use assets list")
+        })
+        .transpose()?;
+    if let Some(asset) = runtime
+        .and_then(|r| r.asset.as_ref())
+        .filter(|_| require_installed)
+    {
         ensure_installed(asset)?;
     }
     if matches!(feature, Feature::Stt) {
@@ -752,17 +759,24 @@ pub(crate) fn select_assets(
                 .speech
                 .language_models
                 .insert(language.to_owned(), Some(model_file));
-            config
-                .speech
-                .language_runtimes
-                .insert(language.to_owned(), Some(runtime.id.clone()));
+            if let Some(runtime) = runtime {
+                config
+                    .speech
+                    .language_runtimes
+                    .insert(language.to_owned(), Some(runtime.id.clone()));
+                config
+                    .speech
+                    .language_devices
+                    .insert(language.to_owned(), crate::config::InferenceDevice::Gpu);
+            }
         } else {
             config.speech.selection_mode = crate::config::ModelSelectionMode::SingleModel;
             config.speech.single_model_filename = Some(model_file);
-            if let Some(asset) = &runtime.asset {
+            if let Some(asset) = runtime.and_then(|r| r.asset.as_ref()) {
                 config.speech.runtime_dir = crate::assets::directory(asset)
                     .to_string_lossy()
                     .into_owned();
+                config.speech.inference_device = crate::config::InferenceDevice::Gpu;
             }
         }
         config.save()?;
@@ -773,7 +787,7 @@ pub(crate) fn select_assets(
             .find(|m| m.id == model && m.feature == feature_id)
             .context("unknown model ID for this feature; use assets list")?;
         anyhow::ensure!(
-            runtime.engine == model.engine,
+            runtime.is_none_or(|runtime| runtime.engine == model.engine),
             "model and runtime use different engines"
         );
         if require_installed {
@@ -799,9 +813,37 @@ pub(crate) fn select_assets(
             selection.mode = SelectionMode::SingleModel;
             &mut selection.single
         };
+        let selection_runtime = runtime.map(|r| r.id.clone()).or_else(|| {
+            binding
+                .runtime
+                .as_ref()
+                .filter(|id| {
+                    registry.runtimes.iter().any(|r| {
+                        r.id == **id && r.feature == feature_id && r.engine == model.engine
+                    })
+                })
+                .cloned()
+        });
+        let same_runtime = binding.runtime == selection_runtime;
+        let device = runtime.map_or(
+            if same_runtime {
+                binding.device
+            } else {
+                routing::Device::Auto
+            },
+            |runtime| {
+                if runtime.backend == "cpu" {
+                    routing::Device::Cpu
+                } else {
+                    routing::Device::Gpu
+                }
+            },
+        );
         *binding = routing::Binding {
             model: Some(model.id.clone()),
-            runtime: Some(runtime.id.clone()),
+            runtime: selection_runtime,
+            device,
+            webgpu_adapter: same_runtime.then_some(binding.webgpu_adapter).flatten(),
             ..Default::default()
         };
         let revision = config.revision;

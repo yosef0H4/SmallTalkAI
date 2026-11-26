@@ -43,7 +43,7 @@ const downloads = require('../assets/catalog/downloads.json');
     };
     const refresh = async () => {
       const inventory = page.waitForResponse('**/api/modules');
-      await page.locator('.catalog .catalog-toolbar button').click();
+      await section.locator('.catalog-toolbar button').click();
       await inventory;
     };
     const row = id => page.locator(`[data-model-id="${id}"]`);
@@ -61,6 +61,10 @@ const downloads = require('../assets/catalog/downloads.json');
     await choose('ocr');
     await page.getByText('Install a runtime first.', { exact: true }).waitFor();
     await row('paddle-ar-en').waitFor();
+    const recommendedFirst = section.getByRole('checkbox', { name: 'Recommended first' });
+    assert(await recommendedFirst.isChecked(), 'Image text opens with recommended models first');
+    assert.equal(await section.locator('.model-result').first().getAttribute('data-model-id'), 'paddle-ar-en');
+    assert.equal(await row('paddle-ar-en').locator('.model-metric').last().textContent(), 'Unknown');
     assert(await section.locator('.model-result').evaluateAll(rows => rows.every(row => getComputedStyle(row).contentVisibility !== 'auto')),
       'bounded catalog rows are rendered before they scroll into view');
     assert(await row('paddle-ar-en').locator('.language-overflow').evaluate(group => {
@@ -72,28 +76,35 @@ const downloads = require('../assets/catalog/downloads.json');
     for (const feature of ['tts', 'ocr']) {
       await page.locator(`[data-catalog-feature=${feature}]`).click();
       const runtimeSection = page.locator(`[data-catalog="${feature}.runtime"]`);
-      for (const [id, label] of [[feature === 'tts' ? 'sherpa-cpu' : 'paddle-cpu', 'CPU'], [feature === 'tts' ? 'sherpa-cuda' : 'paddle-cuda', 'CUDA']]) {
+      for (const [id, label] of [[feature === 'tts' ? 'sherpa-cpu' : 'paddle-cpu', 'CPU'], ['nvidia-runtime', 'CUDA']]) {
         assert.equal((await runtimeSection.locator(`[data-model-id="${id}"] strong`).textContent()).trim(), label);
       }
     }
-    await page.locator('[data-download-kind=model]').click();
+    await page.locator('[data-download-kind=runtime]').click();
     f.installFixture('sherpa-cpu');
     await refresh();
     await choose('ocr');
     await row('paddle-ar-en').waitFor();
     assert.equal(await section.locator('.model-result').count(), 30, 'first page is bounded');
+    await recommendedFirst.uncheck();
     await showAll();
     assert.equal(await section.locator('.model-result').count(), 34);
-    const displayedSizes = () => section.locator('.model-result .model-metric').evaluateAll(
-      metrics => metrics.map(metric => Number.parseInt(metric.textContent, 10)),
-    );
-    const sizes = await displayedSizes();
-    assert.deepEqual(sizes, [...sizes].sort((a, b) => a - b), 'OCR defaults to ascending download size');
+    const modelMetrics = () => section.locator('.model-result').evaluateAll(rows => rows.map(row => {
+      const [size, score] = row.querySelectorAll(':scope > .model-metric');
+      return {name: row.querySelector('strong').textContent, size: Number.parseInt(size.textContent, 10), score: Number.parseFloat(score.textContent)};
+    }));
+    const byScoreAvailability = rows => [rows.filter(row => Number.isFinite(row.score)), rows.filter(row => !Number.isFinite(row.score))];
+    const sortedInGroups = (rows, field, compare) => byScoreAvailability(rows).flatMap(group => group.map(row => row[field]).sort(compare));
+    const original = await modelMetrics();
+    assert.deepEqual(original.map(row => row.size), sortedInGroups(original, 'size', (a, b) => a - b), 'OCR defaults to ascending size within each score group');
     await section.locator('[data-sort=size]').click();
-    assert.deepEqual(await displayedSizes(), [...sizes].reverse(), 'OCR size can sort largest first');
+    assert.deepEqual((await modelMetrics()).map(row => row.size), sortedInGroups(original, 'size', (a, b) => b - a), 'OCR size can sort largest first');
     await section.locator('[data-sort=name]').click();
-    const names = await section.locator('.model-result strong').allTextContents();
-    assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b)), 'OCR models can sort by name');
+    assert.deepEqual((await modelMetrics()).map(row => row.name), sortedInGroups(original, 'name', (a, b) => a.localeCompare(b)), 'OCR models can sort by name');
+    await section.locator('[data-sort=accuracy]').click();
+    const results = await modelMetrics();
+    assert.deepEqual(results.slice(0, 5).map(row => row.score), [83.2, 81.3, 78.1, 73.7, 73.5]);
+    assert(results.slice(5).every(row => !Number.isFinite(row.score)), 'unknown scores follow known scores');
     assert.deepEqual(new Set(await section.locator('.model-result').evaluateAll(nodes => nodes.map(node => node.dataset.modelId))), new Set(ocr.map(model => model.id)));
     assert.deepEqual(await section.locator('.model-result:has(.recommendation)').evaluateAll(nodes => nodes.map(node => node.dataset.modelId)), ['paddle-ar-en']);
     for (const [query, expected] of [
@@ -114,9 +125,9 @@ const downloads = require('../assets/catalog/downloads.json');
     f.installFixture(latinId);
     await refresh();
     await search.fill('');
-    await section.locator('.installed-filter input').check();
+    await section.getByRole('checkbox', { name: 'Installed', exact: true }).check();
     assert.deepEqual(new Set(await section.locator('.model-result').evaluateAll(nodes => nodes.map(node => node.dataset.modelId))), new Set(['paddle-ar-en', latinId]));
-    await section.locator('.installed-filter input').uncheck();
+    await section.getByRole('checkbox', { name: 'Installed', exact: true }).uncheck();
     const modelInput = page.locator('[data-setting-path="ocr.single.model"] .combo-input');
     await modelInput.click();
     await modelInput.fill('Latin');

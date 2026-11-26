@@ -1238,7 +1238,12 @@ fn prepare(args: &Args, state: &mut EngineState, device: &str) -> Result<()> {
 fn load_engine(args: &Args, state: &mut EngineState, device: &str) -> Result<()> {
     if args.webgpu {
         let provider = if device == "cpu" { "cpu" } else { "webgpu" };
-        state.engine = Some(NativeTts::load(args, provider)?);
+        let engine = NativeTts::load(args, provider);
+        state.engine = Some(if provider == "webgpu" {
+            engine.context("gpu_unavailable: WebGPU speech could not initialize")?
+        } else {
+            engine?
+        });
         state.provider = provider.into();
         state.device = if provider == "webgpu" {
             "WebGPU"

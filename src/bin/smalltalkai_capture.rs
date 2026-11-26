@@ -2195,9 +2195,14 @@ fn handle_background(result: BackgroundResult, context: &mut BackgroundContext<'
                 }
                 Err(error) => {
                     tracing::error!(session_id, %error, "speech engine failed");
+                    let notice = if error.contains("gpu_unavailable") {
+                        "notice.gpuUnavailable"
+                    } else {
+                        "notice.engineFailed"
+                    };
                     context
                         .overlay
-                        .notify_error(tr("notice.engineFailed"), Duration::from_secs(3));
+                        .notify_error(tr(notice), Duration::from_secs(5));
                     restore_overlay_work_state(
                         context.overlay,
                         context.active_recording,
@@ -2205,7 +2210,7 @@ fn handle_background(result: BackgroundResult, context: &mut BackgroundContext<'
                     );
                     context.events.push(terminal_notice_event_for_session(
                         NoticeLevel::Error,
-                        "notice.engineFailed",
+                        notice,
                         session_id,
                     ));
                 }
@@ -2391,9 +2396,14 @@ fn handle_background(result: BackgroundResult, context: &mut BackgroundContext<'
                 }
                 Err(error) => {
                     tracing::warn!(%error, "speech-model warm-up failed; transcription will retry");
+                    let notice = if error.contains("gpu_unavailable") {
+                        "notice.gpuUnavailable"
+                    } else {
+                        "notice.modelRetry"
+                    };
                     context
                         .overlay
-                        .notify_warning(tr("notice.modelRetry"), Duration::from_secs(3));
+                        .notify_warning(tr(notice), Duration::from_secs(5));
                 }
             }
         }

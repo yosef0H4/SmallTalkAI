@@ -150,7 +150,8 @@ async function main() {
     await page.locator("html[data-theme=light]").waitFor({ state: "attached" });
     await page.getByRole("button", { name: "Next", exact: true }).click();
     await page.getByRole("button", { name: "Skip this feature" }).click();
-    await page.getByRole("button", { name: "Skip both features" }).click();
+    await page.getByRole("button", { name: "Skip this feature" }).click();
+    await page.getByRole("button", { name: "Skip this feature" }).click();
     await page.getByRole("heading", { name: "Keyboard setup", exact: true }).waitFor();
     await page.getByRole("button", { name: "Finish", exact: true }).click();
     await page.locator('[data-section="models"]').waitFor();
@@ -236,17 +237,36 @@ async function main() {
     assert.ok(webviews.length, "No WebView2 processes identified for the isolated profile");
     const origin = new URL(page.url()).origin;
     await setChoice(language, "auto");
-    let dialog = page.waitForEvent("dialog");
-    const cancelClose = closeSettings.click();
-    await (await dialog).dismiss();
-    await cancelClose;
+    const browserDialogs = [];
+    page.on("dialog", async dialog => {
+      browserDialogs.push(dialog.type());
+      await dialog.dismiss();
+    });
+    const grip = await frame.locator(".settings-frame-drag").boundingBox();
+    await page.mouse.move(grip.x + 75, grip.y + 10);
+    await page.mouse.down();
+    await page.mouse.move(grip.x + 110, grip.y + 36, { steps: 5 });
+    await page.mouse.up();
+    assert.deepEqual(browserDialogs, [], "Dragging dirty Settings must not prompt to leave");
+    await frame.getByRole("button", { name: "Maximize Settings" }).click();
+    await waitFor("dirty Settings maximizes", () => nativeWindow(host, "zoom") === "maximized");
+    await frame.getByRole("button", { name: "Restore Settings" }).click();
+    await waitFor("dirty Settings restores", () => nativeWindow(host, "zoom") === "normal");
+    assert.deepEqual(browserDialogs, [], "Frame actions must not prompt to leave");
+
+    assert.equal(nativeWindow(host, "close"), "visible");
+    const confirmation = page.getByRole("dialog", { name: "Unsaved changes" });
+    await confirmation.waitFor();
+    if (process.env.SMALLTALK_SETTINGS_DIALOG_SCREENSHOT) {
+      await page.screenshot({ path: process.env.SMALLTALK_SETTINGS_DIALOG_SCREENSHOT });
+    }
+    await confirmation.getByRole("button", { name: "Keep editing" }).click();
     assert.equal(await language.getAttribute("data-value"), "auto");
-    dialog = page.waitForEvent("dialog");
-    const acceptClose = closeSettings.click().catch((error) => {
+    await closeSettings.click();
+    await confirmation.getByRole("button", { name: "Discard and close" }).click().catch(error => {
       if (!page.isClosed()) throw error;
     });
-    await (await dialog).accept();
-    await acceptClose;
+    assert.deepEqual(browserDialogs, []);
     await waitFor("Settings and WebView2 processes to exit", () => [host, ...webviews].every((pid) => !processAlive(pid)));
     await assert.rejects(fetch(origin));
     assert.equal(capture.exitCode, null, "Closing Settings stopped the capture service");
@@ -257,9 +277,20 @@ async function main() {
     assert.equal(await fresh.locator("#ui-language").getAttribute("data-value"), "en");
     assert.equal(await fresh.locator("html").getAttribute("data-theme"), "light");
     assert.equal(await fresh.getByRole("button", { name: "Close Settings" }).count(), 1);
-    assert.equal(nativeWindow(reopened, "close"), "visible");
-    await waitFor("clean titlebar Close to exit Settings", () => !processAlive(reopened));
-    console.log("PASS: reopen reads saved Settings and the native Close exits the window");
+    await setChoice(fresh.locator("#ui-language"), "auto");
+    await fresh.getByRole("button", { name: "Close Settings" }).click();
+    await fresh.getByRole("dialog", { name: "Unsaved changes" })
+      .getByRole("button", { name: "Save and close" }).click().catch(error => {
+        if (!fresh.isClosed()) throw error;
+      });
+    await waitFor("Save and close to persist and exit", () => !processAlive(reopened) &&
+      JSON.parse(fs.readFileSync(config, "utf8")).general.ui_language === "auto");
+    launch("smalltalkai-settings");
+    const { page: saved, pid: savedHost } = await settingsPage();
+    assert.equal(await saved.locator("#ui-language").getAttribute("data-value"), "auto");
+    assert.equal(nativeWindow(savedHost, "close"), "visible");
+    await waitFor("clean titlebar Close to exit Settings", () => !processAlive(savedHost));
+    console.log("PASS: Save and close persists the draft, it reopens with saved Settings, and a clean native Close exits");
   } finally {
     for (const pid of nativeProcesses) {
       if (processAlive(pid)) nativeWindow(pid, "close");

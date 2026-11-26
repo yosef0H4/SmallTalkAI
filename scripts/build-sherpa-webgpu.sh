@@ -12,10 +12,13 @@ git clone --quiet --depth 1 --branch v1.13.8 https://github.com/k2-fsa/sherpa-on
 test "$(git -C "$work/source" rev-parse HEAD)" = "$revision"
 git -C "$work/source" apply "$scripts/sherpa-webgpu.patch"
 
-# Link to the same verified ONNX Runtime that the app downloads for OCR and speech.
-XDG_CONFIG_HOME="$work/config" XDG_DATA_HOME="$work/data" XDG_CACHE_HOME="$work/cache" \
-    "$ctl" assets install paddle-webgpu-linux > "$work/runtime.json"
-runtime="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["directory"])' < "$work/runtime.json")"
+# Link to the same ONNX Runtime the package will ship.
+runtime="$(dirname "$destination")/bundled-runtimes/paddle-webgpu-linux"
+if [[ ! -f "$runtime/.verified" ]]; then
+    XDG_CONFIG_HOME="$work/config" XDG_DATA_HOME="$work/data" XDG_CACHE_HOME="$work/cache" \
+        "$ctl" assets install paddle-webgpu-linux > "$work/runtime.json"
+    runtime="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["directory"])' < "$work/runtime.json")"
+fi
 
 # Sherpa v1.13.8 uses the ORT 1.28 C ABI. Only the headers from its pinned
 # dependency are needed since the WebGPU library implements that ABI.

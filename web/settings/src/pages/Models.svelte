@@ -20,59 +20,69 @@
 
   type Kind = 'runtime' | 'model';
   let { setup }: { setup?: {
-    feature: Feature; kind: Kind; engine?: string; selected?: string | null; busy: boolean;
+    feature: Feature; selected: string | null; busy: boolean;
     choose: (id: string) => void;
-    cancelRuntime: (id: string) => void;
   } } = $props();
-  type CatalogFilter = { query: string; engine: string; installed: boolean; limit: number };
+  type CatalogFilter = { query: string; engine: string; installed: boolean; recommendedFirst: boolean; limit: number };
   const features = [
     { id: 'stt', label: 'settings.dictation', acronym: 'STT', icon: 'audio' },
     { id: 'tts', label: 'module.speak', acronym: 'TTS', icon: 'text' },
     { id: 'ocr', label: 'module.vision', acronym: 'OCR', icon: 'screen' },
   ] as const;
-  const kinds = [
-    { id: 'runtime', label: 'module.runtimes' },
-    { id: 'model', label: 'ui.models.f3798f' },
-  ] as const;
-  const newFilter = (): CatalogFilter => ({ query: '', engine: 'all', installed: false, limit: 30 });
+  const newFilter = (): CatalogFilter => ({ query: '', engine: 'all', installed: false, recommendedFirst: true, limit: 30 });
   const filters = $state<Record<`${Feature}.${Kind}`, CatalogFilter>>({
     'stt.runtime': newFilter(), 'stt.model': newFilter(),
     'tts.runtime': newFilter(), 'tts.model': newFilter(),
     'ocr.runtime': newFilter(), 'ocr.model': newFilter(),
   });
   const feature = $derived(setup?.feature ?? catalogView.feature);
-  const visibleKind = $derived(setup?.kind ?? catalogView.kind);
-  const scored = $derived(feature === 'stt' && visibleKind === 'model');
-  const columns = [
+  const showEfficiency = $derived(feature === 'stt');
+  type SortKey = 'name' | 'size' | 'wer' | 'accuracy' | 'efficiency';
+  const columns = $derived<{ key: SortKey; label: string }[]>([
     { key: 'name', label: 'module.sort_name' },
     { key: 'size', label: 'module.sort_size' },
-    { key: 'wer', label: 'module.sort_wer' },
-    { key: 'efficiency', label: 'module.sort_efficiency' },
-  ] as const;
-  type SortKey = typeof columns[number]['key'];
+    feature === 'ocr'
+      ? { key: 'accuracy', label: 'module.sort_accuracy' }
+      : { key: 'wer', label: 'module.sort_wer' },
+    ...(showEfficiency ? [{ key: 'efficiency', label: 'module.sort_efficiency' } as const] : []),
+  ]);
+  const benchmarkHelp = {
+    stt: 'module.benchmark_help',
+    tts: 'module.benchmark_tts_help',
+    ocr: 'module.benchmark_ocr_help',
+  };
   const modelSort = $state<Partial<Record<Feature, { key: SortKey; descending: boolean }>>>({});
   const sorting = $derived(modelSort[feature] ?? (feature === 'stt'
     ? { key: 'efficiency', descending: true } as const
     : { key: 'size', descending: false } as const));
   function changeSort(key: SortKey) {
-    modelSort[feature] = { key, descending: sorting.key === key ? !sorting.descending : key === 'efficiency' };
+    modelSort[feature] = {
+      key,
+      descending: sorting.key === key ? !sorting.descending : key === 'efficiency' || key === 'accuracy',
+    };
   }
   function efficiency(row: ModuleModel) {
     return row.benchmark_wer && row.size_mb ? 1000 / (row.benchmark_wer * row.size_mb) : null;
   }
-  function compareModels(a: ModuleModel, b: ModuleModel) {
-    const missing = Number(a.benchmark_wer == null) - Number(b.benchmark_wer == null);
+  function score(model: ModuleModel) {
+    return model.benchmark_score ?? model.benchmark_wer;
+  }
+  function compareModels(a: ModuleModel, b: ModuleModel, recommendedFirst: boolean) {
+    if (recommendedFirst) {
+      const recommended = Number(!!b.recommended) - Number(!!a.recommended);
+      if (recommended) return recommended;
+    }
+    const missing = Number(score(a) == null) - Number(score(b) == null);
     if (missing) return missing;
     const { key, descending } = sorting;
     const name = a.label.localeCompare(b.label);
     const delta = key === 'name' ? name : key === 'size'
       ? modelBytes(a) - modelBytes(b)
-      : key === 'wer' ? (a.benchmark_wer ?? 0) - (b.benchmark_wer ?? 0)
-      : (efficiency(a) ?? 0) - (efficiency(b) ?? 0);
+      : key === 'efficiency' ? (efficiency(a) ?? 0) - (efficiency(b) ?? 0)
+      : (score(a) ?? 0) - (score(b) ?? 0);
     return (descending ? -delta : delta) || name;
   }
-  const cleanupSelected = $derived(!setup && visibleKind === "model" && catalogView.panel === "cleanup");
-  $effect(()=>{if(!setup)try {localStorage.setItem("smalltalkai-model-page",catalogView.kind);}catch { /* Storage can be disabled. */ }});
+  const cleanupSelected = $derived(!setup && catalogView.panel === "cleanup");
   $effect(() => { if (!setup) markDirty(); });
   const engines = $derived([...new Map(modules.runtimes
     .filter(runtime => runtime.feature === feature && runtime.installed)
@@ -89,6 +99,9 @@
     ...Object.entries(ui.downloads).map(([id, job]) => ({id, label: id, ...job})),
   ]);
   const installedRuntimes = $derived(modules.runtimes.filter(runtime => runtime.feature === feature && runtime.installed));
+  const cuda = $derived(modules.runtimes.find(runtime => runtime.backend === 'cuda' && runtime.action_asset));
+  const optionalRuntimes = $derived(modules.runtimes.filter(runtime => runtime.backend !== 'cuda' &&
+    runtime.feature === feature && (!runtime.bundled || !runtime.installed)));
   function actionAsset(row: { asset: string | null; action_asset?: string | null }) {
     return row.action_asset ?? row.asset;
   }
@@ -99,15 +112,16 @@
   }
   function catalogRows(kind: Kind, filter: CatalogFilter, selectedEngine: string) {
     const rows = kind === 'runtime'
-      ? modules.runtimes.map(runtime => ({ ...runtime, kind: 'runtime' as const, languages: [] as string[] }))
+      ? [...optionalRuntimes, ...(cuda ? [{ ...cuda, id: cuda.action_asset!, feature, recommended: false }] : [])]
+        .map(runtime => ({ ...runtime, kind: 'runtime' as const, languages: [] as string[] }))
       : modules.models.map(model => ({ ...model, kind: 'model' as const }));
     return rows.filter(row => row.feature === feature
-      && (setup?.engine ? row.engine === setup.engine : selectedEngine === 'all' || row.engine === selectedEngine)
+      && (selectedEngine === 'all' || row.engine === selectedEngine)
       && (!filter.installed || runtimeInstalled(row))
       && (!filter.query.trim() || matchesCatalogSearch(filter.query, row,
         moduleSearchText(row, modules.models, modules.runtimes, modules.assets?.assets))))
       .sort((a, b) => a.kind === 'model' && b.kind === 'model'
-        ? compareModels(a, b)
+        ? compareModels(a, b, filter.recommendedFirst)
         : Number(!!b.recommended) - Number(!!a.recommended) || a.label.localeCompare(b.label));
   }
 
@@ -181,9 +195,6 @@
     {/each}
   </section>
 {/if}
-<div class="feature-catalogs" role="group" aria-label={t('settings.downloads')}>
-  {#each ['model','runtime'] as kind}<button type="button" data-download-kind={kind} class:chosen={catalogView.kind===kind} aria-pressed={catalogView.kind===kind} onclick={()=>catalogView.kind=kind as Kind}><Icon name={kind==='model'?'models':'advanced'}/><span>{t(kind==='model'?'ui.models.f3798f':'module.runtimes')}</span></button>{/each}
-</div>
 <div class="feature-catalogs" role="group" aria-label={t('module.feature_filter')}>
   {#each features as option}
     <button type="button" data-catalog-feature={option.id} class:chosen={!cleanupSelected && feature === option.id}
@@ -191,24 +202,34 @@
       <Icon name={option.icon} /><span>{t(option.label)}</span>
     </button>
   {/each}
-  {#if catalogView.kind === "model"}<button type="button" data-catalog-feature="cleanup" class:chosen={cleanupSelected} aria-pressed={cleanupSelected} onclick={()=>catalogView.panel="cleanup"}><Icon name="cleanup"/><span>{t("ui.text_cleanup.52f093")}</span></button>{/if}
+  <button type="button" data-catalog-feature="cleanup" class:chosen={cleanupSelected} aria-pressed={cleanupSelected} onclick={()=>catalogView.panel="cleanup"}><Icon name="cleanup"/><span>{t("ui.text_cleanup.52f093")}</span></button>
 </div>
 {/if}
 {#if cleanupSelected}
 <Cleanup section="provider"/>
 {:else}
-{#if !setup && visibleKind === "model"}<div class="selection-section" data-catalog-selection={feature}>
+{#if !setup}<div class="selection-section" data-catalog-selection={feature}>
   {#if feature === 'stt'}<SttModelSetup/>
   {:else}<ReaderModelSetup {feature}/>{/if}
 </div>{/if}
-{#each kinds.filter(item=>item.id===visibleKind) as section (section.id)}
-{@const kind = section.id}
+{@render catalog('model')}
+{#if !setup}
+  {#if cuda || optionalRuntimes.length}
+    <details class="optional-runtimes"><summary data-download-kind="runtime">{t('module.optional_runtimes')}</summary>
+      {@render catalog('runtime')}
+    </details>
+  {/if}
+  <ModelFiles {feature}/>
+{/if}
+{/if}
+
+{#snippet catalog(kind: Kind)}
 {@const filter = filters[`${feature}.${kind}`]}
 {@const selectedEngine = engines.some(option => option.id === filter.engine) ? filter.engine : 'all'}
 {@const rows = catalogRows(kind, filter, selectedEngine)}
 {@const searchLabel = t(kind === 'runtime' ? 'module.search_runtimes' : 'module.search_models')}
 <section class="catalog" id="{kind}-section" aria-labelledby="{kind}-heading" data-catalog="{feature}.{kind}">
-  <h2 id="{kind}-heading">{t(section.label)}{#if scored} <Help text="module.benchmark_help" />{/if}</h2>
+  <h2 id="{kind}-heading">{t(kind === 'runtime' ? 'module.runtimes' : 'ui.models.f3798f')}{#if kind === 'model'} <Help text={benchmarkHelp[feature]} />{/if}</h2>
   <div class="catalog-toolbar" data-setting-path="{kind}-search">
     <div class="search-input"><Icon name="search" /><input id="{kind}-search" type="search" dir="auto" aria-label={searchLabel}
       placeholder={searchLabel} bind:value={filter.query} oninput={() => filter.limit = 30} /></div>
@@ -221,12 +242,15 @@
         {#each engines as option (option.id)}<button type="button" class:chosen={selectedEngine === option.id} aria-pressed={selectedEngine === option.id} onclick={() => { filter.engine = option.id; filter.limit = 30; }}>{option.label}</button>{/each}
       </div>
     {/if}
-    <label class="installed-filter"><input type="checkbox" bind:checked={filter.installed} />{t('ui.installed.7bb440')}</label>
+    <label class="catalog-filter"><input type="checkbox" bind:checked={filter.installed} />{t('ui.installed.7bb440')}</label>
+    {#if kind === 'model'}
+      <label class="catalog-filter"><input type="checkbox" bind:checked={filter.recommendedFirst} onchange={() => filter.limit = 30} />{t('module.recommended_first')}</label>
+    {/if}
   </div>
-  <div id="{kind}-results" class="model-results" class:sortable={kind === 'model'} class:scored>
+  <div id="{kind}-results" class="model-results" class:sortable={kind === 'model'} class:efficient={showEfficiency}>
     {#if kind === 'model'}
       <div class="model-columns" role="group" aria-label={t('module.sort_models')}>
-        {#each (scored ? columns : columns.slice(0, 2)) as column (column.key)}
+        {#each columns as column (column.key)}
           <button type="button" aria-pressed={sorting.key === column.key} data-sort={column.key}
             aria-label={t(column.label) + (sorting.key === column.key ? ' · ' + t(sorting.descending ? 'module.descending' : 'module.ascending') : '')}
             onclick={() => changeSort(column.key)}>{t(column.label)}
@@ -254,33 +278,31 @@
           {/if}
           {#if row.kind === 'runtime'}
             <span dir="auto">{runtimeHardware(row)}</span>
-            {#if row.backend === 'cuda'}
-              <span>{t('module.runtime.cuda_tradeoff')}</span>
-              {#if row.action_asset}<span>{t('module.nvidia_shared')}</span>{/if}
-            {/if}
-          {:else if !scored}
+            {#if row.backend === 'cuda'}<span>{t('module.nvidia_shared')} {t('module.runtime.cuda_tradeoff')}</span>{/if}
+          {:else if row.feature !== 'stt'}
             <small dir="ltr">{row.id}</small>
           {/if}
         </div>
         {#if row.kind === 'model'}
           <bdi class="model-metric" dir="ltr">{bytes ? Math.ceil(bytes / 1024 / 1024) + ' MB' : '—'}</bdi>
-          {#if scored}
-            <bdi class="model-metric" dir="auto">{row.benchmark_wer == null ? t('module.score_unknown') : row.benchmark_wer.toFixed(2) + '%'}</bdi>
+          <bdi class="model-metric" dir="auto">{score(row)?.toFixed(2).concat('%') ?? t('module.score_unknown')}</bdi>
+          {#if showEfficiency}
             <bdi class="model-metric" dir="ltr">{efficiency(row)?.toFixed(2) ?? '—'}</bdi>
           {/if}
         {/if}
         <div class="model-actions">
           {#if row.kind === 'runtime'}
             {#if busy}
-              <button type="button" aria-label={`${t('assets.cancel')} ${title}`} onclick={() => setup ? setup.cancelRuntime(row.id) : cancelDownload(row.id, actionId)}>{t('assets.cancel')}</button>
+              <button type="button" aria-label={`${t('assets.cancel')} ${title}`} onclick={() => cancelDownload(row.id, actionId)}>{t('assets.cancel')}</button>
             {:else if installed}
-              <button type="button" aria-pressed={(setup ? setup.selected === row.id : row.selected) ?? false}
-                disabled={setup?.busy} onclick={() => setup ? setup.choose(row.id) : assetAction('choose', row.id)}>{t('setup.use')}</button>
+              {#if row.backend === 'cuda'}<span title={t('ui.installed.7bb440')}>✓</span>
+              {:else}<button type="button" aria-pressed={row.selected ?? false}
+                onclick={() => assetAction('choose', row.id)}>{t('setup.use')}</button>{/if}
             {:else if actionId}
-              <button type="button" disabled={setup?.busy || !asset?.available}
-                onclick={() => setup ? setup.choose(row.id) : assetAction('install', actionId)}>{t('assets.download')}</button>
+              <button type="button" disabled={!asset?.available}
+                onclick={() => assetAction('install', actionId)}>{t('assets.download')}</button>
             {/if}
-            {#if !setup && !busy && installed && !row.bundled && actionId}
+            {#if !busy && installed && !row.bundled && actionId}
               <IconButton icon="trash" label="assets.remove" onclick={() => assetAction('remove', actionId)} />
             {/if}
           {:else if setup}
@@ -308,23 +330,22 @@
     {#if rows.length > filter.limit}<button type="button" onclick={() => filter.limit += 30}>{t('module.more')}</button>{/if}
   </div>
 </section>
-{/each}
-
-{#if !setup && visibleKind === "model"}<ModelFiles {feature}/>{/if}
-{/if}
+{/snippet}
 
 <style>
   .feature-catalogs { display: flex; border-block-end: 1px solid var(--line); gap: 8px; margin-block-end: 20px; }
   .feature-catalogs button { display: flex; align-items: center; justify-content: center; gap: 8px; flex: 1; min-width: 0; padding: 12px 8px; border: 0; border-block-end: 2px solid transparent; border-radius: 0; background: transparent; }
   .feature-catalogs button.chosen { color: var(--accent); border-block-end-color: var(--accent); }
   .selection-section { margin-block-end: 28px; }
+  .optional-runtimes { margin-block: 16px; }
+  .optional-runtimes summary { cursor: pointer; }
   .model-results > button { margin-block: 12px; }
   .catalog h2 { margin-block: 0 16px; font-size: 17px; }
   .engine-filters button.chosen { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
   .library-filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-block: 0 8px; }
   .engine-filters { display: flex; gap: 6px; flex-wrap: wrap; }
   .engine-filters button { padding: 5px 12px; }
-  .installed-filter { display: flex; align-items: center; gap: 8px; }
+  .catalog-filter { display: flex; align-items: center; gap: 8px; }
   .model-copy .recommendation { display: flex; align-items: center; gap: 4px; color: var(--accent); }
   .model-copy small { display: block; }
   .language-overflow {
@@ -340,10 +361,10 @@
   }
   .sortable {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) repeat(2, max-content);
+    grid-template-columns: minmax(0, 1fr) repeat(3, max-content);
     column-gap: 6px;
   }
-  .scored { grid-template-columns: minmax(0, 1fr) repeat(4, max-content); }
+  .efficient { grid-template-columns: minmax(0, 1fr) repeat(4, max-content); }
   .sortable > * { grid-column: 1 / -1; }
   .sortable .model-result, .model-columns {
     display: grid;

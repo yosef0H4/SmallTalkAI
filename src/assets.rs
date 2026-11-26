@@ -95,7 +95,7 @@ pub fn stage_bundled(root: &Path) -> Result<()> {
             "paddle-webgpu-windows",
         ]
     } else {
-        &["parakeet-vulkan", "sherpa-cpu"]
+        &["parakeet-vulkan", "sherpa-cpu", "paddle-webgpu-linux"]
     };
     let job = Job::default();
     for id in ids {

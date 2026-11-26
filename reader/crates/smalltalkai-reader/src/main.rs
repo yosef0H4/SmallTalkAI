@@ -1711,7 +1711,7 @@ impl WorkerSupervisor {
                 write_device_report(&device, device.contains("CUDA verified"));
                 Ok(())
             }
-            Err(error) if config.speech.device == DevicePreference::Auto => {
+            Err(error) if allows_automatic_cpu_retry(config) => {
                 let intent = cancel_gate.map(|gate| {
                     gate.lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -1881,9 +1881,7 @@ impl WorkerSupervisor {
                 loop {
                     let frame = match read_worker_frame::<WorkerEvent>(&mut worker.stdout) {
                         Ok(frame) => frame,
-                        Err(error)
-                            if config.speech.device == DevicePreference::Auto && !cpu_fallback =>
-                        {
+                        Err(error) if allows_automatic_cpu_retry(config) && !cpu_fallback => {
                             anyhow::ensure!(current(), "server job was cancelled");
                             tracing::warn!(%error,"automatic CUDA server worker exited; retrying current utterance on CPU");
                             if let Some(lifetime) = lifetime {
@@ -2069,9 +2067,7 @@ impl WorkerSupervisor {
                     Err(_error) if !app.inner.generation.accepts(session.generation) => {
                         return Ok(());
                     }
-                    Err(error)
-                        if config.speech.device == DevicePreference::Auto && !cpu_fallback =>
-                    {
+                    Err(error) if allows_automatic_cpu_retry(config) && !cpu_fallback => {
                         tracing::warn!(%error,"automatic CUDA worker exited; retrying the unsent sentence on a fresh CPU worker");
                         self.kill_current()?;
                         discard_worker(&mut guard);
@@ -2678,6 +2674,14 @@ fn device_name(device: DevicePreference) -> &'static str {
         DevicePreference::Cuda => "cuda",
     }
 }
+
+fn allows_automatic_cpu_retry(config: &AppConfig) -> bool {
+    // The resolved WebGPU route uses Auto for the worker's device argument.
+    // Respect the explicit GPU choice retained in its binding.
+    config.speech.device == DevicePreference::Auto
+        && config.speech.selection.single.device != reader_core::routing::Device::Gpu
+}
+
 fn fingerprint(config: &AppConfig) -> String {
     let credentials = if matches!(
         config.speech.provider,
@@ -3526,6 +3530,9 @@ impl App {
             activity.recover_read_along = read_along_failed;
         }
         tracing::warn!(%error, label, "reader request failed");
+        let gpu_unavailable = error
+            .chain()
+            .any(|cause| cause.to_string().contains("gpu_unavailable"));
         let detail = error.to_string();
         let detail: String = detail.chars().take(320).collect();
         let hint = if read_along_failed {
@@ -3533,7 +3540,12 @@ impl App {
         } else {
             ""
         };
-        self.set_notice(format!("{label}: {detail}{hint}"), Duration::from_secs(6));
+        let notice = if gpu_unavailable {
+            "notice.gpuUnavailable".into()
+        } else {
+            format!("{label}: {detail}{hint}")
+        };
+        self.set_notice(notice, Duration::from_secs(6));
         drop(intent);
         self.show_hud();
         if !keep_pending {
@@ -4120,7 +4132,12 @@ impl App {
                         if let Err(error) = copy_region_with_target(&app, epoch, language, target) {
                             if app.inner.copy_epoch.load(Ordering::Acquire) == epoch {
                                 tracing::warn!(%error, "repeated OCR copy failed");
-                                app.set_notice("reader.ocr_failed".into(), Duration::from_secs(4));
+                                let notice = if format!("{error:#}").contains("gpu_unavailable") {
+                                    "notice.gpuUnavailable"
+                                } else {
+                                    "reader.ocr_failed"
+                                };
+                                app.set_notice(notice.into(), Duration::from_secs(5));
                                 app.show_hud();
                             }
                         }
@@ -4183,7 +4200,12 @@ impl App {
             {
                 if app.inner.copy_epoch.load(Ordering::Acquire) == epoch {
                     tracing::warn!(%error, "OCR copy failed");
-                    app.set_notice("reader.ocr_failed".into(), Duration::from_secs(4));
+                    let notice = if format!("{error:#}").contains("gpu_unavailable") {
+                        "notice.gpuUnavailable"
+                    } else {
+                        "reader.ocr_failed"
+                    };
+                    app.set_notice(notice.into(), Duration::from_secs(5));
                     app.show_hud();
                 }
             }
@@ -11174,6 +11196,18 @@ fn copy_ocr_text(text: &str) -> Result<()> {
 
 #[cfg(test)]
 mod server_model_tests {
+    #[test]
+    fn explicit_webgpu_does_not_retry_with_cpu() {
+        use reader_core::{routing::Device, AppConfig, DevicePreference};
+
+        let mut config = AppConfig::default();
+        config.speech.device = DevicePreference::Auto;
+        config.speech.selection.single.runtime = Some("sherpa-webgpu".into());
+        assert!(super::allows_automatic_cpu_retry(&config));
+        config.speech.selection.single.device = Device::Gpu;
+        assert!(!super::allows_automatic_cpu_retry(&config));
+    }
+
     #[cfg(any(target_os = "linux", windows))]
     #[test]
     fn ocr_copy_feedback_keeps_text_on_clipboard_failure_and_expires() {

@@ -70,9 +70,6 @@ struct SaveRequest {
 struct ModelSetup {
     done: bool,
     step: u8,
-    #[serde(default)]
-    skip_reader: bool,
-    runtimes: [Option<String>; 3],
     models: [Option<String>; 3],
     theme: Option<crate::config::UiTheme>,
     voice: Option<String>,
@@ -83,15 +80,12 @@ fn setup_path() -> PathBuf {
 }
 
 fn model_setup() -> Result<ModelSetup> {
-    let mut draft = match fs::read(setup_path()) {
+    let draft = match fs::read(setup_path()) {
         Ok(data) => {
             let mut draft: ModelSetup = serde_json::from_slice(&data)?;
-            // Step seven was the separate Read aloud runtime picker.
-            if draft.step == 7
-                && !draft.done
-                && draft.runtimes[1].as_deref() != Some("paddle-webgpu")
-            {
-                draft.step = if draft.runtimes[2].is_some() { 8 } else { 4 };
+            // Resume an old runtime-picker step at its model picker.
+            if !draft.done && matches!(draft.step, 1 | 4 | 7) {
+                draft.step += 1;
             }
             draft
         }
@@ -119,18 +113,24 @@ fn model_setup() -> Result<ModelSetup> {
         }
         Err(error) => return Err(error.into()),
     };
-    if !draft.done {
-        use reader_core::routing::{bundled_default, Feature};
-        for (value, feature) in
-            draft
-                .runtimes
-                .iter_mut()
-                .zip([Feature::Stt, Feature::Ocr, Feature::Tts])
-        {
-            if value.is_none() {
-                *value = bundled_default(feature).map(|runtime| runtime.id);
-            }
-        }
+    Ok(draft)
+}
+
+fn write_model_setup(draft: &ModelSetup) -> Result<()> {
+    let path = setup_path();
+    let temp = crate::config::unique_atomic_temp_path(&path);
+    fs::write(&temp, serde_json::to_vec(draft)?)?;
+    crate::config::replace_file_atomic(&temp, &path)?;
+    Ok(())
+}
+
+fn open_model_setup(state: &AppState) -> Result<ModelSetup> {
+    let _lock = state.config_lock.lock().expect("config lock");
+    let draft = model_setup()?;
+    if !draft.done && !setup_path().exists() {
+        crate::modules::apply_first_run_runtimes()?;
+        write_model_setup(&draft)?;
+        let _ = capture_request(state, ShellCommand::ReloadConfig);
     }
     Ok(draft)
 }
@@ -142,16 +142,20 @@ fn save_model_setup(next: ModelSetup, state: &AppState) -> Result<ModelSetup> {
     if previous.done {
         return Ok(previous);
     }
-    anyhow::ensure!(next.step <= 10, "Invalid model setup step");
+    anyhow::ensure!(
+        matches!(next.step, 0 | 2 | 3 | 5 | 6 | 8 | 9 | 10),
+        "Invalid model setup step"
+    );
     for (index, feature) in [Feature::Stt, Feature::Ocr, Feature::Tts]
         .into_iter()
         .enumerate()
     {
-        if next.models[index] != previous.models[index]
-            || next.runtimes[index] != previous.runtimes[index]
-        {
-            if let (Some(model), Some(runtime)) = (&next.models[index], &next.runtimes[index]) {
-                crate::admin::select_assets(feature, model, runtime, None, false)?;
+        if next.models[index] != previous.models[index] {
+            if let Some(model) = &next.models[index] {
+                crate::admin::select_assets(feature, model, None, None, false)?;
+                // Reuse an installed or bundled runtime when possible. This
+                // only reconciles selections and never starts an installation.
+                crate::modules::persist_auto_select(model)?;
                 if matches!(feature, Feature::Stt) {
                     let _ = capture_request(state, ShellCommand::ReloadConfig);
                 }
@@ -171,10 +175,7 @@ fn save_model_setup(next: ModelSetup, state: &AppState) -> Result<ModelSetup> {
         config.general.ui_theme = theme;
         config.save()?;
     }
-    let path = setup_path();
-    let temp = crate::config::unique_atomic_temp_path(&path);
-    fs::write(&temp, serde_json::to_vec(&next)?)?;
-    crate::config::replace_file_atomic(&temp, &path)?;
+    write_model_setup(&next)?;
     Ok(next)
 }
 
@@ -507,7 +508,7 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
         )),
         (&Method::Get, "/api/model-setup") => Ok(json_response(
             StatusCode(200),
-            &serde_json::to_value(model_setup()?)?,
+            &serde_json::to_value(open_model_setup(state)?)?,
             state,
         )),
         (&Method::Post, "/api/model-setup") => {

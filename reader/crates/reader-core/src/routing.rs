@@ -301,6 +301,11 @@ pub struct Model {
     pub label: String,
     pub languages: Vec<String>,
     pub asset: String,
+    /// Upstream English TTS WER or PaddleOCR recognition accuracy, in percent.
+    /// TTS: https://huggingface.co/blog/open-tts-leaderboard (English table).
+    /// OCR: https://www.paddleocr.ai/latest/en/version3.x/algorithm/PP-OCRv6/PP-OCRv6.html#32-text-recognition
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub benchmark_score: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paddle: Option<crate::paddle::PaddleProfile>,
 }

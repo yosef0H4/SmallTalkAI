@@ -1,307 +1,36 @@
-# SmallTalk
+# SmallTalkAI
 
-<img src="icons/smalltalkai.png" width="128" alt="SmallTalk">
+I built SmallTalkAI because I kept closing my dictation app to free up RAM, then reopening it the next time I wanted to type something. I wanted to leave it running, even while playing a game. SmallTalkAI loads each model when you need it. After a while with nothing to do, the worker exits and frees its memory.
 
-SmallTalk is a local voice typing app for Windows and Linux. Press a hotkey, speak, and it types or pastes the transcript into the app you were already using. The installed app is named **SmallTalkAI**.
-
-## Showcase
+SmallTalkAI is open source and runs on Windows and Linux. Speech and screenshots stay on your computer.
 
 ![SmallTalk voice typing showcase](gifs/showcase%2C%20with%20actual%20real%20time%20speed.webp)
 
-![SmallTalk settings showcase](gifs/gui%20showcase.webp)
+## Get started
 
-## Install
+[Download for Windows](https://github.com/yosef0H4/SmallTalkAI/releases/latest) or [install on Fedora or Arch/Omarchy](docs/linux-installation.md). Open Settings from the tray and pick the models you want during setup. Setup uses the runtimes below when it detects a compatible dedicated GPU. Otherwise, it uses CPU for all three features. You can change each runtime during setup or later.
 
-Download the latest version from the releases page:
+## What I use it for
 
-[Download SmallTalk](https://github.com/yosef0H4/SmallTalkAI/releases/latest)
+- **Dictation.** Hold the record shortcut, talk, and let go. SmallTalkAI starts loading the model while you’re talking, then types or pastes into the app you’re already using. On Windows, the default is **Caps Lock + S**. I usually turn off punctuation and enable lowercase for casual messages.
+- **Read aloud.** Select part of an article or an agent’s reply and listen while you do something else. You can choose Kokoro or Supertonic 3.
+- **Screenshot to text.** Draw a box around text you can’t select, like a line in an image, then paste the extracted text wherever you need it.
 
-To let an agent read aloud or give spoken updates, open **Settings → System →
-Agent skills** or ask the agent to install the bundled skill. [Agent setup](docs/cli.md#agent-skills)
+Windows uses AutoHotkey for shortcuts and text delivery. You can even stop Caps Lock from toggling caps so it’s free for shortcuts. On Wayland, SmallTalkAI uses the desktop’s Global Shortcuts and Remote Desktop portals.
 
-For Fedora and Arch/Omarchy installation and local package builds, see
-[Linux packages](docs/linux-installation.md). The Linux release includes a Fedora
-44 RPM and an Arch Linux package shared by Arch and Omarchy.
+## Performance with the defaults
 
-Windows builds provide two downloads:
+On my Windows PC with a Core i5-12600KF and RTX 5080, the whole app used **119 MiB of RAM idle**, including AutoHotkey. With Vulkan dictation loaded, it settled at **200 MiB**. The app briefly reached about **481 MiB** during a first request.
 
-```text
-smalltalkai-setup.exe      recommended installer
-smalltalkai-portable.zip   portable copy
-```
+| Feature | Default runtime | First use | Model already loaded | Peak worker RAM | Worker VRAM |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Dictation · 7.4-second recording | Vulkan | 2.38 s | 64 ms | 395 MiB | 227 MiB |
+| Read-aloud · Kokoro | WebGPU | 4.09 s | 605 ms | 469 MiB | 822 MiB |
+| Read-aloud · Supertonic 3 | WebGPU | 2.37 s | 225 ms | 308 MiB | 318 MiB |
+| OCR · 1080p screenshot | CPU | 415 ms | 203 ms | 153 MiB | 0 MiB |
 
-The setup installer is recommended for most users. It can install the app shortcuts. Download the speech model from Settings after launching the app.
+First use includes loading the model. Dictation starts loading while you talk. Read-aloud starts loading when you ask it to speak. Its timings cover generating the full sample sentence. [See the full benchmark results](docs/performance.md).
 
-The portable zip does not include a speech model by default. After launching it, open Settings from the tray icon and download a model there.
+If you use read-aloud often and have a compatible NVIDIA GPU, CUDA is an optional way to speed up repeat requests. It uses more memory, and the first request can still take longer. Install it under **Models → Optional accelerators**.
 
-## Using the app
-
-On Linux, launch **SmallTalkAI** from your application menu and configure it in
-Settings. You can enable the user service to start SmallTalk at desktop login.
-Choose **Close SmallTalkAI** from the tray to quit for the current session.
-See the [Linux startup instructions](docs/linux-installation.md#start-at-login-and-quit-for-the-current-session).
-
-On Windows:
-
-1. Install or unzip SmallTalk.
-2. Launch `SmallTalkAI.exe`.
-3. Hold the record shortcut, speak, then release it.
-4. The transcript is inserted into the app that was active when you started recording.
-
-Default shortcuts:
-
-```text
-CapsLock+S  record while held
-CapsLock+A  cancel current recording/transcription/typing
-CapsLock+D  switch typing/paste delivery mode
-```
-
-Open the tray icon menu to change settings, choose a microphone, download or select a speech model, change shortcuts, switch CPU/GPU mode, reload the app, or quit.
-
-If the speech model is missing, open Settings and download one from the model section. The portable build may not include a model by default.
-
-The app is meant to stay running in the background. It loads the speech engine when needed and unloads the heavy part after it has been idle for a while.
-
-Fair warning: this app is vibe-coded and still has rough edges. I keep fighting machine-specific bugs, but I have not found a Windows voice typing setup I like better yet.
-
-## For developers
-
-The useful part of this project is the design as much as the app. It is a bunch of practical Windows tricks that can be copied, improved, or rebuilt.
-
-Problems I had with other voice typing apps, and how this one tries to solve them:
-
-| Problem | SmallTalk approach |
-| --- | --- |
-| Global hotkeys and text delivery on Windows are unreliable, especially with unusual shortcuts like Caps Lock as a modifier. | Use AutoHotkey only for the Windows-facing shell: hotkeys, target tracking, typing, and paste delivery. |
-| Some apps still use Whisper, which is not always the best fit for quick voice typing. | Use Parakeet, which has been faster, lighter, and often more accurate for this use case in my experience. |
-| Many apps load the model only after recording ends, so you wait after speaking. | Start warming the selected model as soon as recording begins, so it is often ready by the time you release the hotkey. |
-| Unloading only the model often still leaves heavy runtime memory behind. | Put Parakeet and the model in a disposable inference process that can fully exit after the idle timeout. |
-| Windows needs a desktop entry point. | Ship a small Rust launcher alongside the bundled AutoHotkey v2 runtime and readable AHK scripts. |
-| Cross-platform settings easily become heavy or inconsistent. | Open the same Settings UI in Tauri on Windows and Linux. Close the window to exit its webview and authenticated loopback server. |
-
-Loaded memory use is still not tiny, roughly hundreds of MB depending on CPU/GPU mode, but the idle state is the part that matters most for an always-running background tool.
-
-### Architecture
-
-```text
-SmallTalkAI.exe
-  └── bundled AutoHotkey64.exe runs smalltalkai.ahk
-  └── smalltalkai-capture.exe      persistent CPAL capture + fast overlay
-        └── smalltalkai-infer.exe  disposable Parakeet DLL/model process
-
-smalltalkai-ctl.exe                 disposable AHK control helper
-smalltalkai-settings.exe            Settings launcher
-smalltalkai-settings-window.exe     on-demand Tauri window with its Settings server
-```
-
-The key memory-cleanup guarantee is process exit: `smalltalkai-infer.exe` is the only active component allowed to load `parakeet.dll` or a GGUF model. Repeated dictations reuse a warm worker until the configured idle timeout. Cleanup terminates that worker so Windows can reclaim its process RAM and VRAM allocations.
-
-### Start here
-
-Read:
-
-```text
-docs/architecture.md
-docs/configuration.md
-docs/packaging.md
-docs/testing.md
-docs/memory-cleanup-validation.md
-```
-
-On a Windows development machine:
-
-```powershell
-.\scripts\bootstrap-dev.ps1
-.\scripts\run-dev.ps1 -SkipBuild
-```
-
-`bootstrap-dev.ps1` checks or installs Rust, Python, and AutoHotkey v2 when `winget` is available, downloads the prebuilt Parakeet Windows CUDA runtime into the ignored `external\parakeet-runtime\parakeet-windows-cuda\` folder, builds the Rust binaries, and runs source validation. Use `.\scripts\bootstrap-dev.cmd` from Command Prompt.
-
-### Requirements
-
-Manual development setup requires:
-
-```text
-Windows 10/11
-Rust stable toolchain with Cargo
-Python 3.10 or newer
-AutoHotkey v2
-Parakeet Windows runtime at external\parakeet-runtime\parakeet-windows-cuda\
-```
-
-The runtime folder must contain at least:
-
-```text
-external\parakeet-runtime\parakeet-windows-cuda\bin\parakeet.dll
-external\parakeet-runtime\parakeet-windows-cuda\models\tdt_ctc-110m-f16.gguf
-```
-
-You can use the prebuilt CUDA runtime from:
-
-```text
-https://github.com/yosef0H4/parakeet-windows-cuda-build/releases/download/v0.0.1-sm86/parakeet-windows-cuda-sm86.zip
-```
-
-Packaging `artifacts\dist\smalltalkai-setup.exe` also requires AutoHotkey v2 and Inno Setup 6. NVIDIA GPU/CUDA hardware is recommended for the default `tdt_ctc-110m-f16.gguf`; CPU users should choose `tdt_ctc-110m-q4_k.gguf` from Settings.
-
-### Shell-owned behavior
-
-The AutoHotkey v2 shell owns the tray icon/menu, runtime hold/toggle hotkeys, Caps Lock tap behavior, start-with-Windows shortcut, foreground target tracking, transcript transforms, Unicode `SendText()` chunking, clipboard-preserving paste delivery, log opening, user notices, app reload, and exact-PID capture-service supervision. It contains no settings window or hotkey recorder.
-
-Text delivery modes are selectable in Settings:
-
-```text
-type
-paste_ctrl_v
-paste_ctrl_shift_v
-```
-
-`paste_ctrl_v` is the default. Paste delivery temporarily replaces the clipboard, sends the configured paste shortcut, and restores the full original clipboard with `ClipboardAll()`, including non-text formats such as images and copied objects.
-
-The shell does not parse JSON, move PCM, read a long pipe, load the model, or perform a blocking socket operation from a callback. It starts disposable `smalltalkai-ctl.exe` commands and polls completion with `SetTimer()`.
-
-### Rust-owned behavior
-
-`smalltalkai-capture.exe` keeps CPAL audio warm, applies gain, downmixes, linearly resamples to 16 kHz mono PCM16, computes overlay levels, buffers only active recordings, owns the rapid Win32 overlay, publishes local control events, and supervises the worker.
-
-When recording begins, `smalltalkai-capture.exe` starts warming the speech model in the background. The tooltip reports model loading, loaded, and unloaded lifecycle events. The recording tooltip is a compact stationary Unicode waveform whose bar heights change only with microphone level.
-
-`smalltalkai-infer.exe` dynamically loads Parakeet, loads the selected GGUF lazily, handles framed PCM/WAV requests, returns transcripts, and exits after graceful shutdown or its idle backstop. Settings exposes an inference-device dropdown: `nvidia_gpu` uses the bundled CUDA backend and `cpu` forces CPU inference without VRAM use. The settings UI also separates installed-model selection from the downloadable catalog, uses a microphone dropdown instead of a free-text box, and shows absolute runtime/model paths.
-
-### Testing
-
-#### Run the complete Windows validation suite
-
-From Command Prompt or PowerShell:
-
-```bat
-scripts\test-full.cmd
-```
-
-This is the main pre-commit command. It runs:
-
-```text
-cargo test --all-targets
-python scripts\verify-static.py
-python tools\ipc-poc\test_poc.py
-scripts\test-ahk-full.cmd
-```
-
-The full suite builds current release binaries before running the AutoHotkey smoke tests, so stale `target\release` executables cannot hide source changes.
-
-#### What the complete suite covers
-
-The combined suite verifies:
-
-```text
-Rust unit tests and real child-process worker lifecycle tests
-nested schema-v5 normalization and malformed-file preservation
-Windows Common Controls v6 manifest embedding for modern tooltips
-capture-service / inference-worker process boundaries
-loopback authenticated IPC, Unicode transport, and reconnect
-AutoHotkey v2 syntax validation for the shell and every AHK test entry point
-authenticated browser Settings save/reload and conflict handling
-hotkey parsing and binding behavior
-foreground-window-safe typed delivery
-casual-text transforms: punctuation removal and lowercase conversion
-response-file sharing-violation retry handling
-real Parakeet model load and model-test transcription
-worker unload and PID disappearance
-recording-start model prewarm before transcription
-capture-service restart and reconnect
-single `hello world` typed-delivery check
-`Ctrl+V` and `Ctrl+Shift+V` paste delivery checks
-full non-text clipboard-format restoration after paste
-```
-
-The end-to-end smoke uses an isolated temporary config and state directory. It does not overwrite the normal `%APPDATA%\smalltalkai\config.json` file or reuse the live shell discovery file.
-
-The paste smoke intentionally sends only `hello world` into controlled temporary edit boxes. It also places a custom non-text object format on the clipboard before pasting and asserts that the object format is restored afterward.
-
-#### Run only the AutoHotkey validation and runtime smoke suite
-
-```bat
-scripts\test-ahk-full.cmd
-```
-
-This command:
-
-```text
-builds smalltalkai-capture, smalltalkai-infer, and smalltalkai-ctl in release mode
-runs AutoHotkey /Validate with /ErrorStdOut=UTF-8 for every entry point
-runs the AHK smoke scripts
-runs the real model load/unload/prewarm and paste-delivery E2E smoke
-```
-
-The runner looks for AutoHotkey v2 at:
-
-```text
-%ProgramFiles%\AutoHotkey\v2\AutoHotkey64.exe
-%ProgramFiles%\AutoHotkey\v2\AutoHotkey.exe
-```
-
-Load-time AHK failures are written to stderr instead of GUI dialogs.
-
-#### Run source-only checks
-
-```powershell
-.\scripts\test-static.ps1
-```
-
-Or run the underlying commands directly if PowerShell execution policy blocks unsigned local scripts:
-
-```bat
-python scripts\verify-static.py
-python tools\ipc-poc\test_poc.py
-```
-
-These checks do not require the speech model. They verify source invariants and the loopback IPC proof of concept.
-
-#### Run Rust tests only
-
-```powershell
-cargo test --all-targets
-```
-
-This includes deterministic worker lifecycle integration tests using the test-only `smalltalkai_mock_infer` child process. The mock worker is never included in release packaging.
-
-#### Manual release checks still required
-
-Automation is intentionally strong, but it does not replace a final desktop pass. Before publishing a release, manually verify:
-
-```text
-physical hold-to-record microphone dictation
-Caps Lock tap behavior and configured record chord
-real overlay placement near the cursor on each monitor
-compact stationary waveform appearance
-model loaded and unloaded tooltip notices
-tray Reload App action
-startup shortcut creation and removal
-microphone selection followed by audio-service restart
-typing and paste delivery into representative target applications
-RAM and VRAM cleanup after repeated unload and idle-timeout cycles
-packaging with build-distribution.cmd
-```
-
-See `docs/testing.md` and `docs/memory-cleanup-validation.md` for the detailed matrix.
-
-### Install-relative paths
-
-Relative runtime/model directories resolve from the checkout root for Cargo `target\debug` / `target\release` binaries and from the executable directory for packaged binaries. Persisted config, logs, state, and cached catalog data are isolated per runtime root so portable, installed, and checkout/dev builds do not accidentally share the wrong model or runtime location. `build-distribution.cmd` and `scripts\build-distribution.ps1` stage `fixtures\parakeet-smoke.wav` for model testing.
-
-The source repository intentionally does not vendor Parakeet runtime binaries, GGUF model files, AutoHotkey installs, or unrelated external reference projects. Place a compatible Parakeet runtime under `external\parakeet-runtime\parakeet-windows-cuda\` for local development or packaging, and review upstream licenses before publishing any binary package that includes runtime/model artifacts.
-
-The Windows installer includes the Parakeet runtime DLLs but does not bundle or download STT, TTS, or OCR models. Choose models explicitly in Settings, as on Linux. Existing settings and downloaded models are preserved during upgrades.
-
-## License
-
-SmallTalk is licensed under GPL-2.0-only. Some of the Rust tooltip implementation was directly referenced from AutoHotkey source code, so the project uses a compatible GPL license.
-
-See `LICENSE` and `THIRD_PARTY_NOTICES.md`.
-
-## Linux / Wayland minimal mode
-
-This overhaul includes a Linux shell that avoids AutoHotkey and does not store
-hotkey strings in the JSON config. Build the Rust binaries, start
-`target/release/smalltalkai-linux daemon`, then bind `target/release/smalltalkai-linux toggle` in
-your desktop's keyboard shortcut settings. See `docs/linux-wayland.md`.
+[CLI and agent setup](docs/cli.md#agent-skills) · [Architecture](docs/architecture.md) · [Testing](docs/testing.md) · [GPL-3.0 license](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)

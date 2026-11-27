@@ -15,13 +15,13 @@
 +                                                             size_t name_len);
 +ORT_EXPORT int ORT_API_CALL SmallTalkAIWebGpuVisitAdaptersV1(SmallTalkAIWebGpuAdapterVisitorV1 visitor,
 +                                                            void* user_data) NO_EXCEPTION;
-
+ 
  /** \brief Thread work loop function
   *
 --- a/onnxruntime/core/providers/webgpu/webgpu_context.cc
 +++ b/onnxruntime/core/providers/webgpu/webgpu_context.cc
 @@ -41,6 +41,61 @@
-
+ 
  namespace onnxruntime {
  namespace webgpu {
 +
@@ -79,11 +79,11 @@
 +
 +}  // namespace
 +
-
+ 
  void WebGpuContext::Initialize(const WebGpuContextConfig& config) {
    std::call_once(init_flag_, [this, &config]() {
 @@ -74,20 +129,8 @@
-
+ 
      if (device_ == nullptr) {
        // Create wgpu::Adapter
 -      wgpu::RequestAdapterOptions req_adapter_options = {};
@@ -108,7 +108,7 @@
 @@ -804,22 +847,6 @@
    return Status::OK();
  }
-
+ 
 -std::vector<const char*> WebGpuContext::GetEnabledAdapterToggles() const {
 -  // See the description of all the toggles in toggles.cpp
 -  // "use_dxc" for Shader Model 6+ features (e.g. float16)
@@ -131,7 +131,7 @@
 @@ -1395,14 +1422,10 @@
  std::unordered_map<int32_t, WebGpuContextFactory::WebGpuContextInfo>* WebGpuContextFactory::contexts_ = nullptr;
  WGPUInstance WebGpuContextFactory::default_instance_ = nullptr;
-
+ 
 -WebGpuContext& WebGpuContextFactory::CreateContext(const WebGpuContextConfig& config) {
 -  const int context_id = config.context_id;
 -  WGPUInstance instance = config.instance;
@@ -148,7 +148,7 @@
 @@ -1424,20 +1447,55 @@
  #endif
    });
-
+ 
 +}
 +
 +int WebGpuContextFactory::VisitBundledAdapters([[maybe_unused]] SmallTalkAIWebGpuAdapterVisitorV1 visitor,
@@ -195,7 +195,7 @@
 +
 +  InitializeDawn(config.dawn_proc_table);
    std::lock_guard<std::mutex> lock(mutex_);
-
+ 
    if (default_instance_ == nullptr) {
 -    // Create wgpu::Instance
 -    wgpu::InstanceFeatureName required_instance_features[] = {wgpu::InstanceFeatureName::TimedWaitAny};
@@ -211,9 +211,9 @@
 +    default_instance_ = CreateDefaultDawnInstance().MoveToCHandle();
      ORT_ENFORCE(default_instance_ != nullptr, "Failed to create wgpu::Instance.");
    }
-
+ 
 @@ -1554,3 +1612,15 @@
-
+ 
  }  // namespace webgpu
  }  // namespace onnxruntime
 +
@@ -235,17 +235,17 @@
    /// </summary>
    static WebGpuContext& DefaultContext();
 +  static int VisitBundledAdapters(SmallTalkAIWebGpuAdapterVisitorV1 visitor, void* user_data);
-
+ 
   private:
    WebGpuContextFactory() {}
 +  static void InitializeDawn(const void* dawn_proc_table);
-
+ 
    static std::mutex mutex_;
    static std::once_flag init_default_flag_;
 @@ -414,7 +416,6 @@
    void DispatchCommand(const webgpu::CapturedCommandInfo& command, CommandRecordingState& recording);
    Status EncodeDeferredDispatches(CommandRecordingState& recording);
-
+ 
 -  std::vector<const char*> GetEnabledAdapterToggles() const;
    std::vector<const char*> GetEnabledDeviceToggles() const;
    std::vector<const char*> GetDisabledDeviceToggles() const;
@@ -259,20 +259,20 @@
 @@ -15,7 +15,7 @@
    MatMulNBitsFusion(const InlinedHashSet<std::string_view>& compatible_eps = {},
                      const SatApplyContextVariant& apply_context = {});
-
+ 
 -  SelectorActionRegistry CreateSelectorActionRegistry() const;
 +  static SelectorActionRegistry CreateSelectorActionRegistry();
  };
-
+ 
  }  // namespace onnxruntime
 --- a/onnxruntime/core/optimizer/matmul_nbits_fusion.cc
 +++ b/onnxruntime/core/optimizer/matmul_nbits_fusion.cc
 @@ -130,7 +130,7 @@
-
+ 
  }  // namespace
-
+ 
 -SelectorActionRegistry MatMulNBitsFusion::CreateSelectorActionRegistry() const {
 +SelectorActionRegistry MatMulNBitsFusion::CreateSelectorActionRegistry() {
    SelectorActionRegistry registry{};
-
+ 
    BiasFusionRule(registry);

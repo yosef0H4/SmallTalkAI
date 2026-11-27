@@ -113,7 +113,7 @@ export async function refreshState(reloaded = false, signal?: AbortSignal) {
         "output.delivery_mode",
         "cleanup.enabled",
       ]);
-      const routing = ["selection_mode", "single_model_filename", "language_models", "language_runtimes", "runtime_dir", "language_devices"] as const;
+      const routing = ["selection_mode", "single_model_filename", "language_models", "language_runtimes", "runtime_dir", "language_devices", "vulkan_adapter"] as const;
       if (!ui.jsonInvalid && !ui.jsonPending) {
         for (const key of routing) {
           const prefix = `speech.${key}`;

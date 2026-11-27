@@ -64,7 +64,7 @@ const makeConfig = () => ({
   output: {
     delivery_mode: "smart_paste",
     enabled_delivery_modes: ["smart_paste", "type"],
-    app_overrides: [],
+    smart_paste_rules: [{ app_id: "WindowsTerminal.exe", mode: "paste_ctrl_shift_v" }],
     paced_typing_enabled: true,
     typing_speed_wpm: 450,
     preserve_clipboard: true,
@@ -333,6 +333,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === "/api/defaults" && req.method === "GET")
       return sendJson(res, 200, { config: clone(defaultConfig) });
+    if (url.pathname === "/api/desktop-windows")
+      return sendJson(res, 200, [{ app_id: "test-app", title: "An open window" }]);
     if (url.pathname === "/api/save" && req.method === "POST") {
       const body = JSON.parse(await readBody(req));
       if (options.conflict)

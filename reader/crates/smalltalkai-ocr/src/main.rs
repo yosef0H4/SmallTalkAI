@@ -50,6 +50,8 @@ struct Args {
     runtime_dir: Option<PathBuf>,
     #[arg(long)]
     library: Option<PathBuf>,
+    #[arg(long, hide = true)]
+    probe_webgpu: bool,
     #[arg(long, default_value = "auto", value_parser = ["auto", "cpu", "gpu"])]
     device: String,
     #[command(flatten)]
@@ -126,17 +128,7 @@ fn load_ocr(args: &Args) -> Result<OcrEngine> {
         .runtime_dir
         .as_ref()
         .context("local OCR needs --runtime-dir")?;
-    let lib_dir = if runtime_dir.join("lib").is_dir() {
-        runtime_dir.join("lib")
-    } else {
-        runtime_dir.clone()
-    };
-    #[cfg(target_os = "windows")]
-    let library = lib_dir.join("onnxruntime.dll");
-    #[cfg(target_os = "macos")]
-    let library = lib_dir.join("libonnxruntime.dylib");
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let library = lib_dir.join("libonnxruntime.so");
+    let library = webgpu::ort_library(runtime_dir);
     let library = args.library.as_ref().unwrap_or(&library);
     #[cfg(windows)]
     reader_core::native_paths::configure_windows_dll_search(runtime_dir, library)?;
@@ -145,7 +137,7 @@ fn load_ocr(args: &Args) -> Result<OcrEngine> {
     let (environment, use_webgpu) = args
         .webgpu
         .configure(environment, &args.device)
-        .context("gpu_unavailable: WebGPU OCR could not initialize")?;
+        .context("gpu_unavailable: Dawn OCR could not initialize")?;
     environment.commit();
     #[cfg(target_os = "linux")]
     if use_webgpu {
@@ -155,7 +147,7 @@ fn load_ocr(args: &Args) -> Result<OcrEngine> {
     if use_cuda {
         anyhow::ensure!(
             ort::ep::CUDA::default().is_available().unwrap_or(false),
-            "gpu_unavailable: CUDA execution provider is unavailable in the selected ONNX Runtime"
+            "CUDA execution provider is unavailable in the selected ONNX Runtime"
         );
     }
     let providers = if use_webgpu {
@@ -233,7 +225,7 @@ fn load_ocr(args: &Args) -> Result<OcrEngine> {
             .map_err(|error| anyhow::anyhow!("loading PaddleOCR models: {error}"))
     };
     let pipeline = if use_webgpu {
-        pipeline.context("gpu_unavailable: WebGPU OCR could not initialize")?
+        pipeline.context("gpu_unavailable: Dawn OCR could not initialize")?
     } else if use_cuda {
         pipeline.context("gpu_unavailable: CUDA OCR could not initialize")?
     } else {
@@ -260,7 +252,7 @@ fn native_ocr(
     if engine.cuda && !engine.proven {
         anyhow::ensure!(
             reader_core::cuda::onnx_cuda_verified(),
-            "gpu_unavailable: CUDA requested but PaddleOCR could not prove a GPU allocation for this worker"
+            "CUDA requested but PaddleOCR could not prove a GPU allocation for this worker"
         );
         engine.proven = true;
         eprintln!("PaddleOCR CUDA verified: provider loaded and worker owns GPU allocation");
@@ -519,6 +511,7 @@ mod remote_fallback_tests {
     fn remote_args(base_url: String, fallback_to_local: bool) -> Args {
         Args {
             webgpu: webgpu::Options::default(),
+            probe_webgpu: false,
             provider: "openai_compatible".into(),
             model_dir: None,
             runtime_dir: None,
@@ -591,6 +584,13 @@ fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
     let args = Args::parse();
+    if args.probe_webgpu {
+        let runtime = args
+            .runtime_dir
+            .as_deref()
+            .context("missing --runtime-dir")?;
+        return webgpu::probe(runtime);
+    }
     let budgets = request_budgets(&args);
     let client = reqwest::blocking::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -609,18 +609,7 @@ fn main() -> Result<()> {
             WorkerRequest::Shutdown => break,
             WorkerRequest::Prepare { device: _ } => {
                 if args.provider == "local_paddle" && native_engine.is_none() {
-                    match load_ocr(&args) {
-                        Ok(engine) => native_engine = Some(engine),
-                        Err(error) => {
-                            emit(&WorkerEvent::Error {
-                                job_id: None,
-                                generation: None,
-                                code: "ocr_failed".into(),
-                                message: format!("{error:#}"),
-                            })?;
-                            continue;
-                        }
-                    }
+                    native_engine = Some(load_ocr(&args)?);
                 }
                 emit(&WorkerEvent::Ready {
                     incarnation: "prepared".into(),

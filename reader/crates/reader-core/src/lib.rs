@@ -16,8 +16,6 @@ pub mod residency;
 pub mod secrets;
 pub mod text;
 pub mod text_prep;
-#[cfg(any(windows, target_os = "linux"))]
-pub mod vulkan;
 #[cfg(windows)]
 pub mod windows_job;
 pub mod wire;

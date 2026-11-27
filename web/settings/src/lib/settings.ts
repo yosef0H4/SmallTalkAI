@@ -304,8 +304,8 @@ export const searchEntries: {path: string; label: string; page: Page; help?: str
     page: "audio" as Page,
   },
   {
-    path: "output.app_overrides",
-    label: "ui.app_overrides.9e577a",
+    path: "output.smart_paste_rules",
+    label: "settings.smart_paste_rules",
     page: "audio" as Page,
   },
   {

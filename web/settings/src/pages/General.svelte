@@ -1,6 +1,6 @@
 <script lang="ts">
   import Combo from "../components/Combo.svelte";
-  import { ui, platformAction, run, set, markDirty, resetPaths } from "../lib/state.svelte";
+  import { ui, platformAction, run, set, markDirty, notice, resetPaths } from "../lib/state.svelte";
   import { t } from "../lib/i18n";
   import { onMount } from "svelte";
   import { loadReading, reading } from "../lib/reading-state.svelte";
@@ -26,6 +26,7 @@
         : selected,
   );
   const portalShortcuts = $derived(ui.state?.platform === "linux" && backend === "portal");
+  const desktopCommands = $derived(ui.state?.platform === "linux" && backend === "desktop");
   const capsOnlyHint = $derived(ui.config?.general.show_shortcuts_hotkey.trim().toLowerCase() === "capslock");
   const shortcutPaths = [
     "general.enabled",
@@ -37,7 +38,7 @@
   ];
   let configuringShortcuts = $state(false);
   async function resetShortcuts() {
-    const resetReader = !portalShortcuts;
+    const resetReader = !portalShortcuts && !desktopCommands;
     await resetPaths(shortcutPaths);
     if (resetReader && reading.config) {
       for (const [, key] of readerHotkeys) reading.config.shortcuts[key] = "None";
@@ -60,24 +61,39 @@
   }
 </script>
 
+{#snippet linuxShortcut(path: string, label: string, id: string, command: string)}
+  {#if desktopCommands}
+    {@const text = `smalltalkai ${command}`}
+    <div class="command-row" data-setting-path={path}>
+      <span>{t(label)}</span>
+      <code dir="ltr">{text}</code>
+      <IconButton icon="copy" label={t("settings.copy_command", { command: text })} onclick={async () => {
+        await navigator.clipboard.writeText(text);
+        notice(t("reader.copied"));
+      }} />
+    </div>
+  {:else}
+    <div class="field" data-setting-path={path}>
+      <span>{t(label)}</span>
+      <output>{ui.state?.shortcut_state?.[id] || t("ui.not_assigned.b781e6")}</output>
+    </div>
+  {/if}
+{/snippet}
+
 {#snippet appShortcut(index: number)}
   {@const [path, label] = hotkeys[index]}
-  {#if portalShortcuts}
+  {#if portalShortcuts || desktopCommands}
     {@const id = ["record", "cancel", "delivery", "cleanup", "retry", "shortcuts"][index]}
-    <div class="field" data-setting-path={`linux.shortcut.${id}`}>
-      <span>{t(label)}</span><output>{ui.state?.shortcut_state?.[id] || t("ui.not_assigned.b781e6")}</output>
-    </div>
-  {:else if ui.state?.platform === "linux" && backend !== "x11"}
     {@const command = ["toggle", "cancel", "cycle-delivery", "toggle-cleanup", "repeat", "show-shortcuts"][index]}
-    <div class="field"><span>{t(label)}</span><code>smalltalkai-linux {command}</code></div>
+    {@render linuxShortcut(portalShortcuts ? `linux.shortcut.${id}` : path, label, id, command)}
   {:else}
     <Shortcut {path} {label} />
   {/if}
 {/snippet}
 
 {#snippet readerShortcut([id, key]: (typeof readerHotkeys)[number])}
-  {#if portalShortcuts}
-    <div class="field" data-setting-path={`reader.shortcuts.${key}`}><span>{t(`reading.${key}`)}</span><output>{ui.state?.shortcut_state?.[id] || t("ui.not_assigned.b781e6")}</output></div>
+  {#if portalShortcuts || desktopCommands}
+    {@render linuxShortcut(`reader.shortcuts.${key}`, `reading.${key}`, id, id)}
   {:else if reading.config}
     {#if ui.state?.platform === "windows"}
       <Shortcut path={`reader.shortcuts.${key}`} inputId={`reader-shortcut-${key}`} label={`reading.${key}`}
@@ -140,7 +156,7 @@
       ><code>{tools.stop_command || "smalltalkai-linux shutdown"}</code>
     </details>
   {/if}
-  <div class="shortcut-cards" class:setup-cards={setupShortcuts}>
+  <div class="shortcut-cards" class:setup-cards={setupShortcuts} class:command-cards={desktopCommands}>
     <section class="shortcut-card" aria-labelledby="shortcuts-app-heading">
       {@render cardHeading("shortcuts-app-heading", "settings.app_wide_shortcuts", "keyboard")}
       {@render appShortcut(5)}
@@ -155,7 +171,7 @@
       {#if ui.state?.platform !== "linux"}<Field spec={fields.recordingMode} />{/if}
       {#each [0, 2, 3] as index}{@render appShortcut(index)}{/each}
     </section>
-    {#if portalShortcuts || reading.config}
+    {#if portalShortcuts || desktopCommands || reading.config}
       <section class="shortcut-card" aria-labelledby="shortcuts-reading-heading">
         {@render cardHeading("shortcuts-reading-heading", "settings.reading", "text")}
         {#each readerHotkeys as shortcut}
@@ -201,6 +217,29 @@
     display: grid;
     gap: 14px;
     margin-block-start: 18px;
+  }
+
+  .shortcut-cards.command-cards {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, max(340px, 45%)), 1fr));
+    align-items: start;
+    gap: 14px;
+  }
+
+  .command-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 4px 12px;
+    padding-block: 8px;
+  }
+
+  .command-row code {
+    grid-column: 1;
+    overflow-wrap: anywhere;
+  }
+
+  .command-row :global(.icon-button) {
+    grid-area: 1 / 2 / span 2;
   }
 
   .shortcut-card {

@@ -34,6 +34,7 @@ export interface Config {
     remote_languages?:Record<string,import('./modules.svelte').RemoteRoute>;
     remote_openai_compatible: {base_url:string;model:string;prompt?:string;fallback_to_local:boolean;timeout_ms:number};
     inference_device: "auto" | "cpu" | "gpu";
+    vulkan_adapter?: string;
     runtime_dir: string;
     language_runtimes: Record<string,string|null>;
     language_devices: Record<string,"auto"|"cpu"|"gpu">;
@@ -47,7 +48,7 @@ export interface Config {
   output: {
     delivery_mode: DeliveryMode;
     enabled_delivery_modes: DeliveryMode[];
-    app_overrides: { app_id: string; mode: DeliveryMode }[];
+    smart_paste_rules: { app_id: string; mode: DeliveryMode }[];
     paced_typing_enabled: boolean;
     typing_speed_wpm: number;
     preserve_clipboard: boolean;
@@ -224,7 +225,7 @@ export function assertConfig(value: unknown): asserts value is Config {
     output: [
       "delivery_mode",
       "enabled_delivery_modes",
-      "app_overrides",
+      "smart_paste_rules",
       "paced_typing_enabled",
       "typing_speed_wpm",
       "preserve_clipboard",
@@ -356,7 +357,7 @@ export function assertConfig(value: unknown): asserts value is Config {
     if (!values.includes(String(at(path)))) throw Error(`Invalid ${path}`);
   for (const path of [
     "output.enabled_delivery_modes",
-    "output.app_overrides",
+    "output.smart_paste_rules",
     "cleanup.screenshot.excluded_apps",
   ])
     if (!Array.isArray(at(path))) throw Error(`Invalid ${path}`);
@@ -365,10 +366,11 @@ export function assertConfig(value: unknown): asserts value is Config {
     output.enabled_delivery_modes.some(
       (v) => !enums["output.delivery_mode"].includes(v),
     ) ||
-    output.app_overrides.some(
+    output.smart_paste_rules.some(
       (v) =>
         !v ||
         typeof v.app_id !== "string" ||
+        v.mode === "smart_paste" ||
         !enums["output.delivery_mode"].includes(v.mode),
     )
   )

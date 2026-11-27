@@ -59,6 +59,16 @@ SmallTalkAINoticeEndsSession(event) {
         && SmallTalkAIBool(event["values"]["terminal"])
 }
 
+SmallTalkAIPasteModeForApp(rules, appId) {
+    ; Rust provides exact entries first, followed by substring rules.
+    for rule in StrSplit(rules, "`n") {
+        fields := StrSplit(rule, "`t")
+        if fields.Length = 3 && (fields[1] = "contains" ? InStr(appId, fields[3]) : appId = fields[3])
+            return fields[2]
+    }
+    return "paste_ctrl_v"
+}
+
 SmallTalkAINextDeliveryMode(current, configured := "smart_paste,type") {
     modes := []
     for mode in StrSplit(configured, ",") {

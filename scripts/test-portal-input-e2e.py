@@ -279,6 +279,20 @@ def private_session(root):
         replacement = "keyboard path works"
         expect_input(data_dir, {"kind": "text", "text": replacement, "delay_ms": 0}, "GTK replacement typing")
         wait_for_text(target_text, replacement, "GTK key event and replacement")
+        timing = {}
+        for wpm, delay_ms in [(60, 200), (450, 26), (1650, 7), ("Instant", 0)]:
+            sample = "The quick brown fox jumps."
+            expect_input(data_dir, {"kind": "key", "key": "Ctrl+A"}, "prepare pacing target")
+            started = time.monotonic()
+            expect_input(data_dir, {"kind": "text", "text": sample, "delay_ms": delay_ms},
+                         f"GTK paced typing at {wpm}")
+            wait_for_text(target_text, sample, "paced GTK text completion")
+            timing[wpm] = time.monotonic() - started
+        if not (timing[60] > timing[450] + 2 and timing[450] > timing[1650] + 0.2
+                and timing[1650] > timing["Instant"] + 0.05):
+            raise RuntimeError(f"Portal input did not respect typing delays: {timing}")
+        print("PASS Remote Desktop typing speed: " + ", ".join(
+            f"{wpm}={seconds:.3f}s" for wpm, seconds in timing.items()))
         expect_input(data_dir, {"kind": "key", "key": "PageDown"}, "GTK PageDown action")
         expect_input(data_dir, {"kind": "prepare_pointer"}, "prepare pointer session")
         expect_input(data_dir, {"kind": "click", "x": 450, "y": 300}, "private GTK pointer click")

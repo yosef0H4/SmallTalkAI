@@ -134,6 +134,15 @@ Bind these in your desktop's shortcut settings:
 ```text
 Toggle dictation: smalltalkai toggle
 Cancel dictation: smalltalkai cancel
+Retry last action: smalltalkai repeat
+Show shortcuts:   smalltalkai show-shortcuts
+Switch delivery:  smalltalkai cycle-delivery
+Toggle AI cleanup: smalltalkai toggle-cleanup
+Read selection:   smalltalkai read-selection
+Listen to copies: smalltalkai listen-clipboard
+Read along:       smalltalkai read-along
+Read screen:      smalltalkai read-region
+Copy screen text: smalltalkai copy-region
 Unload model:     smalltalkai unload-model
 Stop daemon:      smalltalkai shutdown
 ```
@@ -165,9 +174,12 @@ window; read-along waits for its selected window to return instead of changing
 focus. Clicks use compositor logical input regions and fail when coordinates
 cannot be safely mapped.
 
-Smart Paste sends Ctrl+V in regular applications and Ctrl+Shift+V in recognized
-terminals. The current action and cycle list are independent; application
-overrides can choose another action.
+Smart Paste looks up the focused application in **Smart Paste rules**. The
+terminal defaults send Ctrl+Shift+V. Exact app IDs take priority over `*name*`
+substring rules. With no match, Smart Paste sends Ctrl+V. Pick an open window
+to use its app ID, or enter one yourself. Remove rules individually or use
+the group reset button to restore the defaults. Rules apply only while Smart
+Paste is selected. Type uses the configured typing speed.
 
 With **Keep clipboard clean** enabled, Wayland clipboard transactions save all
 formats in memory, publish dictation privately, and send the selected portal

@@ -258,6 +258,28 @@ const f = require('./settings-fixture.cjs');
     assert(f.actions.some(item => item.action === 'sync_shortcuts'));
     assert(f.actions.some(item => item.action === 'configure_shortcuts'));
     await page.close();
+    const shortcutBackend = f.getConfig().general.linux_hotkey_backend;
+    f.getConfig().general.linux_hotkey_backend = 'desktop';
+    page = await context.newPage();
+    await page.goto(url);
+    await heading('Keyboard setup').waitFor();
+    const shortcutCommands = page.locator('.shortcut-card code');
+    await shortcutCommands.first().waitFor();
+    const commands = [
+      'smalltalkai show-shortcuts', 'smalltalkai cancel', 'smalltalkai repeat',
+      'smalltalkai toggle', 'smalltalkai cycle-delivery', 'smalltalkai toggle-cleanup',
+      'smalltalkai read-selection', 'smalltalkai listen-clipboard', 'smalltalkai read-along',
+      'smalltalkai read-region', 'smalltalkai copy-region',
+    ];
+    assert.deepEqual(await shortcutCommands.allTextContents(), commands);
+    assert.equal(await page.locator('.shortcut-card input').count(), 0);
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    for (const command of commands) {
+      await page.getByRole('button', { name: `Copy command ${command}`, exact: true }).click();
+      assert.equal(await page.evaluate(() => navigator.clipboard.readText()), command);
+    }
+    await page.close();
+    f.getConfig().general.linux_hotkey_backend = shortcutBackend;
     f.options.platform = 'windows';
     draft = { ...draft, step: 6 };
     page = await context.newPage();
@@ -267,7 +289,7 @@ const f = require('./settings-fixture.cjs');
     await heading('Read aloud').waitFor();
     await page.locator('#model-heading').waitFor();
     assert.equal(draft.step, 8, 'Read aloud starts on its model picker');
-    console.log('PASS first-run guide: theme, overlapping downloads, resume, model routes, previews, Windows shortcut capture, Linux portal actions, and Finish');
+    console.log('PASS first-run guide: theme, overlapping downloads, resume, model routes, previews, Windows shortcut capture, Linux portal actions and copyable desktop commands, and Finish');
   } finally {
     await browser?.close();
     f.closeEvents();

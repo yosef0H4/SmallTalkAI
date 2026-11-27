@@ -49,10 +49,10 @@ index e5c220c..dfaeea9 100755
 +      options.SetLogSeverityLevel(0);
 +    }
 +    const char *index = std::getenv("SMALLTALKAI_WEBGPU_ADAPTER_INDEX");
-+    const char *keys[] = {"adapterIndex"};
-+    const char *values[] = {index};
++    const char *keys[] = {index ? "adapterIndex" : "powerPreference"};
++    const char *values[] = {index ? index : "high-performance"};
 +    Ort::ThrowOnError(Ort::GetApi().SessionOptionsAppendExecutionProvider(
-+        options, "WebGPU", keys, values, index ? 1 : 0));
++        options, "WebGPU", keys, values, 1));
 +    return options;
 +  }
 +

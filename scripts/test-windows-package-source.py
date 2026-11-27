@@ -19,6 +19,8 @@ if "InferenceLibraries" not in builder or "ParakeetSource" in builder:
 if 'assets stage-bundled' not in builder or not all(runtime in builder for runtime in (
         'parakeet-vulkan-windows', 'sherpa-cpu-windows', 'paddle-webgpu-windows')):
     errors.append("Windows distribution must ship verified Vulkan, CPU, and WebGPU runtimes")
+if 'build-dawn-runtime.py' not in builder or builder.find('build-dawn-runtime.py') < builder.find('assets stage-bundled'):
+    errors.append("Windows distribution must replace the stock WebGPU DLL with the source-built Dawn runtime")
 if "SmallTalkAIVersion" not in setup or "/DSmallTalkAIVersion=" not in builder:
     errors.append("installer version is not supplied from Cargo")
 if re.search(r"^AppVersion=\d", setup, re.M):

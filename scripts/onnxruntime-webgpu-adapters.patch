@@ -1,0 +1,292 @@
+--- a/include/onnxruntime/core/session/onnxruntime_c_api.h
++++ b/include/onnxruntime/core/session/onnxruntime_c_api.h
+@@ -1015,6 +1015,17 @@
+  * Call this to get the a pointer to an ::OrtApiBase
+  */
+ ORT_EXPORT const OrtApiBase* ORT_API_CALL OrtGetApiBase(void) NO_EXCEPTION;
++
++// Native Dawn adapters in the built-in WebGPU provider's default order.
++// Kind 1 is discrete, 2 is integrated, and 0 is unspecified. CPU adapters
++// are omitted. Index values retain their positions in the provider's list.
++// The name buffer is borrowed until the visitor returns. Copy it if needed.
++typedef void(ORT_API_CALL* SmallTalkAIWebGpuAdapterVisitorV1)(void* user_data, uint32_t index,
++                                                             uint32_t kind, uint32_t vendor_id,
++                                                             uint32_t device_id, const char* name,
++                                                             size_t name_len);
++ORT_EXPORT int ORT_API_CALL SmallTalkAIWebGpuVisitAdaptersV1(SmallTalkAIWebGpuAdapterVisitorV1 visitor,
++                                                            void* user_data) NO_EXCEPTION;
+ 
+ /** \brief Thread work loop function
+  *
+--- a/onnxruntime/core/providers/webgpu/webgpu_context.cc
++++ b/onnxruntime/core/providers/webgpu/webgpu_context.cc
+@@ -41,6 +41,61 @@
+ 
+ namespace onnxruntime {
+ namespace webgpu {
++
++namespace {
++
++#if !defined(__wasm__)
++std::vector<const char*> GetEnabledAdapterToggles() {
++  // See the description of all the toggles in toggles.cpp
++  // "use_dxc" for Shader Model 6+ features (e.g. float16)
++  // "allow_unsafe_apis" for chromium experimental features
++  constexpr const char* toggles[] = {
++      "use_dxc",
++      "allow_unsafe_apis",
++      "decompose_uniform_buffers",
++#if defined(DAWN_ENABLE_VULKAN)
++      "use_vulkan_memory_model",
++      "vulkan_enable_f16_on_nvidia",
++#endif
++  };
++  return std::vector<const char*>(std::begin(toggles), std::end(toggles));
++}
++#endif
++
++struct AdapterRequest {
++  wgpu::RequestAdapterOptions options{};
++
++  explicit AdapterRequest(const WebGpuContextConfig& config) {
++    options.backendType = static_cast<wgpu::BackendType>(config.backend_type);
++    options.powerPreference = static_cast<wgpu::PowerPreference>(config.power_preference);
++#if !defined(__wasm__)
++    toggles.enabledToggleCount = enabled_toggles.size();
++    toggles.enabledToggles = enabled_toggles.data();
++    options.nextInChain = &toggles;
++#endif
++  }
++
++ private:
++#if !defined(__wasm__)
++  std::vector<const char*> enabled_toggles = GetEnabledAdapterToggles();
++  wgpu::DawnTogglesDescriptor toggles{};
++#endif
++};
++
++wgpu::Instance CreateDefaultDawnInstance() {
++  wgpu::InstanceFeatureName required_features[] = {wgpu::InstanceFeatureName::TimedWaitAny};
++  wgpu::InstanceDescriptor descriptor{};
++  descriptor.requiredFeatures = required_features;
++  descriptor.requiredFeatureCount = std::size(required_features);
++#if !defined(__wasm__) && !defined(USE_EXTERNAL_DAWN)
++  return CreateBundledDawnInstance(descriptor);
++#else
++  return wgpu::CreateInstance(&descriptor);
++#endif
++}
++
++}  // namespace
++
+ 
+ void WebGpuContext::Initialize(const WebGpuContextConfig& config) {
+   std::call_once(init_flag_, [this, &config]() {
+@@ -74,20 +129,8 @@
+ 
+     if (device_ == nullptr) {
+       // Create wgpu::Adapter
+-      wgpu::RequestAdapterOptions req_adapter_options = {};
+-      req_adapter_options.backendType = static_cast<wgpu::BackendType>(config.backend_type);
+-      req_adapter_options.powerPreference = static_cast<wgpu::PowerPreference>(config.power_preference);
+-
+-#if !defined(__wasm__)
+-      auto enabled_adapter_toggles = GetEnabledAdapterToggles();
+-
+-      wgpu::DawnTogglesDescriptor adapter_toggles_desc = {};
+-      adapter_toggles_desc.enabledToggleCount = enabled_adapter_toggles.size();
+-      adapter_toggles_desc.enabledToggles = enabled_adapter_toggles.data();
+-
+-      req_adapter_options.nextInChain = &adapter_toggles_desc;
+-#endif
+-
++      const AdapterRequest request{config};
++      const auto& req_adapter_options = request.options;
+       wgpu::Adapter adapter;
+       if (config.adapter_index) {
+ #if !defined(__wasm__) && !defined(USE_EXTERNAL_DAWN)
+@@ -131,6 +174,13 @@
+         adapter = std::move(adapter_result.adapter);
+       }
+       ORT_ENFORCE(adapter != nullptr, "Failed to get a WebGPU adapter.");
++
++#if !defined(__wasm__) && !defined(USE_EXTERNAL_DAWN)
++      wgpu::AdapterInfo adapter_info{};
++      ORT_ENFORCE(adapter.GetInfo(&adapter_info) == wgpu::Status::Success &&
++                      adapter_info.adapterType != wgpu::AdapterType::CPU,
++                  "WebGPU requires a physical GPU. Select CPU inference to run on the processor.");
++#endif
+ 
+       // Create wgpu::Device
+       wgpu::DeviceDescriptor device_desc = {};
+@@ -804,22 +854,6 @@
+   return Status::OK();
+ }
+ 
+-std::vector<const char*> WebGpuContext::GetEnabledAdapterToggles() const {
+-  // See the description of all the toggles in toggles.cpp
+-  // "use_dxc" for Shader Model 6+ features (e.g. float16)
+-  // "allow_unsafe_apis" for chromium experimental features
+-  constexpr const char* toggles[] = {
+-      "use_dxc",
+-      "allow_unsafe_apis",
+-      "decompose_uniform_buffers",
+-#if defined(DAWN_ENABLE_VULKAN)
+-      "use_vulkan_memory_model",
+-      "vulkan_enable_f16_on_nvidia",
+-#endif
+-  };
+-  return std::vector<const char*>(std::begin(toggles), std::end(toggles));
+-}
+-
+ std::vector<const char*> WebGpuContext::GetEnabledDeviceToggles() const {
+   // Enable / disable other toggles that may affect the performance.
+   // Other toggles that may be useful: "dump_shaders", "disable_symbol_renaming"
+@@ -1395,14 +1429,10 @@
+ std::unordered_map<int32_t, WebGpuContextFactory::WebGpuContextInfo>* WebGpuContextFactory::contexts_ = nullptr;
+ WGPUInstance WebGpuContextFactory::default_instance_ = nullptr;
+ 
+-WebGpuContext& WebGpuContextFactory::CreateContext(const WebGpuContextConfig& config) {
+-  const int context_id = config.context_id;
+-  WGPUInstance instance = config.instance;
+-  WGPUDevice device = config.device;
+-
++void WebGpuContextFactory::InitializeDawn([[maybe_unused]] const void* dawn_proc_table) {
+   std::call_once(init_default_flag_, [
+ #if !defined(__wasm__)
+-                                         dawn_proc_table = config.dawn_proc_table
++                                         dawn_proc_table
+ #endif
+   ]() {
+   // Setup dawn proc table (only for non-WASM build)
+@@ -1424,20 +1454,55 @@
+ #endif
+   });
+ 
++}
++
++int WebGpuContextFactory::VisitBundledAdapters([[maybe_unused]] SmallTalkAIWebGpuAdapterVisitorV1 visitor,
++                                                [[maybe_unused]] void* user_data) {
++#if !defined(__wasm__) && !defined(USE_EXTERNAL_DAWN)
++  InitializeDawn(nullptr);
++  const auto instance = CreateDefaultDawnInstance();
++  if (instance == nullptr) {
++    return 1;
++  }
++
++  const AdapterRequest request{WebGpuContextConfig{}};
++  const auto adapters = EnumerateBundledDawnAdapters(instance.Get(), request.options);
++  for (uint32_t index = 0; index < adapters.size(); ++index) {
++    wgpu::AdapterInfo info{};
++    if (adapters[index].GetInfo(&info) != wgpu::Status::Success) {
++      continue;
++    }
++    uint32_t kind = 0;
++    switch (info.adapterType) {
++      case wgpu::AdapterType::DiscreteGPU:
++        kind = 1;
++        break;
++      case wgpu::AdapterType::IntegratedGPU:
++        kind = 2;
++        break;
++      case wgpu::AdapterType::CPU:
++        continue;
++      default:
++        break;
++    }
++    visitor(user_data, index, kind, info.vendorID, info.deviceID, info.device.data, info.device.length);
++  }
++  return 0;
++#else
++  return 1;
++#endif
++}
++
++WebGpuContext& WebGpuContextFactory::CreateContext(const WebGpuContextConfig& config) {
++  const int context_id = config.context_id;
++  WGPUInstance instance = config.instance;
++  WGPUDevice device = config.device;
++
++  InitializeDawn(config.dawn_proc_table);
+   std::lock_guard<std::mutex> lock(mutex_);
+ 
+   if (default_instance_ == nullptr) {
+-    // Create wgpu::Instance
+-    wgpu::InstanceFeatureName required_instance_features[] = {wgpu::InstanceFeatureName::TimedWaitAny};
+-    wgpu::InstanceDescriptor instance_desc{};
+-    instance_desc.requiredFeatures = required_instance_features;
+-    instance_desc.requiredFeatureCount = sizeof(required_instance_features) / sizeof(required_instance_features[0]);
+-#if !defined(__wasm__) && !defined(USE_EXTERNAL_DAWN)
+-    default_instance_ = CreateBundledDawnInstance(instance_desc).MoveToCHandle();
+-#else
+-    default_instance_ = wgpu::CreateInstance(&instance_desc).MoveToCHandle();
+-#endif
+-
++    default_instance_ = CreateDefaultDawnInstance().MoveToCHandle();
+     ORT_ENFORCE(default_instance_ != nullptr, "Failed to create wgpu::Instance.");
+   }
+ 
+@@ -1554,3 +1619,15 @@
+ 
+ }  // namespace webgpu
+ }  // namespace onnxruntime
++
++int ORT_API_CALL SmallTalkAIWebGpuVisitAdaptersV1(SmallTalkAIWebGpuAdapterVisitorV1 visitor,
++                                                 void* user_data) NO_EXCEPTION {
++  if (visitor == nullptr) {
++    return 1;
++  }
++  try {
++    return onnxruntime::webgpu::WebGpuContextFactory::VisitBundledAdapters(visitor, user_data);
++  } catch (...) {
++    return 1;
++  }
++}
+--- a/onnxruntime/core/providers/webgpu/webgpu_context.h
++++ b/onnxruntime/core/providers/webgpu/webgpu_context.h
+@@ -224,9 +224,11 @@
+   /// Return the default context. Create if not present.
+   /// </summary>
+   static WebGpuContext& DefaultContext();
++  static int VisitBundledAdapters(SmallTalkAIWebGpuAdapterVisitorV1 visitor, void* user_data);
+ 
+  private:
+   WebGpuContextFactory() {}
++  static void InitializeDawn(const void* dawn_proc_table);
+ 
+   static std::mutex mutex_;
+   static std::once_flag init_default_flag_;
+@@ -414,7 +416,6 @@
+   void DispatchCommand(const webgpu::CapturedCommandInfo& command, CommandRecordingState& recording);
+   Status EncodeDeferredDispatches(CommandRecordingState& recording);
+ 
+-  std::vector<const char*> GetEnabledAdapterToggles() const;
+   std::vector<const char*> GetEnabledDeviceToggles() const;
+   std::vector<const char*> GetDisabledDeviceToggles() const;
+   std::vector<wgpu::FeatureName> GetAvailableRequiredFeatures(const wgpu::Adapter& adapter) const;
+--- a/onnxruntime/core/providers/webgpu/symbols.txt
++++ b/onnxruntime/core/providers/webgpu/symbols.txt
+@@ -0,0 +1 @@
++SmallTalkAIWebGpuVisitAdaptersV1
+--- a/onnxruntime/core/optimizer/matmul_nbits_fusion.h
++++ b/onnxruntime/core/optimizer/matmul_nbits_fusion.h
+@@ -15,7 +15,7 @@
+   MatMulNBitsFusion(const InlinedHashSet<std::string_view>& compatible_eps = {},
+                     const SatApplyContextVariant& apply_context = {});
+ 
+-  SelectorActionRegistry CreateSelectorActionRegistry() const;
++  static SelectorActionRegistry CreateSelectorActionRegistry();
+ };
+ 
+ }  // namespace onnxruntime
+--- a/onnxruntime/core/optimizer/matmul_nbits_fusion.cc
++++ b/onnxruntime/core/optimizer/matmul_nbits_fusion.cc
+@@ -130,7 +130,7 @@
+ 
+ }  // namespace
+ 
+-SelectorActionRegistry MatMulNBitsFusion::CreateSelectorActionRegistry() const {
++SelectorActionRegistry MatMulNBitsFusion::CreateSelectorActionRegistry() {
+   SelectorActionRegistry registry{};
+ 
+   BiasFusionRule(registry);

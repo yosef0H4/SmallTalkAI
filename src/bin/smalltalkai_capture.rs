@@ -2021,8 +2021,7 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
             let mut response = ShellResponse::ok("cached models");
             response.values.insert(
                 "recommended_model".into(),
-                smalltalkai::models::recommended_model_for_device(&config.speech.inference_device)
-                    .into(),
+                smalltalkai::models::DEFAULT_RECOMMENDED_MODEL.into(),
             );
             for (index, model) in smalltalkai::models::installed_models(config)
                 .into_iter()
@@ -2711,10 +2710,12 @@ fn idle_worker_config(config: &AppConfig) -> Result<WorkerConfig> {
 }
 
 fn worker_config(config: &AppConfig, language: &str, model_path: PathBuf) -> Result<WorkerConfig> {
+    let runtime_dir = smalltalkai::modules::stt_runtime(config, language)
+        .unwrap_or_else(|| config.parakeet_runtime_dir_path());
     Ok(WorkerConfig {
         executable: sibling_executable("smalltalkai-infer")?,
-        runtime_dir: smalltalkai::modules::stt_runtime(config, language)
-            .unwrap_or_else(|| config.parakeet_runtime_dir_path()),
+        vulkan_adapter: smalltalkai::modules::dictation_vulkan_adapter(config, &runtime_dir),
+        runtime_dir,
         model_path,
         log_path: AppConfig::infer_log_path(),
         log_level: config.diagnostics.log_level.clone(),

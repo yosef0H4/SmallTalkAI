@@ -84,6 +84,18 @@ pub enum TextDeliveryMode {
     PasteCtrlShiftV,
     Clipboard,
 }
+impl TextDeliveryMode {
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Type => "type",
+            Self::SmartPaste => "smart_paste",
+            Self::PasteShiftInsert => "paste_shift_insert",
+            Self::PasteCtrlV => "paste_ctrl_v",
+            Self::PasteCtrlShiftV => "paste_ctrl_shift_v",
+            Self::Clipboard => "clipboard",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -96,9 +108,66 @@ pub enum LinuxHotkeyBackend {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AppDeliveryOverride {
+pub struct SmartPasteRule {
     pub app_id: String,
     pub mode: TextDeliveryMode,
+}
+impl SmartPasteRule {
+    fn pattern(&self) -> Option<&str> {
+        self.app_id
+            .strip_prefix('*')?
+            .strip_suffix('*')
+            .filter(|s| !s.is_empty())
+    }
+
+    fn valid(&self) -> bool {
+        let identity = self.app_id.trim();
+        !identity.is_empty()
+            && identity.chars().count() <= 160
+            && !identity.chars().any(char::is_control)
+            && self.mode != TextDeliveryMode::SmartPaste
+    }
+
+    fn defaults() -> Vec<Self> {
+        #[cfg(target_os = "linux")]
+        let terminals = [
+            "*konsole*",
+            "*gnome-terminal*",
+            "Terminal",
+            "org.gnome.Terminal",
+            "x-terminal-emulator",
+            "*kitty*",
+            "*alacritty*",
+            "*terminator*",
+            "*xterm*",
+            "*urxvt*",
+            "rxvt",
+            "*tilix*",
+            "*terminology*",
+            "*wezterm*",
+            "*foot*",
+            "*yakuake*",
+            "*ghostty*",
+            "*guake*",
+            "*tilda*",
+            "*hyper*",
+            "*tabby*",
+            "*sakura*",
+            "*warp*",
+            "*termius*",
+        ];
+        #[cfg(windows)]
+        let terminals = ["WindowsTerminal.exe"];
+        #[cfg(not(any(target_os = "linux", windows)))]
+        let terminals: [&str; 0] = [];
+        terminals
+            .into_iter()
+            .map(|app_id| Self {
+                app_id: app_id.into(),
+                mode: TextDeliveryMode::PasteCtrlShiftV,
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ValueEnum, Default)]
@@ -333,6 +402,8 @@ pub struct SpeechConfig {
     pub provider: SpeechProvider,
     pub remote_openai_compatible: RemoteSttConfig,
     pub inference_device: InferenceDevice,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vulkan_adapter: Option<String>,
     pub runtime_dir: String,
     pub language_devices: std::collections::BTreeMap<String, InferenceDevice>,
     pub language_runtimes: std::collections::BTreeMap<String, Option<String>>,
@@ -434,13 +505,39 @@ impl SpeechConfig {
 pub struct OutputConfig {
     pub delivery_mode: TextDeliveryMode,
     pub enabled_delivery_modes: Vec<TextDeliveryMode>,
-    pub app_overrides: Vec<AppDeliveryOverride>,
+    pub smart_paste_rules: Vec<SmartPasteRule>,
     pub paced_typing_enabled: bool,
     pub typing_speed_wpm: u64,
     pub preserve_clipboard: bool,
     pub trailing_space: bool,
     pub remove_punctuation: bool,
     pub lowercase: bool,
+}
+impl OutputConfig {
+    pub fn ordered_smart_paste_rules(
+        &self,
+    ) -> impl Iterator<Item = (&str, bool, TextDeliveryMode)> {
+        let entries = || self.smart_paste_rules.iter();
+        entries()
+            .filter(|rule| rule.pattern().is_none())
+            .map(|rule| (rule.app_id.as_str(), false, rule.mode))
+            .chain(entries().filter_map(|rule| Some((rule.pattern()?, true, rule.mode))))
+    }
+
+    pub fn delivery_for_app(&self, identity: Option<&str>) -> TextDeliveryMode {
+        if self.delivery_mode != TextDeliveryMode::SmartPaste {
+            return self.delivery_mode;
+        }
+        if let Some(identity) = identity.map(str::to_lowercase) {
+            for (rule, contains, mode) in self.ordered_smart_paste_rules() {
+                let rule = rule.to_lowercase();
+                if (contains && identity.contains(&rule)) || (!contains && identity == rule) {
+                    return mode;
+                }
+            }
+        }
+        TextDeliveryMode::PasteCtrlV
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -544,6 +641,7 @@ impl Default for AppConfig {
                     timeout_ms: 180_000,
                 },
                 inference_device: InferenceDevice::Auto,
+                vulkan_adapter: None,
                 runtime_dir: reader_core::routing::bundled_default(
                     reader_core::routing::Feature::Stt,
                 )
@@ -563,7 +661,7 @@ impl Default for AppConfig {
             output: OutputConfig {
                 delivery_mode: TextDeliveryMode::SmartPaste,
                 enabled_delivery_modes: vec![TextDeliveryMode::SmartPaste, TextDeliveryMode::Type],
-                app_overrides: Vec::new(),
+                smart_paste_rules: SmartPasteRule::defaults(),
                 paced_typing_enabled: true,
                 typing_speed_wpm: 450,
                 preserve_clipboard: true,
@@ -712,10 +810,9 @@ impl AppConfig {
             !self.output.enabled_delivery_modes.is_empty(),
             "enabled_delivery_modes must not be empty"
         );
-        for app_override in &self.output.app_overrides {
+        for rule in &self.output.smart_paste_rules {
             anyhow::ensure!(
-                !app_override.app_id.trim().is_empty() && app_override.app_id.len() <= 160,
-                "Linux app override IDs must contain 1 to 160 characters"
+                rule.valid(), "Smart Paste rules need an application ID of 1 to 160 characters and a delivery action"
             );
         }
         anyhow::ensure!(
@@ -914,6 +1011,10 @@ impl AppConfig {
                 }
             }
         }
+        normalized.speech.vulkan_adapter = input["speech"]["vulkan_adapter"]
+            .as_str()
+            .filter(|id| id.len() == 32 && id.bytes().all(|digit| digit.is_ascii_hexdigit()))
+            .map(str::to_ascii_lowercase);
         if let Some(map) = input["speech"]["language_devices"].as_object() {
             for (language, value) in map.iter().take(128) {
                 if valid_language_id(language) {
@@ -979,18 +1080,25 @@ impl AppConfig {
         if normalized.output.enabled_delivery_modes.is_empty() {
             normalized.output.enabled_delivery_modes = defaults.output.enabled_delivery_modes;
         }
-        normalized
-            .output
-            .app_overrides
-            .retain(|entry| !entry.app_id.trim().is_empty() && entry.app_id.len() <= 160);
-        for entry in &mut normalized.output.app_overrides {
+        if let Some(output) =
+            section("output").filter(|output| output.get("smart_paste_rules").is_none())
+        {
+            if let Some(legacy) = output
+                .get("app_overrides")
+                .cloned()
+                .and_then(|value| serde_json::from_value::<Vec<SmartPasteRule>>(value).ok())
+            {
+                normalized.output.smart_paste_rules.splice(..0, legacy);
+            }
+        }
+        for entry in &mut normalized.output.smart_paste_rules {
             entry.app_id = entry.app_id.trim().to_owned();
         }
         let mut seen_app_ids = std::collections::HashSet::new();
         normalized
             .output
-            .app_overrides
-            .retain(|entry| seen_app_ids.insert(entry.app_id.to_ascii_lowercase()));
+            .smart_paste_rules
+            .retain(|entry| entry.valid() && seen_app_ids.insert(entry.app_id.to_lowercase()));
         if normalized.speech.idle_worker_timeout_secs == 0 {
             normalized.speech.idle_worker_timeout_secs = defaults.speech.idle_worker_timeout_secs;
         }
@@ -1797,8 +1905,12 @@ mod tests {
     }
 
     #[test]
-    fn app_delivery_overrides_normalize_and_validate() {
+    fn smart_paste_rules_migrate_and_allow_deleting_all_defaults() {
         let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+        value["output"]
+            .as_object_mut()
+            .unwrap()
+            .remove("smart_paste_rules");
         value["output"]["app_overrides"] = serde_json::json!([
             {"app_id":"  kitty  ","mode":"paste_ctrl_shift_v"},
             {"app_id":"ExampleGame.exe","mode":"type"},
@@ -1806,10 +1918,57 @@ mod tests {
             {"app_id":"","mode":"clipboard"}
         ]);
         let config = AppConfig::normalize_json(&value);
-        assert_eq!(config.output.app_overrides.len(), 2);
-        assert_eq!(config.output.app_overrides[0].app_id, "kitty");
-        assert_eq!(config.output.app_overrides[1].mode, TextDeliveryMode::Type);
+        assert_eq!(config.output.smart_paste_rules[0].app_id, "kitty");
+        assert_eq!(
+            config.output.smart_paste_rules[1].mode,
+            TextDeliveryMode::Type
+        );
+        assert_eq!(
+            config.output.smart_paste_rules.len(),
+            2 + SmartPasteRule::defaults().len()
+        );
         config.validate().unwrap();
+        value["output"]["smart_paste_rules"] = serde_json::json!([]);
+        let config = AppConfig::normalize_json(&value);
+        assert!(config.output.smart_paste_rules.is_empty());
+        assert_eq!(
+            config.output.delivery_for_app(Some("kitty")),
+            TextDeliveryMode::PasteCtrlV
+        );
+    }
+
+    #[test]
+    fn smart_paste_rules_yield_to_explicit_delivery_and_prioritize_exact_ids() {
+        let mut output = AppConfig::default().output;
+        output.smart_paste_rules = vec![
+            SmartPasteRule {
+                app_id: "*kitty*".into(),
+                mode: TextDeliveryMode::PasteCtrlShiftV,
+            },
+            SmartPasteRule {
+                app_id: "KITTY".into(),
+                mode: TextDeliveryMode::Type,
+            },
+        ];
+        assert_eq!(
+            output.delivery_for_app(Some("kitty")),
+            TextDeliveryMode::Type
+        );
+        assert_eq!(
+            output.delivery_for_app(Some("org.kitty")),
+            TextDeliveryMode::PasteCtrlShiftV
+        );
+        assert_eq!(output.delivery_for_app(None), TextDeliveryMode::PasteCtrlV);
+        output.delivery_mode = TextDeliveryMode::PasteShiftInsert;
+        assert_eq!(
+            output.delivery_for_app(Some("kitty")),
+            TextDeliveryMode::PasteShiftInsert
+        );
+        output.delivery_mode = TextDeliveryMode::Type;
+        assert_eq!(
+            output.delivery_for_app(Some("org.kitty")),
+            TextDeliveryMode::Type
+        );
     }
 
     #[test]

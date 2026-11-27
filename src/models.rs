@@ -1,4 +1,4 @@
-use crate::config::{replace_file_atomic, validate_model_filename, AppConfig, InferenceDevice};
+use crate::config::{replace_file_atomic, validate_model_filename, AppConfig};
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -8,12 +8,14 @@ use std::path::{Path, PathBuf};
 
 const ENGLISH_Q8_SHA256: &str = "614feee3a990cf0e672b0314f4da0c80ae8da9094507f5ccb7c42e43b5fc5a12";
 const ARABIC_Q8_SHA256: &str = "b0aa3f0f316551a45bbd76d1ac7674102a3b221d5fd8c4cd6cac1c2bc4ccce86";
+pub const DEFAULT_RECOMMENDED_MODEL: &str = "tdt_ctc-110m-q8_0.gguf";
+const RECOMMENDED_ARABIC_MODEL: &str = "lemura-arabic-asr-lite-q8_0.gguf";
 pub const ARABIC_Q8_URL: &str = "https://huggingface.co/yosef0H4/lemura-arabic-asr-lite-GGUF/resolve/main/lemura-arabic-asr-lite-q8_0.gguf";
 
 pub fn pinned_model_sha256(filename: &str) -> Option<&'static str> {
     match filename {
-        "tdt_ctc-110m-q8_0.gguf" => Some(ENGLISH_Q8_SHA256),
-        "lemura-arabic-asr-lite-q8_0.gguf" => Some(ARABIC_Q8_SHA256),
+        DEFAULT_RECOMMENDED_MODEL => Some(ENGLISH_Q8_SHA256),
+        RECOMMENDED_ARABIC_MODEL => Some(ARABIC_Q8_SHA256),
         _ => None,
     }
 }
@@ -270,25 +272,22 @@ pub fn refresh_catalog_cache() -> Result<Vec<String>> {
 }
 pub fn catalog_for_config(config: &AppConfig) -> Vec<ModelSpec> {
     let mut models = BTreeMap::<String, ModelSpec>::new();
-    for mut model in catalog() {
-        model.recommended = is_recommended_for_device(&model.file, &config.speech.inference_device);
+    for model in catalog() {
         models.insert(model.file.clone(), model);
     }
     for file in cached_catalog_files() {
-        let recommended = is_recommended_for_device(&file, &config.speech.inference_device);
         models.entry(file.clone()).or_insert_with(|| ModelSpec {
             family: "online".into(),
             quant: "unknown".into(),
             file: file.clone(),
             size_mb: 0,
-            recommended,
+            recommended: false,
             installed: false,
             languages: Vec::new(),
             download_url: Some(format!("{BASE_URL}/{file}")),
         });
     }
     for file in installed_model_files(config) {
-        let recommended = is_recommended_for_device(&file, &config.speech.inference_device);
         models
             .entry(file.clone())
             .and_modify(|model| model.installed = true)
@@ -309,7 +308,7 @@ pub fn catalog_for_config(config: &AppConfig) -> Vec<ModelSpec> {
                 size_mb: fs::metadata(config.model_dir_path().join(&file))
                     .map(|metadata| (metadata.len() / 1_000_000) as u32)
                     .unwrap_or(0),
-                recommended,
+                recommended: false,
                 installed: true,
                 languages: if file.starts_with("lemura-arabic-asr-lite-") {
                     vec!["Arabic (ar)".into()]
@@ -319,7 +318,16 @@ pub fn catalog_for_config(config: &AppConfig) -> Vec<ModelSpec> {
                 download_url: None,
             });
     }
-    models.into_values().collect()
+    models
+        .into_values()
+        .map(|mut model| {
+            model.recommended = matches!(
+                model.file.as_str(),
+                DEFAULT_RECOMMENDED_MODEL | RECOMMENDED_ARABIC_MODEL
+            );
+            model
+        })
+        .collect()
 }
 
 pub fn installed_model_files(config: &AppConfig) -> Vec<String> {
@@ -352,63 +360,20 @@ pub fn downloadable_models(config: &AppConfig) -> Vec<ModelSpec> {
         .filter(|model| !model.installed)
         .collect::<Vec<_>>();
     models.sort_by(|a, b| {
-        let a_rank = recommendation_rank(&a.file, &config.speech.inference_device, Some(a.size_mb));
-        let b_rank = recommendation_rank(&b.file, &config.speech.inference_device, Some(b.size_mb));
-        match (a_rank, b_rank) {
-            (Some(a_rank), Some(b_rank)) => a_rank
-                .cmp(&b_rank)
-                .then_with(|| a.size_mb.cmp(&b.size_mb))
-                .then_with(|| a.file.cmp(&b.file)),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => a.size_mb.cmp(&b.size_mb).then_with(|| a.file.cmp(&b.file)),
-        }
+        (
+            !a.recommended,
+            a.file != DEFAULT_RECOMMENDED_MODEL,
+            a.size_mb,
+            &a.file,
+        )
+            .cmp(&(
+                !b.recommended,
+                b.file != DEFAULT_RECOMMENDED_MODEL,
+                b.size_mb,
+                &b.file,
+            ))
     });
     models
-}
-
-pub fn recommended_model_for_device(device: &InferenceDevice) -> &'static str {
-    match device.effective() {
-        InferenceDevice::Gpu | InferenceDevice::Cpu | InferenceDevice::Auto => {
-            "tdt_ctc-110m-q8_0.gguf"
-        }
-    }
-}
-
-pub fn is_recommended_for_device(file: &str, device: &InferenceDevice) -> bool {
-    recommendation_rank(file, device, known_size_mb(file)).is_some()
-}
-
-fn known_size_mb(file: &str) -> Option<u32> {
-    find_by_file(file).map(|model| model.size_mb)
-}
-
-fn recommendation_rank(file: &str, device: &InferenceDevice, size_mb: Option<u32>) -> Option<u8> {
-    let file = file.to_ascii_lowercase();
-    if file == "lemura-arabic-asr-lite-q8_0.gguf" {
-        return Some(2);
-    }
-    let preferred_family = file.starts_with("tdt_ctc-110m");
-    match device.effective() {
-        InferenceDevice::Gpu | InferenceDevice::Auto => {
-            if file.ends_with("-q8_0.gguf")
-                && preferred_family
-                && size_mb.unwrap_or(u32::MAX) <= 300
-            {
-                Some(0)
-            } else {
-                None
-            }
-        }
-        InferenceDevice::Cpu => {
-            let compact_quant = file.ends_with("-q4_k.gguf") || file.ends_with("-q5_k.gguf");
-            if compact_quant && preferred_family && size_mb.unwrap_or(u32::MAX) <= 160 {
-                Some(0)
-            } else {
-                None
-            }
-        }
-    }
 }
 
 /// Synchronizes cancellation with the final atomic publish.
@@ -754,43 +719,33 @@ mod tests {
             .any(|value| value == "Ukrainian (uk)"));
     }
     #[test]
-    fn gpu_prefers_q8_while_cpu_allows_compact_model() {
-        assert!(is_recommended_for_device(
-            "tdt_ctc-110m-q8_0.gguf",
-            &InferenceDevice::Gpu
-        ));
-        assert!(is_recommended_for_device(
-            "tdt_ctc-110m-q4_k.gguf",
-            &InferenceDevice::Cpu
-        ));
-        assert!(!is_recommended_for_device(
-            "tdt_ctc-110m-f16.gguf",
-            &InferenceDevice::Cpu
-        ));
-        assert!(!is_recommended_for_device(
-            "realtime_eou_120m-v1-q8_0.gguf",
-            &InferenceDevice::Gpu
-        ));
-        assert!(!is_recommended_for_device(
-            "realtime_eou_120m-v1-q4_k.gguf",
-            &InferenceDevice::Cpu
-        ));
-    }
-    #[test]
-    fn arabic_q8_is_recommended_on_cpu_gpu_and_auto() {
+    fn recommends_only_the_english_and_arabic_q8_models_on_all_devices() {
+        use crate::config::InferenceDevice;
+
+        let temp = tempfile::tempdir().unwrap();
+        let mut config = AppConfig::default();
+        config.speech.model_dir = temp.path().display().to_string();
         for device in [
             InferenceDevice::Cpu,
             InferenceDevice::Gpu,
             InferenceDevice::Auto,
         ] {
-            assert!(is_recommended_for_device(
-                "lemura-arabic-asr-lite-q8_0.gguf",
-                &device
-            ));
-            assert!(!is_recommended_for_device(
-                "lemura-arabic-asr-lite-f16.gguf",
-                &device
-            ));
+            config.speech.inference_device = device;
+            let models = downloadable_models(&config);
+            assert_eq!(
+                models
+                    .iter()
+                    .filter(|model| model.recommended)
+                    .map(|model| model.file.as_str())
+                    .collect::<Vec<_>>(),
+                [DEFAULT_RECOMMENDED_MODEL, RECOMMENDED_ARABIC_MODEL]
+            );
+            assert!(models
+                .iter()
+                .any(|model| model.file == "tdt_ctc-110m-q4_k.gguf"));
+            assert!(models
+                .iter()
+                .any(|model| model.file == "tdt_ctc-110m-q5_k.gguf"));
         }
     }
     #[test]

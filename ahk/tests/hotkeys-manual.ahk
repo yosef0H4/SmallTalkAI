@@ -121,6 +121,13 @@ if !SmallTalkAINoticeEndsSession(terminalNotice)
     Fail("terminal recording notices must close the recording session")
 
 cycle := "smart_paste,paste_ctrl_shift_v,clipboard"
+rules := "exact`tType`tkitty.exe`ncontains`tpaste_ctrl_shift_v`tkitty"
+if SmallTalkAIPasteModeForApp(rules, "KITTY.EXE") != "type"
+    throw Error("Smart Paste exact application rule did not take priority")
+if SmallTalkAIPasteModeForApp(rules, "org.kitty") != "paste_ctrl_shift_v"
+    throw Error("Smart Paste substring rule did not match")
+if SmallTalkAIPasteModeForApp("", "Kitty.exe") != "paste_ctrl_v"
+    throw Error("Smart Paste did not fall back to Ctrl+V after removing its rules")
 if SmallTalkAINextDeliveryMode("smart_paste", cycle) != "paste_ctrl_shift_v"
     Fail("delivery cycle should include advanced paste modes")
 if SmallTalkAINextDeliveryMode("paste_ctrl_shift_v", cycle) != "clipboard"

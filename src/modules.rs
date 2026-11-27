@@ -17,11 +17,91 @@ pub fn catalog_stt_runtime_path(path: &Path) -> bool {
         .any(|candidate| candidate == path)
 }
 
+pub fn dictation_vulkan_adapter(config: &AppConfig, runtime: &Path) -> Option<String> {
+    let adapter = config.speech.vulkan_adapter.as_ref()?;
+    routing::registry()
+        .runtimes
+        .iter()
+        .find(|entry| entry.id == "parakeet-vulkan")
+        .and_then(stt_runtime_path)
+        .filter(|path| path == runtime)
+        .map(|_| adapter.clone())
+}
+
+fn webgpu_ready(runtime: &routing::Runtime) -> bool {
+    webgpu_adapter_inventory(runtime).is_some_and(|adapters| !adapters.is_empty())
+}
+
+fn webgpu_adapter_inventory(runtime: &routing::Runtime) -> Option<Vec<Value>> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    let asset = runtime.asset.as_deref()?;
+    let directory = crate::assets::directory(asset);
+    let executable = std::env::current_exe().ok().and_then(|path| {
+        path.parent()
+            .map(|parent| parent.join(format!("smalltalkai-ocr{}", std::env::consts::EXE_SUFFIX)))
+    })?;
+    let mut command = Command::new(executable);
+    command
+        .arg("--probe-webgpu")
+        .arg("--runtime-dir")
+        .arg(&directory)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    reader_core::native_paths::configure_worker_libraries(&mut command, &directory).ok()?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+    }
+    let mut child = command.spawn().ok()?;
+    let stdout = child.stdout.take()?;
+    let output = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stdout.take(128 * 1024).read_to_end(&mut bytes)?;
+        Ok::<_, std::io::Error>(bytes)
+    });
+    let deadline = Instant::now() + Duration::from_secs(6);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => {
+                return serde_json::from_slice(&output.join().ok()?.ok()?).ok();
+            }
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = output.join();
+                return None;
+            }
+        }
+    }
+}
+
+pub fn scan_webgpu_adapters() -> Vec<Value> {
+    let registry = routing::registry();
+    registry
+        .runtimes
+        .iter()
+        .find(|entry| {
+            entry.id == "sherpa-webgpu" && routing::runtime_installed(entry, &crate::assets::root())
+        })
+        .and_then(webgpu_adapter_inventory)
+        .unwrap_or_default()
+}
+
 pub(crate) fn apply_first_run_runtimes() -> anyhow::Result<()> {
     use crate::config::InferenceDevice;
     use routing::{Device, Feature};
 
-    let dedicated = crate::infer::parakeet_native::has_dedicated_vulkan_gpu();
+    let dedicated = crate::infer::parakeet_native::vulkan_adapters()
+        .iter()
+        .any(|adapter| adapter.kind == 1);
     let registry = routing::registry();
     let root = crate::assets::root();
     let available = |id| {
@@ -59,7 +139,8 @@ pub(crate) fn apply_first_run_runtimes() -> anyhow::Result<()> {
         {
             continue;
         }
-        let webgpu = feature == Feature::Tts && dedicated && available("sherpa-webgpu").is_some();
+        let webgpu =
+            feature == Feature::Tts && available("sherpa-webgpu").is_some_and(webgpu_ready);
         binding.runtime = Some(if webgpu { "sherpa-webgpu" } else { cpu_id }.into());
         binding.device = if webgpu { Device::Gpu } else { Device::Cpu };
         changed = true;
@@ -363,7 +444,7 @@ pub fn inventory(config: &AppConfig) -> Value {
         let languages=model.languages.iter().filter_map(|label|label.rsplit_once('(').map(|(_,id)|id.trim_end_matches(')').to_owned())).collect::<Vec<_>>();
         json!({"id":model.file,"feature":"stt","engine":"parakeet","label":format!("{} · {}",model.family,model.quant),"languages":languages,"installed":model.installed,"recommended":model.recommended,"recommendation":model.recommended.then_some("speech_model"),"asset":null,"size_mb":model.size_mb,"benchmark_wer":crate::models::benchmark_wer(&model.file)})
     }));
-    json!({"runtimes":runtimes,"models":models})
+    json!({"runtimes":runtimes,"models":models,"vulkan_adapters":crate::infer::parakeet_native::vulkan_adapters()})
 }
 
 /// Immutable snapshot used by completion-only automatic assignment.

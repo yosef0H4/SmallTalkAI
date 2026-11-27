@@ -2,7 +2,7 @@ FROM quay.io/fedora/fedora:44
 RUN dnf -y install \
     alsa-lib-devel cairo-devel cmake curl gcc gcc-c++ git glib2-devel ninja-build \
     libX11-devel libXtst-devel make nodejs npm openssl-devel binutils \
-    pipewire-devel clang-devel pango-devel pkgconf-pkg-config python3 rpm-build rustup tar \
+    pipewire-devel clang-devel pango-devel pkgconf-pkg-config python3 python3-packaging rpm-build rustup tar \
     at-spi2-core-devel vulkan-loader wl-clipboard xdg-utils libsecret \
     xclip systemd webkit2gtk4.1-devel && dnf clean all
 RUN useradd --create-home --uid 1000 builder && mkdir -p /work && chown builder:builder /work

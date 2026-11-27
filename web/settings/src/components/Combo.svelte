@@ -14,6 +14,7 @@
     selectedLabel,
     items,
     onselect,
+    onopen,
     custom = false,
     disabled = false,
     unavailable = false,
@@ -31,6 +32,7 @@
     selectedLabel?: string;
     items: (ComboItem & { search?: string })[];
     onselect: (value: string) => void;
+    onopen?: () => void;
     custom?: boolean;
     disabled?: boolean;
     unavailable?: boolean;
@@ -60,6 +62,7 @@
     open = true;
     query = "";
     active = selectOnly ? items.findIndex(item => item.value === value) : -1;
+    onopen?.();
   }
   function anchorList(list: HTMLDivElement) {
     const pane = input.closest("main") ?? document.documentElement;

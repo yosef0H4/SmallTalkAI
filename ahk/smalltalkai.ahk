@@ -233,19 +233,13 @@ class SmallTalkAIShell {
 
     DeliveryModeForWindow(targetWindow) {
         configured := this.config.Get("text_delivery_mode", "smart_paste")
+        if configured != "smart_paste"
+            return configured
         try appId := WinGetProcessName("ahk_id " . targetWindow)
         catch
-            return configured
-        raw := this.config.Get("app_delivery_overrides", "[]")
-        ; The settings service serializes each override as two JSON strings.
-        ; Match the executable case-insensitively without introducing a JSON
-        ; dependency into the always-running Windows shell.
-        ; \Q...\E keeps valid executable characters such as +, (, and [ from
-        ; becoming regular-expression operators.
-        pattern := 'i)\{"app_id"\s*:\s*"\Q' . appId . '\E"\s*,\s*"mode"\s*:\s*"([a-z_]+)"\}'
-        return RegExMatch(raw, pattern, &match) ? match[1] : configured
+            return "paste_ctrl_v"
+        return SmallTalkAIPasteModeForApp(this.config.Get("smart_paste_rules", ""), appId)
     }
-
     OnServiceRestart() {
         hadActive := this.activeRecordingSession || this.sessions.Count || this.typist.active || this.typist.queue.Length
         this.typist.Cancel("recording cancelled: audio service restarted", false)

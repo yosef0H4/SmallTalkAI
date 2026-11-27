@@ -152,7 +152,7 @@ need("scripts/package-linux-release.sh", "ls-files --cached --deduplicate", "':!
 
 need("src/bin/smalltalkai_capture.rs", "begin_delivery_session", "OverlayPrimary::WaitingForKeys")
 need("src/common/shell_protocol.rs", 'DeliveryProgress', 'PreparingClipboard', 'WaitingForPaste')
-need("src/bin/smalltalkai_linux.rs", 'memory_delivery_command_with_timeout', 'SmartPaste => smart_paste_key', 'assert_eq!(smart_paste_key(false), PasteKey::CtrlV)')
+need("src/bin/smalltalkai_linux.rs", 'memory_delivery_command_with_timeout', 'config.output.delivery_for_app(identity.as_deref())', 'fn paste_key_uses_the_resolved_delivery_mode')
 need("scripts/test-linux-unicode-input.py", 'zero PRIMARY transfers', 'Smart Paste displaced original PRIMARY owner')
 
 need("src/infer/parakeet_native.rs", 'pcm_with_end_context', 'END_CONTEXT_SAMPLES', 'end_context_keeps_the_complete_original_audio')

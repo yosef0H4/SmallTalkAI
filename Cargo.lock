@@ -4985,7 +4985,6 @@ name = "reader-core"
 version = "0.3.1"
 dependencies = [
  "anyhow",
- "ash",
  "dirs 6.0.0",
  "fasttext",
  "regex",
@@ -5702,6 +5701,7 @@ name = "smalltalkai"
 version = "0.3.1"
 dependencies = [
  "anyhow",
+ "ash",
  "ashpd",
  "async-io",
  "base64 0.22.1",
@@ -5757,10 +5757,12 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "image",
+ "libloading 0.8.9",
  "oar-ocr",
  "ort",
  "reader-core",
  "reqwest 0.12.28",
+ "serde",
  "serde_json",
  "tracing-subscriber",
 ]

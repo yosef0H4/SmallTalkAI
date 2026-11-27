@@ -138,6 +138,7 @@ pub fn local_fallback_worker_config(
         .join(format!("smalltalkai-infer{}", std::env::consts::EXE_SUFFIX));
     Ok(crate::capture::inference_supervisor::WorkerConfig {
         executable,
+        vulkan_adapter: crate::modules::dictation_vulkan_adapter(config, &runtime),
         runtime_dir: runtime,
         model_path,
         log_path: AppConfig::infer_log_path(),

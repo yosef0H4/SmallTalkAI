@@ -54,6 +54,7 @@
         runtime: (language ? speech?.language_runtimes?.[language] : null) ?? singleSttRuntime,
         model: language ? speech?.language_models[language] || null : speech?.single_model_filename || null,
         device: (language ? speech?.language_devices?.[language] : undefined) ?? speech?.inference_device ?? "auto",
+        vulkan_adapter: speech?.vulkan_adapter,
       };
     }
     const choices = selection();
@@ -71,6 +72,9 @@
     }
     const speech = ui.config?.speech;
     if (!speech) return;
+    if (value.vulkan_adapter !== speech.vulkan_adapter) {
+      set("speech.vulkan_adapter", value.vulkan_adapter);
+    }
     if (!language) {
       set("speech.single_model_filename", value.model);
       if (value.runtime !== singleSttRuntime) {

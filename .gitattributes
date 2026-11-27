@@ -1,4 +1,6 @@
 *.sh text eol=lf
+# The source archive and its build patch use LF on every platform.
+scripts/onnxruntime-webgpu-adapters.patch text eol=lf -whitespace
 # Asset fingerprints must match on Linux and Windows checkouts.
 web/settings/** text eol=lf
 assets/fonts/LICENSE-NotoSansArabic.txt text eol=lf

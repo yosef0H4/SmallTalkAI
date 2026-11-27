@@ -220,7 +220,7 @@ impl NativeTts {
                 "windows" => "sherpa-onnx-c-api.dll",
                 "linux" => "libsherpa-onnx-c-api.so",
                 platform => {
-                    bail!("The packaged WebGPU speech runtime is unavailable on {platform}")
+                    bail!("The packaged Dawn speech runtime is unavailable on {platform}")
                 }
             };
             std::env::current_exe()?
@@ -264,7 +264,7 @@ impl NativeTts {
             // verified runtime directly so another installed ORT cannot take its place.
             Some(
                 unsafe { Library::new(args.runtime_dir.join("lib/libonnxruntime.so")) }
-                    .context("loading the selected Linux WebGPU ONNX runtime")?,
+                    .context("loading the selected Linux Dawn ONNX runtime")?,
             )
         } else {
             None
@@ -394,7 +394,7 @@ impl NativeTts {
         let handle = unsafe { create(&config) };
         if handle.is_null() {
             if args.webgpu && std::env::var_os(reader_core::routing::WEBGPU_ADAPTER_ENV).is_some() {
-                bail!("Sherpa-ONNX could not initialize the chosen WebGPU adapter. Check the GPU adapter index in Settings.");
+                bail!("Sherpa-ONNX could not initialize the chosen Dawn adapter. Check the GPU selection in Settings.");
             }
             bail!("Sherpa-ONNX could not load the Kokoro model with provider {provider:?}");
         }
@@ -1258,19 +1258,15 @@ fn prepare(args: &Args, state: &mut EngineState, device: &str) -> Result<()> {
 fn load_engine(args: &Args, state: &mut EngineState, device: &str) -> Result<()> {
     if args.webgpu {
         let provider = if device == "cpu" { "cpu" } else { "webgpu" };
-        #[cfg(target_os = "linux")]
-        if provider == "webgpu" {
-            reader_core::vulkan::require_webgpu_adapter()?;
-        }
         let engine = NativeTts::load(args, provider);
         state.engine = Some(if provider == "webgpu" {
-            engine.context("gpu_unavailable: WebGPU speech could not initialize")?
+            engine.context("gpu_unavailable: Dawn speech could not initialize")?
         } else {
             engine?
         });
         state.provider = provider.into();
         state.device = if provider == "webgpu" {
-            "WebGPU"
+            "Dawn"
         } else {
             "CPU model loaded"
         }

@@ -221,23 +221,25 @@ const f = require("./settings-fixture.cjs");
   assert.equal(await typingNumber.inputValue(), "800");
   await save();
   assert.equal(f.getConfig().output.typing_speed_wpm, 800, "numeric range input saves an exact value");
-  await page.getByRole("button", { name: "Add manually" }).click();
-  await page
-    .getByRole("textbox", { name: "Application identity" })
-    .fill("terminal-test");
+  const rules = page.getByRole("region", { name: "Smart Paste rules" });
+  const picker = rules.getByRole("combobox", { name: "Find a window or enter an app ID" });
+  await picker.fill("terminal-test");
+  await picker.press("Enter");
   await setChoice(page
     .getByRole("combobox", { name: "Delivery mode for terminal-test" }), "paste_ctrl_shift_v");
   await save();
   assert.equal(
-    f.getConfig().output.app_overrides[0].mode,
+    f.getConfig().output.smart_paste_rules[0].mode,
     "paste_ctrl_shift_v",
   );
-  await page.getByRole("button", { name: "Remove app override" }).click();
-  await page
-    .getByRole("button", { name: "Add current app", exact: true })
-    .click();
-  await page.getByRole("textbox", { name: "Application identity" }).waitFor();
-  assert.equal((await draft()).output.app_overrides[0].app_id, "test-app");
+  await rules.getByRole("button", { name: "Remove app override" }).first().click();
+  await picker.fill("An open window");
+  await page.getByRole("option", { name: "test-app", exact: true }).click();
+  assert.equal((await draft()).output.smart_paste_rules[0].app_id, "test-app");
+  await rules.getByRole("button", { name: "Reset Smart Paste rules to defaults" }).click();
+  assert.deepEqual((await draft()).output.smart_paste_rules, [
+    { app_id: "WindowsTerminal.exe", mode: "paste_ctrl_shift_v" },
+  ]);
   await go("cleanup");
   await page.locator('[data-setting-path="cleanup.screenshot.enabled"] input').waitFor();
   assert.equal(await page.getByRole("textbox", { name: "Provider API key" }).count(), 0,

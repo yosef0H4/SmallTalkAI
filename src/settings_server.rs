@@ -506,6 +506,11 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
             &crate::modules::inventory(&AppConfig::load()?),
             state,
         )),
+        (&Method::Get, "/api/webgpu-adapters") => Ok(json_response(
+            StatusCode(200),
+            &json!({"adapters":crate::modules::scan_webgpu_adapters()}),
+            state,
+        )),
         (&Method::Get, "/api/model-setup") => Ok(json_response(
             StatusCode(200),
             &serde_json::to_value(open_model_setup(state)?)?,
@@ -748,6 +753,11 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
         (&Method::Post, "/api/action") => action_response(request, state),
         (&Method::Post, "/api/cleanup-action") => cleanup_action_response(request, state),
         (&Method::Post, "/api/platform-action") => platform_action(request, state),
+        (&Method::Get, "/api/desktop-windows") => Ok(json_response(
+            StatusCode(200),
+            &serde_json::to_value(desktop_windows()?)?,
+            state,
+        )),
         (&Method::Post, "/api/hotkey-capture") => {
             let options: Value = serde_json::from_slice(&read_body(request)?)?;
             hotkey_capture_response(state, options["allow_caps_lock"].as_bool().unwrap_or(false))
@@ -1357,9 +1367,9 @@ fn platform_action(
 }
 
 #[cfg(target_os = "linux")]
-fn focused_app_identity() -> Result<String> {
+fn desktop_window_helper() -> Result<PathBuf> {
     let exe = std::env::current_exe()?;
-    let helper = [
+    [
         exe.parent()
             .unwrap_or(Path::new("."))
             .join("smalltalkai-paste"),
@@ -1368,7 +1378,12 @@ fn focused_app_identity() -> Result<String> {
     ]
     .into_iter()
     .find(|path| path.is_file())
-    .context("focused-app detector is not installed")?;
+    .context("focused-app detector is not installed")
+}
+
+#[cfg(target_os = "linux")]
+fn focused_app_identity() -> Result<String> {
+    let helper = desktop_window_helper()?;
     let output = Command::new(helper).arg("--active-app").output()?;
     anyhow::ensure!(
         output.status.success(),
@@ -1381,16 +1396,19 @@ fn focused_app_identity() -> Result<String> {
 
 #[cfg(windows)]
 fn focused_app_identity() -> Result<String> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    window_app_identity(unsafe { GetForegroundWindow() })
+}
+
+#[cfg(windows)]
+fn window_app_identity(window: windows_sys::Win32::Foundation::HWND) -> Result<String> {
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
     };
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, GetWindowThreadProcessId,
-    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 
     unsafe {
-        let window = GetForegroundWindow();
         anyhow::ensure!(!window.is_null(), "No foreground application was found");
         let mut pid = 0;
         GetWindowThreadProcessId(window, &mut pid);
@@ -1413,6 +1431,77 @@ fn focused_app_identity() -> Result<String> {
             .to_owned();
         Ok(identity)
     }
+}
+#[derive(Serialize)]
+struct DesktopWindow {
+    app_id: String,
+    title: String,
+}
+
+#[cfg(target_os = "linux")]
+fn desktop_windows() -> Result<Vec<DesktopWindow>> {
+    let output = crate::common::clipboard::output_bounded(
+        Command::new(desktop_window_helper()?).arg("--list-windows"),
+        Duration::from_secs(3),
+    )?;
+    anyhow::ensure!(output.status.success(), "Window list is unavailable");
+    let mut seen = std::collections::HashSet::new();
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .map(|(app, title)| (app.trim(), title.trim()))
+        .filter(|(app, title)| {
+            !app.is_empty() && app.chars().count() <= 160 && seen.insert((*app, *title))
+        })
+        .take(128)
+        .map(|(app, title)| DesktopWindow {
+            app_id: app.to_owned(),
+            title: title.chars().take(240).collect(),
+        })
+        .collect())
+}
+
+#[cfg(windows)]
+fn desktop_windows() -> Result<Vec<DesktopWindow>> {
+    use windows_sys::core::BOOL;
+    use windows_sys::Win32::Foundation::{HWND, LPARAM};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowTextW, IsWindowVisible,
+    };
+
+    unsafe extern "system" fn collect(window: HWND, state: LPARAM) -> BOOL {
+        let windows = unsafe { &mut *(state as *mut Vec<DesktopWindow>) };
+        if windows.len() >= 128 {
+            return 0;
+        }
+        let mut title = [0_u16; 241];
+        if unsafe { IsWindowVisible(window) } != 0 {
+            let length = unsafe { GetWindowTextW(window, title.as_mut_ptr(), title.len() as i32) };
+            if length > 0 {
+                if let Ok(app_id) = window_app_identity(window) {
+                    windows.push(DesktopWindow {
+                        app_id,
+                        title: String::from_utf16_lossy(&title[..length as usize]),
+                    });
+                }
+            }
+        }
+        1
+    }
+
+    let mut windows = Vec::new();
+    unsafe {
+        EnumWindows(
+            Some(collect),
+            &mut windows as *mut Vec<DesktopWindow> as LPARAM,
+        )
+    };
+    Ok(windows)
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn desktop_windows() -> Result<Vec<DesktopWindow>> {
+    Ok(Vec::new())
 }
 
 #[cfg(not(any(windows, target_os = "linux")))]

@@ -601,15 +601,7 @@ fn config_show() -> Result<ShellResponse> {
     );
     response.values.insert(
         "text_delivery_mode".into(),
-        match config.output.delivery_mode {
-            TextDeliveryMode::Type => "type",
-            TextDeliveryMode::SmartPaste => "smart_paste",
-            TextDeliveryMode::PasteShiftInsert => "paste_shift_insert",
-            TextDeliveryMode::PasteCtrlV => "paste_ctrl_v",
-            TextDeliveryMode::PasteCtrlShiftV => "paste_ctrl_shift_v",
-            TextDeliveryMode::Clipboard => "clipboard",
-        }
-        .into(),
+        config.output.delivery_mode.id().into(),
     );
     response.values.insert(
         "enabled_delivery_modes".into(),
@@ -617,20 +609,25 @@ fn config_show() -> Result<ShellResponse> {
             .output
             .enabled_delivery_modes
             .iter()
-            .map(|mode| match mode {
-                TextDeliveryMode::Type => "type",
-                TextDeliveryMode::SmartPaste => "smart_paste",
-                TextDeliveryMode::PasteShiftInsert => "paste_shift_insert",
-                TextDeliveryMode::PasteCtrlV => "paste_ctrl_v",
-                TextDeliveryMode::PasteCtrlShiftV => "paste_ctrl_shift_v",
-                TextDeliveryMode::Clipboard => "clipboard",
-            })
+            .map(|mode| mode.id())
             .collect::<Vec<_>>()
             .join(","),
     );
     response.values.insert(
-        "app_delivery_overrides".into(),
-        serde_json::to_string(&config.output.app_overrides).unwrap_or_else(|_| "[]".into()),
+        "smart_paste_rules".into(),
+        config
+            .output
+            .ordered_smart_paste_rules()
+            .map(|(identity, contains, mode)| {
+                format!(
+                    "{}\t{}\t{}",
+                    if contains { "contains" } else { "exact" },
+                    mode.id(),
+                    identity.to_lowercase()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
     );
     response.values.insert(
         "remove_punctuation".into(),

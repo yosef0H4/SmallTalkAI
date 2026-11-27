@@ -50,9 +50,21 @@ build_one() {
   local distro="$1"
   local image="localhost/smalltalkai-linux-builder-$distro"
   local source_volume="smalltalkai-linux-$distro-work"
+  local -a runtime_args=()
+  local -a build_args=()
   printf 'Source archive: %s sha256=%s\n' \
     "$(basename "$source_archive")" "$(cat "$source_hash_file")" > "$out/BUILD-INFO-$distro.txt"
-  printf 'Runtimes: bundled Parakeet Vulkan, Sherpa CPU, and WebGPU. NVIDIA runtimes are optional.\n' >> "$out/BUILD-INFO-$distro.txt"
+  printf 'Runtimes: bundled Parakeet Vulkan, Sherpa CPU, and Dawn. NVIDIA runtimes are optional.\n' >> "$out/BUILD-INFO-$distro.txt"
+  if [[ -n "${SMALLTALKAI_PATCHED_ORT:-}" ]]; then
+    local ort_library
+    ort_library="$(realpath -e -- "$SMALLTALKAI_PATCHED_ORT")"
+    test -f "$ort_library"
+    runtime_args=(--mount "type=bind,source=$ort_library,target=/patched-onnxruntime.so,ro")
+    printf 'Patched ONNX Runtime sha256=%s\n' "$(sha256sum "$ort_library" | cut -d' ' -f1)" >> "$out/BUILD-INFO-$distro.txt"
+  fi
+  if [[ -n "${SMALLTALKAI_BUILD_CORE:-}" ]]; then
+    build_args=(--env "CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-1}" --env "SMALLTALKAI_BUILD_CORE=$SMALLTALKAI_BUILD_CORE")
+  fi
   if [[ "${SMALLTALKAI_REUSE_BUILDER:-0}" == 1 ]] && podman image exists "$image"; then
     echo "Reusing local builder: $image"
   else
@@ -63,6 +75,7 @@ build_one() {
   podman volume inspect "$source_volume" >/dev/null 2>&1 || podman volume create "$source_volume" >/dev/null
   podman run --rm --memory=4g --cpus=2 --userns=keep-id:uid=1000,gid=1000 --user 1000:1000 \
     --security-opt label=disable \
+    "${runtime_args[@]}" "${build_args[@]}" \
     -v "$source_volume:/work:rw" \
     -v "$snapshot:/source:ro" -v "$out:/out:rw" \
     --entrypoint /usr/bin/bash "$image" /source/packaging/linux/container-build.sh "$distro"

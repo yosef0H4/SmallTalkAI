@@ -1,6 +1,6 @@
 Name:           smalltalkai
 Version:        0.3.1
-Release:        56%{?dist}
+Release:        59%{?dist}
 %global __provides_exclude_from ^/usr/lib/smalltalkai/.*\.so.*$
 # These dependencies are resolved by the app's selected Sherpa/ONNX runtime.
 %global __requires_exclude ^lib(onnxruntime|sherpa-onnx-c-api)[.]so([.]1)?[(]

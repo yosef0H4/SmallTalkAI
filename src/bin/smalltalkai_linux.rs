@@ -1,8 +1,7 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use smalltalkai::config::{
-    replace_file_atomic, unique_atomic_temp_path, AppConfig, AppDeliveryOverride,
-    LinuxHotkeyBackend, TextDeliveryMode,
+    replace_file_atomic, unique_atomic_temp_path, AppConfig, LinuxHotkeyBackend, TextDeliveryMode,
 };
 use smalltalkai::localization::tr;
 #[cfg(target_os = "linux")]
@@ -1342,6 +1341,7 @@ fn print_shortcut_commands() -> Result<()> {
     println!("Retry last action: {} repeat", exe.display());
     println!("Show shortcuts: {} show-shortcuts", exe.display());
     println!("Read selection:   {} read-selection", exe.display());
+    println!("Listen to copies: {} listen-clipboard", exe.display());
     println!("Read screen:      {} read-region", exe.display());
     println!("Read along:       {} read-along", exe.display());
     println!("Copy screen text: {} copy-region", exe.display());
@@ -2323,16 +2323,18 @@ fn deliver_text(text: &str, force_shift_insert: bool, session_id: u64) -> Result
     wait_record_release(&|| {
         read_session().is_ok_and(|state| delivery_session_is_current(&state, session_id))
     })?;
-    let identity = focused_app_identity();
+    let identity = if config.output.delivery_mode == TextDeliveryMode::SmartPaste
+        && !config.output.smart_paste_rules.is_empty()
+    {
+        focused_app_identity()
+    } else {
+        None
+    };
     eprintln!(
         "[{APP}] delivery stage=target-ready elapsed_ms={}",
         started.elapsed().as_millis()
     );
-    let mode = effective_delivery_mode(
-        config.output.delivery_mode,
-        identity.as_deref(),
-        &config.output.app_overrides,
-    );
+    let mode = config.output.delivery_for_app(identity.as_deref());
     delivery_progress(
         session_id,
         if mode == TextDeliveryMode::Type {
@@ -2367,7 +2369,7 @@ fn deliver_text(text: &str, force_shift_insert: bool, session_id: u64) -> Result
     }
     paste_text(
         text,
-        paste_key_for_mode(mode, force_shift_insert, identity.as_deref()),
+        paste_key_for_mode(mode, force_shift_insert),
         &is_current,
         config.output.preserve_clipboard,
         session_id,
@@ -2713,44 +2715,15 @@ enum PasteKey {
     ShiftInsert,
 }
 
-fn effective_delivery_mode(
-    configured: TextDeliveryMode,
-    identity: Option<&str>,
-    overrides: &[AppDeliveryOverride],
-) -> TextDeliveryMode {
-    identity
-        .and_then(|identity| {
-            overrides
-                .iter()
-                .find(|entry| entry.app_id.eq_ignore_ascii_case(identity))
-        })
-        .map_or(configured, |entry| entry.mode)
-}
-
-fn paste_key_for_mode(
-    mode: TextDeliveryMode,
-    force_shift_insert: bool,
-    identity: Option<&str>,
-) -> PasteKey {
+fn paste_key_for_mode(mode: TextDeliveryMode, force_shift_insert: bool) -> PasteKey {
     if force_shift_insert {
         return PasteKey::ShiftInsert;
     }
     match mode {
-        TextDeliveryMode::SmartPaste => smart_paste_key(identity.is_some_and(is_terminal_identity)),
         TextDeliveryMode::PasteCtrlShiftV => PasteKey::CtrlShiftV,
-        TextDeliveryMode::PasteCtrlV => PasteKey::CtrlV,
+        TextDeliveryMode::SmartPaste | TextDeliveryMode::PasteCtrlV => PasteKey::CtrlV,
         TextDeliveryMode::PasteShiftInsert => PasteKey::ShiftInsert,
         TextDeliveryMode::Type | TextDeliveryMode::Clipboard => PasteKey::ShiftInsert,
-    }
-}
-
-fn smart_paste_key(terminal: bool) -> PasteKey {
-    if terminal {
-        PasteKey::CtrlShiftV
-    } else {
-        // Ctrl+V uses CLIPBOARD only. Shift+Insert can use PRIMARY, requiring
-        // a second cold backup of the selected text and its rich formats.
-        PasteKey::CtrlV
     }
 }
 
@@ -2768,35 +2741,6 @@ fn focused_app_identity() -> Option<String> {
         .and_then(|output| String::from_utf8(output.stdout).ok())
         .map(|identity| identity.trim().to_owned())
         .filter(|identity| !identity.is_empty())
-}
-
-fn is_terminal_identity(identity: &str) -> bool {
-    const TERMINALS: &[&str] = &[
-        "konsole",
-        "gnome-terminal",
-        "terminal",
-        "kitty",
-        "alacritty",
-        "terminator",
-        "xterm",
-        "urxvt",
-        "rxvt",
-        "tilix",
-        "terminology",
-        "wezterm",
-        "foot",
-        "yakuake",
-        "ghostty",
-        "guake",
-        "tilda",
-        "hyper",
-        "tabby",
-        "sakura",
-        "warp",
-        "termius",
-    ];
-    let identity = identity.to_ascii_lowercase();
-    TERMINALS.iter().any(|terminal| identity.contains(terminal))
 }
 
 fn send_paste_key(key: PasteKey, current: &impl Fn() -> bool) -> Result<()> {
@@ -3566,25 +3510,20 @@ root.after(150,ready);root.mainloop()
     }
 
     #[test]
-    fn smart_paste_uses_terminal_shortcut_only_for_terminals() {
-        assert_eq!(smart_paste_key(false), PasteKey::CtrlV);
-        assert_eq!(smart_paste_key(true), PasteKey::CtrlShiftV);
-        assert!(is_terminal_identity("kitty"));
-        assert!(!is_terminal_identity("Zen Browser"));
-        let overrides = [AppDeliveryOverride {
-            app_id: "Example Game".to_owned(),
-            mode: TextDeliveryMode::Type,
-        }];
+    fn paste_key_uses_the_resolved_delivery_mode() {
         assert_eq!(
-            effective_delivery_mode(
-                TextDeliveryMode::SmartPaste,
-                Some("example game"),
-                &overrides
-            ),
-            TextDeliveryMode::Type
+            paste_key_for_mode(TextDeliveryMode::PasteCtrlV, false),
+            PasteKey::CtrlV
+        );
+        assert_eq!(
+            paste_key_for_mode(TextDeliveryMode::PasteCtrlShiftV, false),
+            PasteKey::CtrlShiftV
+        );
+        assert_eq!(
+            paste_key_for_mode(TextDeliveryMode::PasteCtrlV, true),
+            PasteKey::ShiftInsert
         );
     }
-
     #[cfg(target_os = "linux")]
     #[test]
     fn clipboard_cache_restart_backoff_is_bounded() {

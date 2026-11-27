@@ -4,24 +4,45 @@ export type Feature='stt'|'tts'|'ocr';
 export const catalogView=$state<{feature:Feature;panel:'models'|'cleanup'}>({feature:'stt',panel:'models'});
 export interface Runtime {id:string;feature:Feature;engine:string;backend:string;label:string;asset:string|null;installed:boolean;bundled?:boolean;default?:boolean;selected?:boolean;action_asset?:string|null;directory:string|null;recommended?:boolean;recommendation?:string|null}
 export interface ModuleModel {id:string;feature:Feature;engine:string;label:string;languages:string[];installed:boolean;asset:string|null;recommended?:boolean;recommendation?:string|null;size_mb?:number;benchmark_wer?:number|null;benchmark_score?:number|null}
+export interface VulkanAdapter {id:string;name:string;vendor_id:number;kind:number}
 export interface Connection {base_url:string;model:string;voice:string;format:string;prompt?:string;key_slot:string|null;timeout_ms:number}
 export interface RemoteRoute {enabled:boolean;primary:Connection;fallback_to_local:boolean}
-export interface Binding {remote?:RemoteRoute|null;runtime:string|null;model:string|null;device:'auto'|'cpu'|'gpu';webgpu_adapter?:number;voice?:string|null;steps?:number|null;speed_percent?:number|null;lowercase?:boolean;currency_words?:boolean;clean_text?:boolean}
+export interface Binding {remote?:RemoteRoute|null;runtime:string|null;model:string|null;device:'auto'|'cpu'|'gpu';vulkan_adapter?:string;webgpu_adapter?:number;voice?:string|null;steps?:number|null;speed_percent?:number|null;lowercase?:boolean;currency_words?:boolean;clean_text?:boolean}
 export interface Selection {mode:'single_model'|'follow_keyboard'|'auto_detect';single:Binding;languages:Record<string,Binding>}
-export const modules=$state({runtimes:[] as Runtime[],models:[] as ModuleModel[],assets:null as AssetState|null});
+export const modules=$state({runtimes:[] as Runtime[],models:[] as ModuleModel[],vulkanAdapters:[] as VulkanAdapter[],assets:null as AssetState|null});
+interface DawnAdapter {index:number;name:string|null;available:boolean;kind:number|null}
+export const dawnAdapters = $state<{
+ items: DawnAdapter[];
+ status: 'idle' | 'loading' | 'ready' | 'failed';
+}>({items:[],status:'idle'});
+
+export async function loadDawnAdapters(refresh = false) {
+ if (dawnAdapters.status === 'loading' || (!refresh && dawnAdapters.status !== 'idle')) return;
+ dawnAdapters.status = 'loading';
+ try {
+  const result = await api<{adapters:DawnAdapter[]}>('/api/webgpu-adapters');
+  dawnAdapters.items = result.adapters;
+  dawnAdapters.status = 'ready';
+ } catch (error) {
+  dawnAdapters.status = 'failed';
+  if (refresh) throw error;
+ }
+}
+
 let selectionRevision:number|undefined;
 let selectionRefresh:(()=>Promise<boolean>)|undefined;
 export function onAutomaticSelection(refresh?:()=>Promise<boolean>){selectionRefresh=refresh;}
 let catalogStamp = '', assetStamp = '', requestedRefresh = 0, appliedRefresh = 0;
 export async function refreshModules(){
  const request = ++requestedRefresh;
- const [catalog,assets]=await Promise.all([api<{runtimes:Runtime[];models:ModuleModel[]}>('/api/modules'),api<AssetState>('/api/assets')]);
+ const [catalog,assets]=await Promise.all([api<{runtimes:Runtime[];models:ModuleModel[];vulkan_adapters?:VulkanAdapter[]}>('/api/modules'),api<AssetState>('/api/assets')]);
  if (request < appliedRefresh) return;
  appliedRefresh = request;
  const nextCatalog = JSON.stringify(catalog), nextAssets = JSON.stringify(assets);
  if (nextCatalog !== catalogStamp) {
   modules.runtimes = catalog.runtimes;
   modules.models = catalog.models;
+  modules.vulkanAdapters = catalog.vulkan_adapters ?? [];
   catalogStamp = nextCatalog;
  }
  if (nextAssets !== assetStamp) {

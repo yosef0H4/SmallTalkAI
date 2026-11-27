@@ -35,7 +35,18 @@ def main():
     assert adapter.is_file() and not os.access(adapter, os.W_OK)
     imports = subprocess.check_output(['readelf', '-d', str(adapter)], text=True)
     assert '[libonnxruntime.so.1]' in imports and 'RUNPATH' not in imports, imports
-    assert (bundled / 'paddle-webgpu-linux' / 'lib' / 'libonnxruntime.so').is_file()
+    dawn = bundled / 'paddle-webgpu-linux'
+    ort_library = dawn / 'lib' / 'libonnxruntime.so'
+    assert ort_library.is_file()
+    assert (dawn / '.verified').read_text().startswith('source:onnxruntime:')
+    exports = subprocess.check_output(['nm', '-D', '--defined-only', str(ort_library)], text=True)
+    assert 'SmallTalkAIWebGpuVisitAdaptersV1' in exports
+    result = subprocess.check_output(
+        [str(root / 'smalltalkai-ocr'), '--probe-webgpu', '--runtime-dir', str(dawn)],
+        text=True, timeout=10,
+    )
+    if not Path('/dev/dri').exists():
+        assert json.loads(result) == [], result
     assert (root / 'downloads.json').is_file()
     assert (root / 'lid.176.ftz').stat().st_size == 938013
     for name in ('fixtures/parakeet-smoke.wav', 'fixtures/asr/arabic-sa.wav'):

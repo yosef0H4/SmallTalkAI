@@ -50,6 +50,8 @@ struct Args {
     runtime_dir: Option<PathBuf>,
     #[arg(long)]
     library: Option<PathBuf>,
+    #[arg(long, hide = true)]
+    probe_webgpu: bool,
     #[arg(long, default_value = "auto", value_parser = ["auto", "cpu", "gpu"])]
     device: String,
     #[command(flatten)]
@@ -126,17 +128,7 @@ fn load_ocr(args: &Args) -> Result<OcrEngine> {
         .runtime_dir
         .as_ref()
         .context("local OCR needs --runtime-dir")?;
-    let lib_dir = if runtime_dir.join("lib").is_dir() {
-        runtime_dir.join("lib")
-    } else {
-        runtime_dir.clone()
-    };
-    #[cfg(target_os = "windows")]
-    let library = lib_dir.join("onnxruntime.dll");
-    #[cfg(target_os = "macos")]
-    let library = lib_dir.join("libonnxruntime.dylib");
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let library = lib_dir.join("libonnxruntime.so");
+    let library = webgpu::ort_library(runtime_dir);
     let library = args.library.as_ref().unwrap_or(&library);
     #[cfg(windows)]
     reader_core::native_paths::configure_windows_dll_search(runtime_dir, library)?;
@@ -145,7 +137,7 @@ fn load_ocr(args: &Args) -> Result<OcrEngine> {
     let (environment, use_webgpu) = args
         .webgpu
         .configure(environment, &args.device)
-        .context("gpu_unavailable: WebGPU OCR could not initialize")?;
+        .context("gpu_unavailable: Dawn OCR could not initialize")?;
     environment.commit();
     #[cfg(target_os = "linux")]
     if use_webgpu {
@@ -233,7 +225,7 @@ fn load_ocr(args: &Args) -> Result<OcrEngine> {
             .map_err(|error| anyhow::anyhow!("loading PaddleOCR models: {error}"))
     };
     let pipeline = if use_webgpu {
-        pipeline.context("gpu_unavailable: WebGPU OCR could not initialize")?
+        pipeline.context("gpu_unavailable: Dawn OCR could not initialize")?
     } else {
         pipeline?
     };
@@ -517,6 +509,7 @@ mod remote_fallback_tests {
     fn remote_args(base_url: String, fallback_to_local: bool) -> Args {
         Args {
             webgpu: webgpu::Options::default(),
+            probe_webgpu: false,
             provider: "openai_compatible".into(),
             model_dir: None,
             runtime_dir: None,
@@ -589,6 +582,13 @@ fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
     let args = Args::parse();
+    if args.probe_webgpu {
+        let runtime = args
+            .runtime_dir
+            .as_deref()
+            .context("missing --runtime-dir")?;
+        return webgpu::probe(runtime);
+    }
     let budgets = request_budgets(&args);
     let client = reqwest::blocking::Client::builder()
         .redirect(reqwest::redirect::Policy::none())

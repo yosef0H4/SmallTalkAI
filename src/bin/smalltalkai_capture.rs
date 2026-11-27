@@ -2711,10 +2711,12 @@ fn idle_worker_config(config: &AppConfig) -> Result<WorkerConfig> {
 }
 
 fn worker_config(config: &AppConfig, language: &str, model_path: PathBuf) -> Result<WorkerConfig> {
+    let runtime_dir = smalltalkai::modules::stt_runtime(config, language)
+        .unwrap_or_else(|| config.parakeet_runtime_dir_path());
     Ok(WorkerConfig {
         executable: sibling_executable("smalltalkai-infer")?,
-        runtime_dir: smalltalkai::modules::stt_runtime(config, language)
-            .unwrap_or_else(|| config.parakeet_runtime_dir_path()),
+        vulkan_adapter: smalltalkai::modules::dictation_vulkan_adapter(config, &runtime_dir),
+        runtime_dir,
         model_path,
         log_path: AppConfig::infer_log_path(),
         log_level: config.diagnostics.log_level.clone(),

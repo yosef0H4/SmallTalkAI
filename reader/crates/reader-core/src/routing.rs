@@ -147,7 +147,8 @@ impl Binding {
                 self.runtime.as_deref(),
                 Some("sherpa-webgpu" | "paddle-webgpu")
             ))
-        .then_some(self.webgpu_adapter.unwrap_or_default())
+        .then_some(self.webgpu_adapter)
+        .flatten()
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -381,7 +382,20 @@ pub fn bundled_asset(id: &str) -> Option<std::path::PathBuf> {
         .parent()?
         .join("bundled-runtimes")
         .join(id);
-    (directory.join(".verified").is_file() && receipt_matches(id, &directory)).then_some(directory)
+    (receipt_matches(id, &directory) || bundled_dawn_matches(id, &directory)).then_some(directory)
+}
+
+fn bundled_dawn_matches(id: &str, directory: &std::path::Path) -> bool {
+    matches!(id, "paddle-webgpu-linux" | "paddle-webgpu-windows")
+        && std::fs::read_to_string(directory.join(".verified")).is_ok_and(|receipt| {
+            receipt == "source:onnxruntime:41d4d61f14b9c1dd0b2ccda1e9b85dd415fd0496"
+        })
+        && asset_receipt(id).is_some_and(|asset| {
+            asset
+                .required
+                .iter()
+                .all(|file| directory.join(file).is_file())
+        })
 }
 
 pub fn asset_directory(id: &str, assets: &std::path::Path) -> std::path::PathBuf {

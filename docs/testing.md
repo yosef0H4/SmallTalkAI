@@ -28,7 +28,7 @@ binaries are allowed only in isolated tests. During targeted
 development, run `cd web/settings && npm ci && npm run build`. The build writes
 `dist/index.html`, `dist/app.js`, `dist/styles.css`, and a deterministic
 `dist/manifest.json`. `python scripts/verify-settings-frontend.py` checks source
-and output hashes plus the 100 KiB gzipped JS/CSS and 387 KiB total asset budgets.
+and output hashes plus the 100 KiB gzipped JS/CSS and 390 KiB total asset budgets.
 The Rust build script independently rejects missing or stale frontend output.
 
 On Linux, also run `python scripts/test-linux-static.py`. Run the browser model
@@ -62,6 +62,13 @@ Set `SMALLTALKAI_SKIP_MODEL_SMOKE=1` to skip only the AHK smoke that loads real 
 
 If a Windows host is unavailable, report native Windows runtime checks as
 unvalidated. They do not block committing changes validated on Linux.
+
+Linux and Windows packages build the same pinned Dawn-enabled ONNX Runtime
+with `scripts/build-dawn-runtime.py`. Linux uses Vulkan and Windows uses D3D12
+for Dawn. The build checks the native adapter query export before staging it.
+The Windows Dawn workflow verifies building and invoking that query on Windows.
+Use `node scripts/test-settings-gpu-devices.cjs` for NVIDIA, AMD, and Intel picker
+fixtures, and verify physical GPU names on a machine with the drivers installed.
 
 The cleanup E2E launches the real `smalltalkai-settings` process against a
 deterministic OpenAI-compatible HTTP server, then exercises bootstrap and

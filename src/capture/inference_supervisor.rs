@@ -28,6 +28,7 @@ pub struct WorkerConfig {
     pub log_path: PathBuf,
     pub log_level: LogLevel,
     pub inference_device: InferenceDevice,
+    pub vulkan_adapter: Option<String>,
     pub speech_language: String,
     pub idle_timeout: Duration,
     pub shutdown_grace: Duration,
@@ -123,6 +124,7 @@ impl WorkerSupervisor {
             || self.config.model_path != next.model_path
             || self.config.log_level != next.log_level
             || self.config.inference_device != next.inference_device
+            || self.config.vulkan_adapter != next.vulkan_adapter
             || self.config.idle_timeout != next.idle_timeout
             || self.config.shutdown_grace != next.shutdown_grace
         {
@@ -333,6 +335,10 @@ impl WorkerSupervisor {
             &mut command,
             &self.config.runtime_dir,
         )?;
+        command.env_remove("SMALLTALKAI_VULKAN_ADAPTER");
+        if let Some(adapter) = &self.config.vulkan_adapter {
+            command.env("SMALLTALKAI_VULKAN_ADAPTER", adapter);
+        }
         let effective_device = self.config.inference_device.effective();
         tracing::info!(
             configured_device = self.config.inference_device.as_str(),

@@ -34,6 +34,7 @@ export interface Config {
     remote_languages?:Record<string,import('./modules.svelte').RemoteRoute>;
     remote_openai_compatible: {base_url:string;model:string;prompt?:string;fallback_to_local:boolean;timeout_ms:number};
     inference_device: "auto" | "cpu" | "gpu";
+    vulkan_adapter?: string;
     runtime_dir: string;
     language_runtimes: Record<string,string|null>;
     language_devices: Record<string,"auto"|"cpu"|"gpu">;

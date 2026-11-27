@@ -17,6 +17,12 @@ for binary in smalltalkai-linux smalltalkai-capture smalltalkai-infer smalltalka
   install -m755 "${CARGO_TARGET_DIR:-target}/release/$binary" "$app/$binary"
 done
 "$app/smalltalkai-ctl" assets stage-bundled "$app/bundled-runtimes"
+dawn_args=()
+if [[ -n "${SMALLTALKAI_PATCHED_ORT:-}" ]]; then
+  dawn_args=(--library "$SMALLTALKAI_PATCHED_ORT")
+fi
+python3 scripts/build-dawn-runtime.py --work artifacts/dawn-runtime-linux \
+  --bundle "$app/bundled-runtimes/paddle-webgpu-linux" --jobs "${CARGO_BUILD_JOBS:-2}" "${dawn_args[@]}"
 bash scripts/build-sherpa-webgpu.sh "$app/smalltalkai-ctl" "$app/sherpa-webgpu"
 install -m755 resources/bin/smalltalkai-paste "$app/"
 install -m755 packaging/linux/smalltalkai "$stage/usr/bin/"

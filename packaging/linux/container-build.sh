@@ -2,6 +2,11 @@
 set -euo pipefail
 
 distro="${1:?expected fedora or arch}"
+if [[ -n "${SMALLTALKAI_BUILD_CORE:-}" ]]; then
+  build_core="$SMALLTALKAI_BUILD_CORE"
+  unset SMALLTALKAI_BUILD_CORE
+  exec taskset -c "$build_core" ionice -c3 nice -n 19 bash "$0" "$@"
+fi
 source_dir=/source
 work=/work/build
 python3 -c 'import shutil; [shutil.rmtree("/work/build/" + name, ignore_errors=True) for name in ("src", "out", "stage", "rpmbuild", "arch-package")]'
@@ -41,6 +46,12 @@ for binary in smalltalkai-linux smalltalkai-capture smalltalkai-infer smalltalka
   install -m 0755 "$CARGO_TARGET_DIR/release/$binary" "$app/$binary"
 done
 "$app/smalltalkai-ctl" assets stage-bundled "$app/bundled-runtimes"
+dawn_args=()
+if [[ -f /patched-onnxruntime.so ]]; then
+  dawn_args=(--library /patched-onnxruntime.so)
+fi
+python3 scripts/build-dawn-runtime.py --work /work/dawn-runtime \
+  --bundle "$app/bundled-runtimes/paddle-webgpu-linux" --jobs "${CARGO_BUILD_JOBS:-2}" "${dawn_args[@]}"
 bash scripts/build-sherpa-webgpu.sh "$app/smalltalkai-ctl" "$app/sherpa-webgpu"
 install -m 0755 resources/bin/smalltalkai-paste "$app/smalltalkai-paste"
 install -D -m 0644 fixtures/parakeet-smoke.wav "$app/fixtures/parakeet-smoke.wav"

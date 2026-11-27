@@ -214,16 +214,30 @@ const f = require('./settings-fixture.cjs');
     assert.equal(f.getReaderConfig().ocr.selection.single.device, 'gpu');
     assert.equal(f.getReaderConfig().ocr.selection.single.runtime, 'paddle-cuda');
     assert.equal(f.getReaderConfig().ocr.selection.single.model, 'paddle-ar-en');
-    f.runtimes.push({id:'paddle-webgpu',feature:'ocr',engine:'paddleocr',backend:'webgpu',label:'WebGPU',installed:true,directory:'/assets/paddle-webgpu'});
+    f.runtimes.push({id:'paddle-webgpu',feature:'ocr',engine:'paddleocr',backend:'webgpu',label:'Dawn',installed:true,directory:'/assets/paddle-webgpu'});
     await page.reload();
     await go('models');
     await page.locator('[data-catalog-feature=ocr]').click();
-    await choose('ocr.single.runtime','WebGPU',/^WebGPU$/);
-    await page.locator('[data-setting-path="ocr.single.webgpu_adapter"]').waitFor();
+    await page.route('**/api/webgpu-adapters', route => route.fulfill({
+      json:{adapters:[{index:0,name:null,kind:null,available:true}]},
+    }));
+    await choose('ocr.single.runtime','Dawn',/^Dawn$/);
+    const gpuInput = '[data-setting-path="ocr.single.webgpu_adapter"] [role="combobox"]';
+    const waitForGpu = () => page.waitForFunction(selector =>
+      document.querySelector(selector)?.value === 'Adapter 0', gpuInput);
+    await waitForGpu();
+    await page.locator(gpuInput).click();
+    const gpuOptions = page.locator('[data-combo-list="ocr.single.webgpu_adapter"] [role="option"]');
+    assert.equal(await gpuOptions.count(), 1);
+    await page.locator(gpuInput).press('Escape');
     await page.locator('#savebar button[type=submit]').click();
     await page.getByText('Saved and applied.').waitFor();
     assert.equal(f.getReaderConfig().ocr.selection.single.runtime, 'paddle-webgpu');
     assert.equal(f.getReaderConfig().ocr.selection.single.device, 'gpu');
+    await page.reload();
+    await go('models');
+    await page.locator('[data-catalog-feature=ocr]').click();
+    await waitForGpu();
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
     assert.deepEqual(errors,[]);
     console.log('PASS model selection, sorting, wrapped help, preview status and download → verify → install → ready');

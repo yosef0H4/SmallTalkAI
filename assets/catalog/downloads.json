@@ -1702,7 +1702,7 @@
   },
   {
     "id": "paddle-webgpu-linux",
-    "label": "ONNX Runtime · WebGPU · Linux x64",
+    "label": "ONNX Runtime · Dawn · Linux x64",
     "kind": "ocr",
     "platform": "linux-x86_64",
     "url": "https://registry.npmjs.org/onnxruntime-node/-/onnxruntime-node-1.31.1.tgz",
@@ -1720,7 +1720,7 @@
   },
   {
     "id": "paddle-webgpu-windows",
-    "label": "ONNX Runtime · WebGPU · Windows x64",
+    "label": "ONNX Runtime · Dawn · Windows x64",
     "kind": "ocr",
     "platform": "windows-x86_64",
     "url": "https://registry.npmjs.org/onnxruntime-node/-/onnxruntime-node-1.31.1.tgz",

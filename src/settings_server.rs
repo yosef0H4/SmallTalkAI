@@ -506,6 +506,11 @@ fn handle(request: &mut Request, state: &AppState) -> Result<Response<std::io::C
             &crate::modules::inventory(&AppConfig::load()?),
             state,
         )),
+        (&Method::Get, "/api/webgpu-adapters") => Ok(json_response(
+            StatusCode(200),
+            &json!({"adapters":crate::modules::scan_webgpu_adapters()}),
+            state,
+        )),
         (&Method::Get, "/api/model-setup") => Ok(json_response(
             StatusCode(200),
             &serde_json::to_value(open_model_setup(state)?)?,

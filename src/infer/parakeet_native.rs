@@ -103,6 +103,10 @@ struct Api {
 impl Api {
     fn load(runtime_dir: &Path) -> Result<Self> {
         let library_path = parakeet_library_path(runtime_dir)?;
+        #[cfg(target_os = "linux")]
+        if let Some(index) = requested_vulkan_index()? {
+            std::env::set_var("GGML_VK_VISIBLE_DEVICES", index.to_string());
+        }
         #[cfg(windows)]
         reader_core::native_paths::configure_windows_dll_search(runtime_dir, &library_path)?;
         let lib = unsafe { Library::new(&library_path) }
@@ -179,13 +183,16 @@ unsafe fn select_windows_vulkan_device() -> Result<()> {
     let result = vulkan_devices();
     match result {
         Ok(devices) => {
-            if let Some(index) = preferred_gpu_device(&devices) {
-                let (_, description, _) = &devices[index];
+            if let Some(device) = requested_vulkan_adapter(&devices)?
+                .or_else(|| devices.iter().find(|device| device.kind == 1))
+                .or_else(|| devices.iter().find(|device| device.kind == 2))
+            {
+                let index = device.index;
                 // ggml applies this filter to Vulkan physical-device indices,
                 // then exposes the sole selected device as Vulkan0.
                 set_windows_native_env("GGML_VK_VISIBLE_DEVICES", &index.to_string())?;
                 set_windows_native_env("PARAKEET_DEVICE", "Vulkan0")?;
-                tracing::info!(physical_index = index, gpu = %description, "selected physical Vulkan GPU");
+                tracing::info!(physical_index = index, gpu = %device.name, "selected physical Vulkan GPU");
                 return Ok(());
             }
             anyhow::ensure!(
@@ -222,7 +229,7 @@ unsafe fn set_windows_native_env(key: &str, value: &str) -> Result<()> {
 }
 
 #[cfg(any(windows, target_os = "linux"))]
-unsafe fn vulkan_devices() -> Result<Vec<(String, String, c_int)>> {
+unsafe fn vulkan_devices() -> Result<Vec<VulkanAdapter>> {
     use ash::{vk, Entry};
     let entry = Entry::load().context("loading Vulkan driver")?;
     let application = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_2);
@@ -237,7 +244,7 @@ unsafe fn vulkan_devices() -> Result<Vec<(String, String, c_int)>> {
         Ok(physical_devices
             .iter()
             .enumerate()
-            .map(|(index, device)| {
+            .filter_map(|(index, device)| {
                 let properties = instance.get_physical_device_properties(*device);
                 let description = CStr::from_ptr(properties.device_name.as_ptr())
                     .to_string_lossy()
@@ -247,6 +254,21 @@ unsafe fn vulkan_devices() -> Result<Vec<(String, String, c_int)>> {
                     .iter()
                     .any(|queue| queue.queue_flags.contains(vk::QueueFlags::COMPUTE));
                 let mut vulkan11 = vk::PhysicalDeviceVulkan11Features::default();
+                let mut ids = vk::PhysicalDeviceIDProperties::default();
+                let mut pci = vk::PhysicalDevicePCIBusInfoPropertiesEXT::default();
+                let has_pci = instance
+                    .enumerate_device_extension_properties(*device)
+                    .is_ok_and(|extensions| {
+                        extensions.iter().any(|extension| {
+                            CStr::from_ptr(extension.extension_name.as_ptr())
+                                == ash::ext::pci_bus_info::NAME
+                        })
+                    });
+                let mut properties2 = vk::PhysicalDeviceProperties2::default().push_next(&mut ids);
+                if has_pci {
+                    properties2 = properties2.push_next(&mut pci);
+                }
+                instance.get_physical_device_properties2(*device, &mut properties2);
                 let mut features = vk::PhysicalDeviceFeatures2::default().push_next(&mut vulkan11);
                 instance.get_physical_device_features2(*device, &mut features);
                 let kind = if !compute
@@ -261,7 +283,23 @@ unsafe fn vulkan_devices() -> Result<Vec<(String, String, c_int)>> {
                 } else {
                     0
                 };
-                (format!("Vulkan{index}"), description, kind)
+                (kind != 0).then(|| VulkanAdapter {
+                    index,
+                    id: ids
+                        .device_uuid
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect(),
+                    vendor_id: properties.vendor_id,
+                    name: description,
+                    pci_address: has_pci.then(|| {
+                        format!(
+                            "{:04x}:{:02x}:{:02x}.{:x}",
+                            pci.pci_domain, pci.pci_bus, pci.pci_device, pci.pci_function
+                        )
+                    }),
+                    kind,
+                })
             })
             .collect())
     })();
@@ -269,16 +307,53 @@ unsafe fn vulkan_devices() -> Result<Vec<(String, String, c_int)>> {
     result
 }
 
-pub(crate) fn has_dedicated_vulkan_gpu() -> bool {
+#[derive(serde::Serialize)]
+pub(crate) struct VulkanAdapter {
+    #[serde(skip)]
+    index: usize,
+    id: String,
+    vendor_id: u32,
+    pub(crate) name: String,
+    pub(crate) pci_address: Option<String>,
+    pub(crate) kind: c_int,
+}
+
+pub(crate) fn vulkan_adapters() -> Vec<VulkanAdapter> {
     #[cfg(any(windows, target_os = "linux"))]
     {
         // Only the first-run Settings flow uses this probe. Workers validate
         // and select their actual device independently.
-        unsafe { vulkan_devices() }
-            .is_ok_and(|devices| devices.iter().any(|(_, _, kind)| *kind == 1))
+        let mut devices = unsafe { vulkan_devices() }.unwrap_or_default();
+        devices.sort_by_key(|device| device.kind);
+        let mut ids = std::collections::BTreeSet::new();
+        devices.retain(|device| ids.insert(device.id.clone()));
+        devices
     }
     #[cfg(not(any(windows, target_os = "linux")))]
-    false
+    Vec::new()
+}
+
+#[cfg(target_os = "linux")]
+fn requested_vulkan_index() -> Result<Option<usize>> {
+    if std::env::var_os("SMALLTALKAI_VULKAN_ADAPTER").is_none()
+        || std::env::var("PARAKEET_DEVICE").as_deref() == Ok("cpu")
+    {
+        return Ok(None);
+    }
+    let devices = unsafe { vulkan_devices() }?;
+    Ok(requested_vulkan_adapter(&devices)?.map(|device| device.index))
+}
+
+#[cfg(any(windows, target_os = "linux"))]
+fn requested_vulkan_adapter(devices: &[VulkanAdapter]) -> Result<Option<&VulkanAdapter>> {
+    let Some(id) = std::env::var_os("SMALLTALKAI_VULKAN_ADAPTER") else {
+        return Ok(None);
+    };
+    devices
+        .iter()
+        .find(|device| id == std::ffi::OsStr::new(&device.id))
+        .map(Some)
+        .context("gpu_unavailable: the selected Vulkan GPU is unavailable")
 }
 
 // Keep native backend enumeration inside the disposable inference process.
@@ -318,7 +393,7 @@ unsafe fn select_native_gpu_device(lib: &Library) -> Result<()> {
     Ok(())
 }
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(target_os = "linux", all(windows, test)))]
 fn preferred_gpu_device(devices: &[(String, String, c_int)]) -> Option<usize> {
     // ggml device types: 0 = CPU, 1 = discrete GPU, 2 = integrated GPU.
     // Software Vulkan implementations must never satisfy explicit GPU mode.

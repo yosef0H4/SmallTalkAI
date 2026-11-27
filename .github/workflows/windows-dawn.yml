@@ -1,0 +1,45 @@
+name: Windows Dawn smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dawn:
+    runs-on: windows-2022
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the Settings frontend
+        working-directory: web/settings
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build the native worker and stage the runtimes
+        run: |
+          python -m pip install packaging
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup toolchain install 1.99.0 --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo +1.99.0 build --locked --release -p smalltalkai -p smalltalkai-ocr --bin smalltalkai-ctl --bin smalltalkai-ocr
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & target/release/smalltalkai-ctl.exe assets stage-bundled (Join-Path $env:RUNNER_TEMP 'runtimes')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build and test the patched adapter query
+        run: |
+          $bundle = Join-Path $env:RUNNER_TEMP 'runtimes/paddle-webgpu-windows'
+          python scripts/build-dawn-runtime.py --work (Join-Path $env:RUNNER_TEMP 'ort') --bundle $bundle --jobs 3
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $json = & target/release/smalltalkai-ocr.exe --probe-webgpu --runtime-dir $bundle
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $adapters = $json | ConvertFrom-Json -NoEnumerate
+          if ($adapters -isnot [array]) { throw 'The Dawn adapter query must return an array' }

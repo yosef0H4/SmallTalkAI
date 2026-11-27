@@ -4,7 +4,7 @@ import type { Runtime } from './modules.svelte';
 const runtimeNames: Readonly<Record<string, string>> = {
   vulkan: 'Vulkan',
   cuda: 'CUDA',
-  webgpu: 'WebGPU',
+  webgpu: 'Dawn',
   cpu: 'CPU',
 };
 

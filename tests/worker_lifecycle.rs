@@ -23,6 +23,7 @@ fn worker_config(model_name: &str, idle: Duration, grace: Duration) -> WorkerCon
         log_path: root.join("smalltalkai-mock-infer.log"),
         log_level: LogLevel::Debug,
         inference_device: InferenceDevice::Cpu,
+        vulkan_adapter: None,
         speech_language: "en".into(),
         idle_timeout: idle,
         shutdown_grace: grace,

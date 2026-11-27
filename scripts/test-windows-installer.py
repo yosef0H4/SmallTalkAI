@@ -211,6 +211,15 @@ def verify_installed_payload(target):
     expected = {"parakeet-vulkan-windows", "sherpa-cpu-windows", "paddle-webgpu-windows"}
     assert {path.name for path in bundled.iterdir()} == expected
     assert all((path / ".verified").is_file() for path in bundled.iterdir())
+    dawn = bundled / "paddle-webgpu-windows"
+    assert (dawn / ".verified").read_text().startswith("source:onnxruntime:")
+    adapters = json.loads(subprocess.check_output(
+        [str(target / "runtime/smalltalkai-ocr.exe"), "--probe-webgpu", "--runtime-dir", str(dawn)],
+        text=True, timeout=15,
+    ))
+    assert isinstance(adapters, list) and all(
+        adapter["available"] and isinstance(adapter["index"], int) for adapter in adapters
+    ), adapters
     assert bridge in libraries
     assert all(path == bridge or path.parts[:2] == ("runtime", "bundled-runtimes") for path in libraries), libraries
     assert not any(path.name.startswith(("cudart", "cublas", "cudnn", "curand"))

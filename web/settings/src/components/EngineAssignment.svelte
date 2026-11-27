@@ -7,8 +7,7 @@
  import IconButton from './IconButton.svelte';
  import Help from './Help.svelte';
  import RangeInput from './RangeInput.svelte';
- import NumberInput from './NumberInput.svelte';
- import {modules,refreshModules,type Feature,type Binding} from '../lib/modules.svelte';
+ import {dawnAdapters,loadDawnAdapters,modules,refreshModules,type Feature,type Binding} from '../lib/modules.svelte';
  import {t} from '../lib/i18n';
  import {notice} from '../lib/state.svelte';
  let {feature,binding,language='',path,onchange}:{feature:Feature;binding:Binding;language?:string;path:string;onchange:(binding:Binding)=>void}=$props();
@@ -23,6 +22,24 @@
    (feature === 'ocr' && !!runtime && binding.device === 'auto'));
  const selectedRuntime = $derived(isCpu ? 'cpu' : runtimeId);
  const selectedLabel = $derived(isCpu ? 'module.processor' : undefined);
+ const showVulkanDevice = $derived(runtime?.backend === 'vulkan' && !isCpu);
+ const gpuDevices = $derived(modules.vulkanAdapters.map(adapter => ({
+   value: adapter.id,
+   label: adapter.name,
+   meta: t(adapter.kind === 1 ? 'module.gpu_dedicated' : 'module.gpu_integrated'),
+ })));
+ const selectedVulkanDevice = $derived(binding.vulkan_adapter ?? gpuDevices[0]?.value ?? '');
+ const showDawnDevices = $derived(runtime?.backend === 'webgpu' && !isCpu);
+ const webgpuDevices = $derived(dawnAdapters.items.filter(adapter => adapter.available).map(adapter => ({
+   value: String(adapter.index),
+   label: adapter.name ?? `${t('module.gpu_adapter_number')} ${adapter.index}`,
+   meta: adapter.kind === 1 ? t('module.gpu_dedicated') : adapter.kind === 2 ? t('module.gpu_integrated') : undefined,
+ })));
+ const webgpuDevice = $derived(binding.webgpu_adapter == null ? webgpuDevices[0]?.value ?? '' : String(binding.webgpu_adapter));
+ const dawnStatusLabel = $derived(dawnAdapters.status === 'ready' ? 'module.gpu_scan_unavailable'
+   : dawnAdapters.status === 'failed' ? 'module.gpu_scan_failed' : 'module.gpu_scan_loading');
+ $effect(() => { if (showDawnDevices) void loadDawnAdapters(); });
+ const scanDawn = () => loadDawnAdapters(true);
  const runtimes = $derived([
    ...(defaultRuntime ? [] : [{ value: '', label: 'None' }]),
    ...(cpuRuntime ? [{ value: 'cpu', label: 'module.processor', meta: runtimeHardware({ backend: 'cpu' }) }] : []),
@@ -58,6 +75,19 @@
  <Combo label="module.runtime" path={`${path}.runtime`} value={selectedRuntime} {selectedLabel} items={runtimes} unavailable onselect={changeRuntime}>
  {#snippet extra()}<IconButton icon="refresh" label="module.refresh" onclick={refresh}/>{/snippet}
  </Combo>
+ {#if showVulkanDevice}
+   <Combo label="module.gpu_device" path={`${path}.vulkan_adapter`} value={selectedVulkanDevice}
+     items={gpuDevices} selectedLabel={gpuDevices.length ? undefined : 'module.gpu_scan_unavailable'}
+     disabled={!gpuDevices.length} selectOnly unavailable onselect={(id) => onchange({...binding, vulkan_adapter: id})} />
+ {/if}
+ {#if showDawnDevices}
+   <Combo label="module.gpu_device" path={`${path}.webgpu_adapter`} value={webgpuDevice}
+     items={webgpuDevices} selectedLabel={webgpuDevices.length ? undefined : dawnStatusLabel}
+     disabled={!webgpuDevices.length} selectOnly unavailable onselect={(index) => onchange({...binding, webgpu_adapter: Number(index)})}>
+     {#snippet extra()}<IconButton icon="refresh" label="module.gpu_scan" disabled={dawnAdapters.status === 'loading'} onclick={scanDawn}/>{/snippet}
+   </Combo>
+   <p class="inline-status">{t('module.gpu_scan_warning')}</p>
+ {/if}
  {#if !installedRuntimes.length}<p class="inline-status">{t('module.install_runtime_first')}</p>{/if}
  <Combo label="ui.model.68c2cc" path={`${path}.model`} value={binding.model||''} items={models} unavailable onselect={(value)=>onchange({...binding,model:value||null,voice:value===binding.model?binding.voice:null,steps:value===binding.model?binding.steps:null,lowercase:value===binding.model?binding.lowercase:false,currency_words:binding.currency_words,clean_text:binding.clean_text})}>
  {#snippet extra()}<IconButton icon="refresh" label="module.refresh" onclick={refresh}/>{/snippet}
@@ -70,19 +100,6 @@
  {#if binding.model==='supertonic3'}
  <div class="field"><div class="field-copy"><label for={`${path}.steps`}>{t('module.steps')} · {binding.steps??5}</label><Help text="module.steps_help"/></div><div class="control"><RangeInput id={`${path}.steps`} min={5} max={12} value={binding.steps??5} oninput={(steps) => onchange({...binding,steps})}/></div></div>
  {/if}
- {/if}
- {#if runtime?.backend === 'webgpu' && binding.device === 'gpu'}
-   <div class="field" data-setting-path={`${path}.webgpu_adapter`}>
-     <div class="field-copy">
-       <label for={`${path}.webgpu_adapter`}>{t('module.webgpu_adapter')}</label>
-       <Help text="module.webgpu_adapter_help" />
-     </div>
-     <div class="control">
-       <NumberInput id={`${path}.webgpu_adapter`} label={t('module.webgpu_adapter')}
-         value={binding.webgpu_adapter ?? 0} min={0}
-         oninput={(index) => { if (Number.isInteger(index) && index >= 0 && index <= 0xffffffff) onchange({...binding,webgpu_adapter:index}); }} />
-     </div>
-   </div>
  {/if}
  <ModelTest {feature} {binding} {language} />
 

@@ -333,6 +333,8 @@ pub struct SpeechConfig {
     pub provider: SpeechProvider,
     pub remote_openai_compatible: RemoteSttConfig,
     pub inference_device: InferenceDevice,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vulkan_adapter: Option<String>,
     pub runtime_dir: String,
     pub language_devices: std::collections::BTreeMap<String, InferenceDevice>,
     pub language_runtimes: std::collections::BTreeMap<String, Option<String>>,
@@ -544,6 +546,7 @@ impl Default for AppConfig {
                     timeout_ms: 180_000,
                 },
                 inference_device: InferenceDevice::Auto,
+                vulkan_adapter: None,
                 runtime_dir: reader_core::routing::bundled_default(
                     reader_core::routing::Feature::Stt,
                 )
@@ -914,6 +917,10 @@ impl AppConfig {
                 }
             }
         }
+        normalized.speech.vulkan_adapter = input["speech"]["vulkan_adapter"]
+            .as_str()
+            .filter(|id| id.len() == 32 && id.bytes().all(|digit| digit.is_ascii_hexdigit()))
+            .map(str::to_ascii_lowercase);
         if let Some(map) = input["speech"]["language_devices"].as_object() {
             for (language, value) in map.iter().take(128) {
                 if valid_language_id(language) {

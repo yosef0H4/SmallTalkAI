@@ -32,7 +32,8 @@
  const showDawnDevices = $derived(runtime?.backend === 'webgpu' && !isCpu);
  const webgpuDevices = $derived(dawnAdapters.items.filter(adapter => adapter.available).map(adapter => ({
    value: String(adapter.index),
-   label: adapter.name ?? `${t('module.gpu_adapter_number')} ${adapter.index}`,
+   label: adapter.name && !dawnAdapters.items.some(other => other.available && other.index !== adapter.index && other.name === adapter.name)
+     ? adapter.name : `${adapter.name ? `${adapter.name} · ` : ''}${t('module.gpu_adapter_number')} ${adapter.index}`,
    meta: adapter.kind === 1 ? t('module.gpu_dedicated') : adapter.kind === 2 ? t('module.gpu_integrated') : undefined,
  })));
  const webgpuDevice = $derived(binding.webgpu_adapter == null ? webgpuDevices[0]?.value ?? '' : String(binding.webgpu_adapter));

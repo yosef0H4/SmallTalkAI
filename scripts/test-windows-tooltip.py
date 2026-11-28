@@ -25,7 +25,7 @@ u.IsWindowVisible.argtypes = [W.HWND]
 u.GetWindowThreadProcessId.argtypes = [W.HWND, C.POINTER(W.DWORD)]
 u.GetClassNameW.argtypes = [W.HWND, W.LPWSTR, C.c_int]
 callback = C.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
-samples = []
+samples = {phase: [] for phase in ("recording", "hidden", "reopened")}
 shot = False
 shortcut_shot = False
 all_shortcuts_shot = False
@@ -34,9 +34,12 @@ if arabic:
     command.append("--arabic")
 if reader:
     command.append("--reader")
-with (OUTPUT / ("tooltip-live" + suffix + ".log")).open("w") as log:
+log_path = OUTPUT / ("tooltip-live" + suffix + ".log")
+with log_path.open("w", encoding="utf-8") as log, log_path.open(encoding="utf-8") as phase_log:
     with subprocess.Popen(command, stdout=log, cwd=ROOT) as process:
         started = time.monotonic()
+        phase = ""
+        phase_started = started
         try:
             while process.poll() is None and time.monotonic() - started < 20:
                 found = []
@@ -55,8 +58,13 @@ with (OUTPUT / ("tooltip-live" + suffix + ".log")).open("w") as log:
 
                 u.EnumWindows(enum, 0)
                 elapsed = time.monotonic() - started
-                samples.append((elapsed, bool(found)))
-                if found and 1 < elapsed < 3 and not shot:
+                if not reader:
+                    for line in phase_log.readlines():
+                        phase = line.strip()
+                        phase_started = started + elapsed
+                    if phase in samples and started + elapsed - phase_started >= 0.15:
+                        samples[phase].append(bool(found))
+                if found and (1 < elapsed < 3 if reader else phase == "recording") and not shot:
                     name = "tooltip-reader" if reader else "tooltip-fixed"
                     ImageGrab.grab(bbox=found[0]).save(OUTPUT / (name + suffix + ".png"))
                     shot = True
@@ -79,8 +87,8 @@ if reader:
     assert shot and shortcut_shot and all_shortcuts_shot, "reader passage or shortcut tooltip was missing"
     print("PASS native reader and shortcut tooltip screenshots")
     sys.exit(0)
-active = [visible for elapsed, visible in samples if 1 < elapsed < 4.5]
+active = samples["recording"]
 assert active and all(active), "tooltip disappeared while recording"
-assert any(not visible for elapsed, visible in samples if 7.3 < elapsed < 7.8), "tooltip did not hide"
-assert any(visible for elapsed, visible in samples if 8.5 < elapsed < 9.5), "tooltip did not reopen"
+assert samples["hidden"] and not any(samples["hidden"]), "tooltip did not hide"
+assert samples["reopened"] and all(samples["reopened"]), "tooltip did not reopen"
 print(json.dumps({"result": "PASS", "visible_recording_samples": len(active), "unexpected_hidden_samples": sum(not value for value in active), "screenshot": shot}))

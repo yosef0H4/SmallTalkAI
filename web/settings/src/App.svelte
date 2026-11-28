@@ -38,7 +38,7 @@
     maximized = document.documentElement.dataset.maximized === "true";
   }
   function frameAction(action: "drag" | "minimize" | "maximize") {
-    window.location.assign("/__settings_frame/" + action);
+    window.open("/__settings_frame/" + action, "_blank");
   }
   function dragFrame(event: MouseEvent) {
     if (event.button !== 0) return;

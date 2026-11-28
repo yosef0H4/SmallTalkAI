@@ -36,6 +36,7 @@ async function main() {
         { index: 3, name: null, kind: null, available: true },
         { index: 4, name: integrated.name, kind: 2, available: true },
         { index: 6, name: intelName, kind: 2, available: true },
+        ...(dawnRequests > 1 ? [{ index: 8, name: nvidiaName, kind: 1, available: true }] : []),
       ] } });
     });
 
@@ -65,8 +66,13 @@ async function main() {
     assert.equal(dawnRequests, 0);
     await fixture.setChoice(voiceRuntime, "sherpa-webgpu");
     await page.getByText(/card names come from the graphics driver/i).waitFor();
-    const webgpu = page.locator('[data-setting-path="tts.single.webgpu_adapter"] [role=combobox]');
-    await webgpu.waitFor();
+    const webgpuSelector = '[data-setting-path="tts.single.webgpu_adapter"] [role=combobox]';
+    const webgpu = page.locator(webgpuSelector);
+    const waitForWebGpuValue = value => page.waitForFunction(
+      ({ selector, expected }) => document.querySelector(selector)?.value === expected,
+      { selector: webgpuSelector, expected: value },
+    );
+    await waitForWebGpuValue(nvidiaName);
     assert.equal(dawnRequests, 1);
     assert.equal(await webgpu.inputValue(), nvidiaName);
     await webgpu.click();
@@ -85,7 +91,10 @@ async function main() {
       page.getByRole("button", { name: "Scan Dawn adapters" }).click(),
     ]);
     assert.equal(dawnRequests, 2);
-    assert.equal(await webgpu.inputValue(), "Adapter 3");
+    await waitForWebGpuValue("Adapter 3");
+    await webgpu.click();
+    await webgpuCards.getByRole("option", { name: `${nvidiaName} · Adapter 1` }).waitFor();
+    await webgpuCards.getByRole("option", { name: `${nvidiaName} · Adapter 8` }).waitFor();
     console.log("PASS single- and multi-GPU Vulkan picker, automatic Dawn scan, cached reopening, and manual refresh");
   } finally {
     await browser.close();

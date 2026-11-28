@@ -5,7 +5,8 @@ param(
     [string]$CargoTargetDir,
     [ValidatePattern('^[0-9A-Fa-f]{40}$')]
     [string]$SigningCertificateThumbprint,
-    [string]$SignTool
+    [string]$SignTool,
+    [string]$DawnLibrary
 )
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
@@ -108,7 +109,9 @@ foreach ($Id in $BundledRuntimeIds) {
     Copy-Item -LiteralPath (Join-Path $BundledCache $Id) -Destination $BundledRuntimes -Recurse -Force
     Require-File (Join-Path $BundledRuntimes "$Id/.verified")
 }
-python (Join-Path $PSScriptRoot 'build-dawn-runtime.py') --work (Join-Path $Root 'artifacts/dawn-runtime-windows') --bundle (Join-Path $BundledRuntimes 'paddle-webgpu-windows')
+$DawnArguments = @('--work', (Join-Path $Root 'artifacts/dawn-runtime-windows'), '--bundle', (Join-Path $BundledRuntimes 'paddle-webgpu-windows'))
+if ($DawnLibrary) { $DawnArguments += @('--library', $DawnLibrary) }
+python (Join-Path $PSScriptRoot 'build-dawn-runtime.py') @DawnArguments
 if ($LASTEXITCODE -ne 0) { throw 'Could not build and stage the patched Dawn runtime' }
 $SherpaDirectory = Join-Path $Runtime 'sherpa-webgpu'
 New-Item -ItemType Directory -Path $SherpaDirectory -Force | Out-Null

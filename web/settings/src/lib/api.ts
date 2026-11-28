@@ -40,13 +40,23 @@ export async function events(
   signal: AbortSignal,
   pid?: number,
 ): Promise<{ events: import("./types").ServiceEvent[]; pid?: number }> {
-  const response = await fetch(`/api/events?after=${after}${pid === undefined ? "" : `&pid=${pid}`}`, {
-    headers: { "X-SmallTalkAI-Token": token },
-    signal,
-  });
-  if (!response.ok) throw Error("Event connection failed");
-  const line = (await response.text())
-    .split("\n")
-    .find((v) => v.startsWith("data: "));
-  return line ? JSON.parse(line.slice(6)) : { events: [] };
+  const request = new AbortController();
+  const abort = () => request.abort();
+  const timeout = setTimeout(abort, 10_000);
+  if (signal.aborted) abort();
+  signal.addEventListener("abort", abort, { once: true });
+  try {
+    const response = await fetch(`/api/events?after=${after}${pid === undefined ? "" : `&pid=${pid}`}`, {
+      headers: { "X-SmallTalkAI-Token": token },
+      signal: request.signal,
+    });
+    if (!response.ok) throw Error("Event connection failed");
+    const line = (await response.text())
+      .split("\n")
+      .find((v) => v.startsWith("data: "));
+    return line ? JSON.parse(line.slice(6)) : { events: [] };
+  } finally {
+    clearTimeout(timeout);
+    signal.removeEventListener("abort", abort);
+  }
 }

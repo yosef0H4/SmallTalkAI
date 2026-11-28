@@ -217,11 +217,24 @@ async function main() {
 
     await frame.waitFor();
     assert.equal(nativeWindow(host, "frame"), "classic");
-    await frame.getByRole("button", { name: "Maximize Settings" }).click();
+    async function clickFrameControl(name) {
+      const selector = `.settings-frame button[aria-label="${name}"]`;
+      const point = await waitFor(`${name} frame control`, async () => {
+        const { result } = await webview.send("Runtime.evaluate", {
+          expression: `(() => { const rect = document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect();
+            return rect && { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }; })()`,
+          returnByValue: true,
+        });
+        return result.value;
+      });
+      // The host handles and cancels the popup. Send a pointer click without waiting for navigation.
+      await page.mouse.click(point.x, point.y);
+    }
+    await clickFrameControl("Maximize Settings");
     await waitFor("Classic titlebar maximizes", () => nativeWindow(host, "zoom") === "maximized");
-    await frame.getByRole("button", { name: "Restore Settings" }).click();
+    await clickFrameControl("Restore Settings");
     await waitFor("Classic titlebar restores", () => nativeWindow(host, "zoom") === "normal");
-    await frame.getByRole("button", { name: "Minimize Settings" }).click();
+    await clickFrameControl("Minimize Settings");
     await waitFor("Classic titlebar minimizes", () => nativeWindow(host, "state") === "minimized");
     assert.equal(nativeWindow(host, "restore"), "visible");
     console.log("PASS: default Classic title bar maximizes, minimizes, and restores");
@@ -248,9 +261,9 @@ async function main() {
     await page.mouse.move(grip.x + 110, grip.y + 36, { steps: 5 });
     await page.mouse.up();
     assert.deepEqual(browserDialogs, [], "Dragging dirty Settings must not prompt to leave");
-    await frame.getByRole("button", { name: "Maximize Settings" }).click();
+    await clickFrameControl("Maximize Settings");
     await waitFor("dirty Settings maximizes", () => nativeWindow(host, "zoom") === "maximized");
-    await frame.getByRole("button", { name: "Restore Settings" }).click();
+    await clickFrameControl("Restore Settings");
     await waitFor("dirty Settings restores", () => nativeWindow(host, "zoom") === "normal");
     assert.deepEqual(browserDialogs, [], "Frame actions must not prompt to leave");
 
@@ -298,6 +311,16 @@ async function main() {
     for (const child of processes.reverse()) child.kill();
     for (const browser of browsers) await browser.close().catch(() => {});
     await sleep(500);
+    for (const pid of nativeProcesses) {
+      if (!processAlive(pid)) continue;
+      try {
+        execFileSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], {
+          stdio: "ignore", windowsHide: true, timeout: 10000,
+        });
+      } catch (error) {
+        if (processAlive(pid)) throw error;
+      }
+    }
     fs.rmSync(temp, { recursive: true, force: true, maxRetries: 4, retryDelay: 300 });
   }
 }

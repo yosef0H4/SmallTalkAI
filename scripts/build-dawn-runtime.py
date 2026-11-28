@@ -60,13 +60,21 @@ def build_runtime(work, jobs):
     windows = os.name == "nt"
     generator = "Visual Studio 17 2022" if windows else "Ninja"
     backend = "D3D12" if windows else "VULKAN"
+    cmake_defines = ["onnxruntime_BUILD_UNIT_TESTS=OFF", "CMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF",
+                     f"onnxruntime_ENABLE_DAWN_BACKEND_{backend}=ON"]
+    if windows:
+        # Strawberry Perl's patch on Windows CI rejects part of ORT's ONNX patch.
+        git_core = Path(subprocess.check_output(["git", "--exec-path"], text=True).strip())
+        patch = git_core.parents[2] / "usr/bin/patch.exe"
+        if not patch.is_file():
+            raise RuntimeError("Git for Windows with usr/bin/patch.exe is required to build Dawn")
+        cmake_defines.append(f"Patch_EXECUTABLE:FILEPATH={patch.as_posix()}")
     subprocess.run([
         sys.executable, str(source / "tools/ci_build/build.py"),
         "--build_dir", str(build), "--config", "Release", "--cmake_generator", generator,
         "--parallel", str(jobs), "--target", "onnxruntime", "--build_shared_lib",
         "--use_webgpu", "--skip_tests", "--skip_submodule_sync",
-        "--cmake_extra_defines", "onnxruntime_BUILD_UNIT_TESTS=OFF",
-        "CMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF", f"onnxruntime_ENABLE_DAWN_BACKEND_{backend}=ON",
+        "--cmake_extra_defines", *cmake_defines,
     ], cwd=source, check=True)
     release = build / "Release"
     return release / "Release/onnxruntime.dll" if windows else release / "libonnxruntime.so.1"

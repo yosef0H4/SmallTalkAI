@@ -52,7 +52,9 @@ fn open_window(settings: DesktopSettings) -> Result<()> {
             let page_shown = shown.clone();
             let ready_shown = shown.clone();
             let page_origin = origin.clone();
+            let frame_origin = origin.clone();
             let close = app.handle().clone();
+            let frame_window = close.clone();
             let window = WebviewWindowBuilder::new(app, "settings", WebviewUrl::External(url))
                 .title("SmallTalk")
                 .inner_size(1024.0, 760.0)
@@ -100,25 +102,26 @@ fn open_window(settings: DesktopSettings) -> Result<()> {
                         }
                         return false;
                     }
-                    let action = match url.path() {
-                        "/__settings_frame/drag" => "drag",
-                        "/__settings_frame/minimize" => "minimize",
-                        "/__settings_frame/maximize" => "maximize",
-                        _ => return true,
-                    };
-                    let handle = close.clone();
-                    let _ = close.run_on_main_thread(move || {
-                        if let Some(window) = handle.get_webview_window("settings") {
-                            if let Err(error) = frame_action(&window, action) {
-                                eprintln!("smalltalkai-settings-window: {action}: {error}");
-                            }
-                        }
-                    });
-                    false
+                    true
                 })
-                .on_new_window(|url, _| {
-                    // The cleanup OAuth flow uses the user's normal browser session.
-                    if url.scheme() == "https" {
+                .on_new_window(move |url, _| {
+                    if url.origin() == frame_origin {
+                        let action = match url.path() {
+                            "/__settings_frame/drag" => "drag",
+                            "/__settings_frame/minimize" => "minimize",
+                            "/__settings_frame/maximize" => "maximize",
+                            _ => return NewWindowResponse::Deny,
+                        };
+                        let handle = frame_window.clone();
+                        let _ = frame_window.run_on_main_thread(move || {
+                            if let Some(window) = handle.get_webview_window("settings") {
+                                if let Err(error) = frame_action(&window, action) {
+                                    eprintln!("smalltalkai-settings-window: {action}: {error}");
+                                }
+                            }
+                        });
+                    } else if url.scheme() == "https" {
+                        // The cleanup OAuth flow uses the user's normal browser session.
                         let _ = open::that_detached(url.as_str());
                     }
                     NewWindowResponse::Deny
@@ -190,19 +193,31 @@ fn open_window(settings: DesktopSettings) -> Result<()> {
 
 fn publish_maximized(window: &tauri::WebviewWindow) {
     if let Ok(maximized) = window.is_maximized() {
-        let _ = window.eval(format!(
-            "document.documentElement.dataset.maximized = '{maximized}'; \
-            window.dispatchEvent(new Event('settings-window-state'));"
-        ));
+        publish_frame_state(window, maximized);
     }
+}
+
+fn publish_frame_state(window: &tauri::WebviewWindow, maximized: bool) {
+    let _ = window.eval(format!(
+        "document.documentElement.dataset.maximized = '{maximized}'; \
+        window.dispatchEvent(new Event('settings-window-state'));"
+    ));
 }
 
 fn frame_action(window: &tauri::WebviewWindow, action: &str) -> tauri::Result<()> {
     match action {
         "drag" => window.start_dragging(),
         "minimize" => window.minimize(),
-        "maximize" if window.is_maximized()? => window.unmaximize(),
-        "maximize" => window.maximize(),
+        "maximize" => {
+            let maximize = !window.is_maximized()?;
+            if maximize {
+                window.maximize()?;
+            } else {
+                window.unmaximize()?;
+            }
+            publish_frame_state(window, maximize);
+            Ok(())
+        }
         _ => Ok(()),
     }
 }

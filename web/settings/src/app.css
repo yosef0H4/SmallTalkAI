@@ -720,11 +720,63 @@ details code {
 .status-mark.installed {
   color: var(--success);
 }
-.app-override-row {
+.paste-groups {
+  border-block-start: 1px solid var(--line);
+}
+.paste-group {
+  margin: 0;
+  padding: 0;
+  border-block-end: 1px solid var(--line);
+}
+.paste-group > summary {
+  margin: 0;
+  padding: 10px 6px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.paste-group > summary:hover {
+  background: var(--raised);
+}
+.paste-group[open] > summary {
+  margin-bottom: 0;
+}
+.paste-group > summary .muted {
+  float: inline-end;
+  font-variant-numeric: tabular-nums;
+}
+.paste-group-content {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 34px;
-  gap: 9px;
-  padding: 5px 0;
+  gap: 8px;
+  padding: 0 6px 10px;
+}
+.paste-rule-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.paste-rule-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-inline-size: 100%;
+  padding-inline-start: 8px;
+  border: 1px solid var(--line);
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.paste-rule-list button {
+  padding: 0 5px;
+  min-block-size: 24px;
+  flex-shrink: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.paste-rule-list button:hover {
+  background: var(--raised);
 }
 .cycle-row {
   display: flex;
@@ -828,21 +880,46 @@ details code {
   background: var(--raised);
   border-block-start: 1px solid var(--frame);
 }
+.desktop-feedback {
+  grid-column: 1 / -1;
+  z-index: 41;
+}
+.app-shell:has(> .desktop-feedback) > .rail {
+  grid-row: 1;
+}
+.settings-exit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .savebar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   padding: 5px 12px;
 }
-.savebar span {
+.savebar > button {
+  flex-shrink: 0;
+}
+.footer-status {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-width: 0;
+}
+.footer-status > .notice {
+  padding: 0;
+}
+#dirty {
   display: flex;
   align-items: center;
   gap: 8px;
   color: var(--muted);
   font-size: 12px;
 }
-.savebar i {
+#dirty i {
   width: 5px;
   height: 5px;
   border-radius: 50%;
@@ -932,7 +1009,7 @@ dialog::backdrop {
   .field:has(input[role="switch"]) {
     grid-template-columns: minmax(0, 1fr) 34px;
   }
-  .savebar span {
+  #dirty {
     font-size: 11px;
   }
   .model-result {
@@ -949,19 +1026,6 @@ dialog::backdrop {
   }
   .model-copy span {
     font-size: 11px;
-  }
-  .app-override-row {
-    grid-template-columns: minmax(0, 1fr) 34px;
-  }
-  .app-override-row input {
-    grid-column: 1;
-  }
-  .app-override-row .inline-combo {
-    grid-column: 1;
-  }
-  .app-override-row .icon-button {
-    grid-column: 2;
-    grid-row: 1/3;
   }
   .cycle-row span {
     flex-direction: column;

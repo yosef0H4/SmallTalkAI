@@ -63,7 +63,7 @@ smalltalkai-infer.exe
 | Linux dictation output | `smalltalkai-linux` + local reader controller | Action-only delivery settings. The controller serializes RemoteDesktop EIS typing, shortcuts and clicks with persistent grants, bounded cancellation and KDE foreground checks. Clipboard transactions preserve full formats. No legacy injector fallback; HTTP inference never exposes desktop input. |
 | Settings UI | `smalltalkai-settings` and `smalltalkai-settings-window` | A shared Tauri window on Windows and Linux with the embedded Svelte/TypeScript UI. Node is a build-time dependency only. |
 | User hotkeys | AHK shell | Runtime `Hotkey()` bindings; CapsLock custom combination path. |
-| Final typing | AHK shell | Variable-paced per-character `SendText()`; target HWND checked before every character. |
+| Final typing | AHK shell | Bounded `SendText()` chunks for Instant and variable-paced character sends for paced typing. The foreground window is checked between sends. |
 | Service PID supervision | AHK shell | PID from `Run()`; graceful request then `ProcessWaitClose()` and exact-PID `ProcessClose()` fallback. |
 | Audio capture | capture service | CPAL stream stays warm while shell runs. |
 | Microphone preference | capture service | Empty preference follows the system default; a stable device ID is pinned and falls back temporarily. On Windows, Core Audio endpoint notifications trigger bounded readiness retries. The device is also resolved at recording start as a safety net, and switching never interrupts an active dictation. |

@@ -42,7 +42,7 @@ const f = require("./settings-fixture.cjs");
     // A success notice from the preceding save can still be visible. Wait for
     // this draft to become clean before navigating or reloading the page.
     await page.locator("#savebar").waitFor({ state: "detached" });
-    await page.getByText("Saved and applied.", { exact: true }).waitFor();
+    await page.locator("footer #notice").getByText("Saved and applied.", { exact: true }).waitFor();
   };
   const draft = async () => {
     const active = await page
@@ -88,7 +88,55 @@ const f = require("./settings-fixture.cjs");
   }));
   assert.deepEqual(theme, { scheme: "light", radius: "0px" }, "open dropdown follows the app theme");
   await mode.press("Escape");
+  await desktop.locator('nav button[data-page="general"]').click();
+  await desktop.locator('[data-setting-path="general.enabled"] input').click();
+  const exitButton = desktop.getByRole("button", { name: "Exit SmallTalkAI", exact: true });
+  await exitButton.click();
+  const exitDialog = desktop.getByRole("dialog", { name: "Exit SmallTalkAI" });
+  await exitDialog.getByRole("button", { name: "Save and exit" }).waitFor();
+  await exitDialog.getByRole("button", { name: "Discard and exit" }).waitFor();
+  await exitDialog.getByRole("button", { name: "Keep editing" }).click();
+  assert(!f.actions.some(action => action.action === "exit_app"));
+  assert(await desktop.locator("#savebar").isVisible(), "canceling Exit retains the draft");
   await desktop.close();
+  const originalPlatform = f.options.platform;
+  for (const platform of ["linux", "windows"]) {
+    f.options.platform = platform;
+    const window = await context.newPage();
+    await window.setViewportSize({ width: 320, height: 460 });
+    await window.addInitScript(() => {
+      window.__SMALLTALKAI_DESKTOP__ = true;
+      window.close = () => {};
+    });
+    await window.goto(url);
+    await window.locator('[data-setting-path="general.enabled"] input').waitFor();
+    const exitCount = f.actions.filter(action => action.action === "exit_app").length;
+    const exit = window.locator("footer").getByRole("button", { name: "Exit SmallTalkAI", exact: true });
+    assert.equal(await exit.innerText(), "Exit");
+    assert.equal(await exit.locator("svg").count(), 1);
+    await Promise.all([
+      window.waitForResponse(response => response.url().endsWith("/api/close")),
+      window.getByRole("button", { name: "Close Settings", exact: true }).click(),
+    ]);
+    assert.equal(f.actions.filter(action => action.action === "exit_app").length, exitCount);
+    await window.getByRole("button", { name: "Exit SmallTalkAI", exact: true }).click();
+    const confirmation = window.getByRole("dialog", { name: "Exit SmallTalkAI" });
+    await confirmation.getByText(/including any dictation or reading in progress/).waitFor();
+    await confirmation.getByRole("button", { name: "Exit SmallTalkAI", exact: true }).click();
+    await confirmation.waitFor({ state: "hidden" });
+    assert.equal(f.actions.filter(action => action.action === "exit_app").length, exitCount + 1);
+    const beforeExit = f.getConfig();
+    await window.locator('[data-setting-path="general.enabled"] input').click();
+    await window.getByRole("button", { name: "Exit SmallTalkAI", exact: true }).click();
+    const saveOnExit = platform === "windows";
+    await confirmation.getByRole("button", { name: saveOnExit ? "Save and exit" : "Discard and exit" }).click();
+    await confirmation.waitFor({ state: "hidden" });
+    assert.equal(f.getConfig().general.enabled, saveOnExit ? !beforeExit.general.enabled : beforeExit.general.enabled);
+    assert.equal(f.actions.filter(action => action.action === "exit_app").length, exitCount + 2);
+    await window.close();
+    f.setConfig(beforeExit);
+  }
+  f.options.platform = originalPlatform;
   for (const name of [
     "general",
     "audio",
@@ -173,6 +221,7 @@ const f = require("./settings-fixture.cjs");
   await page.getByRole("option", { name: "Smart Paste", exact: true }).click();
   await save();
   const typing = page.locator('#typing-speed');
+  assert.equal(await typing.inputValue(), '100', 'Typing defaults to Instant');
   await typing.focus();
   await typing.press('Home');
   await save();
@@ -180,13 +229,13 @@ const f = require("./settings-fixture.cjs");
     input.value = '50';
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
-  assert.equal(await typing.getAttribute('aria-valuetext'), '450 WPM');
+  assert.equal(await typing.getAttribute('aria-valuetext'), '2000 WPM');
   await save();
-  assert.equal(f.getConfig().output.typing_speed_wpm, 450);
+  assert.equal(f.getConfig().output.typing_speed_wpm, 2000);
   assert.equal(f.getConfig().output.paced_typing_enabled, true);
   await page.reload();
   await go('audio');
-  assert.equal(await typing.inputValue(), '50', '450 WPM is the midpoint after reopening');
+  assert.equal(await typing.inputValue(), '50', '2000 WPM is the midpoint after reopening');
   const deliveryBeforeInstant = f.getConfig().output.delivery_mode;
   await typing.focus();
   await typing.press('End');
@@ -194,7 +243,7 @@ const f = require("./settings-fixture.cjs");
   assert.equal(await typing.getAttribute('aria-valuetext'), 'Instant');
   await save();
   assert.equal(f.getConfig().output.paced_typing_enabled, false);
-  assert.equal(f.getConfig().output.typing_speed_wpm, 450, 'Instant preserves the finite speed');
+  assert.equal(f.getConfig().output.typing_speed_wpm, 2000, 'Instant preserves the finite speed');
   assert.equal(f.getConfig().output.delivery_mode, deliveryBeforeInstant);
   await page.reload();
   await go('audio');
@@ -202,15 +251,15 @@ const f = require("./settings-fixture.cjs");
   await typing.focus();
   await typing.press('ArrowLeft');
   assert.equal(await typing.inputValue(), '99');
-  assert.equal(await typing.getAttribute('aria-valuetext'), '1650 WPM');
+  assert.equal(await typing.getAttribute('aria-valuetext'), '4000 WPM');
   await save();
   assert.equal(f.getConfig().output.paced_typing_enabled, true);
-  assert.equal(f.getConfig().output.typing_speed_wpm, 1650);
+  assert.equal(f.getConfig().output.typing_speed_wpm, 4000);
   const typingNumber = page.locator('[data-setting-path="output.typing_speed_wpm"] .range-number');
-  assert.equal(await typingNumber.inputValue(), "1650", "exact value stays synchronized with the slider");
+  assert.equal(await typingNumber.inputValue(), "4000", "exact value stays synchronized with the slider");
   await page.getByRole("button", { name: "Reset Typing to defaults" }).click();
   await page.waitForFunction(() => document.querySelector('#typing-speed').value !== '99');
-  assert.notEqual(await typing.inputValue(), '100');
+  assert.equal(await typing.inputValue(), '100', 'Reset restores Instant');
   await typingNumber.fill("800");
   const numberField = page.locator('[data-setting-path="output.typing_speed_wpm"] .number-field');
   const dimensions = await numberField.boundingBox();
@@ -222,20 +271,54 @@ const f = require("./settings-fixture.cjs");
   await save();
   assert.equal(f.getConfig().output.typing_speed_wpm, 800, "numeric range input saves an exact value");
   const rules = page.getByRole("region", { name: "Smart Paste rules" });
-  const picker = rules.getByRole("combobox", { name: "Find a window or enter an app ID" });
+  assert.equal(await rules.locator("details[open]").count(), 0, "all rule groups start closed");
+  const shiftGroup = rules.locator('[data-paste-mode="paste_ctrl_shift_v"]');
+  const openShift = () => shiftGroup.locator("summary").click();
+  const picker = shiftGroup.getByRole("combobox", { name: "Search saved apps or enter an app ID" });
+  await openShift();
+  await picker.fill("uncommitted-search");
+  await picker.press("Tab");
+  assert(!(await draft()).output.smart_paste_rules.some(rule => rule.app_id === "uncommitted-search"));
+  await openShift();
   await picker.fill("terminal-test");
   await picker.press("Enter");
-  await setChoice(page
-    .getByRole("combobox", { name: "Delivery mode for terminal-test" }), "paste_ctrl_shift_v");
   await save();
   assert.equal(
     f.getConfig().output.smart_paste_rules[0].mode,
     "paste_ctrl_shift_v",
   );
-  await rules.getByRole("button", { name: "Remove app override" }).first().click();
-  await picker.fill("An open window");
-  await page.getByRole("option", { name: "test-app", exact: true }).click();
+  const typeGroup = rules.locator('[data-paste-mode="type"]');
+  await typeGroup.locator("summary").click();
+  const typePicker = typeGroup.getByRole("combobox");
+  await typePicker.fill("TERMINAL-TEST");
+  await page.getByRole("option", { name: "terminal-test", exact: true }).click();
+  assert.equal(await shiftGroup.getByText("terminal-test", { exact: true }).count(), 0);
+  assert(await typeGroup.getByText("terminal-test", { exact: true }).isVisible());
+  assert.deepEqual((await draft()).output.smart_paste_rules.filter(rule => rule.app_id === "terminal-test"),
+    [{ app_id: "terminal-test", mode: "type" }]);
+  const none = rules.locator('[data-paste-mode="none"]');
+  await none.locator("summary").click();
+  await none.getByRole("combobox", { name: "Find an app rule to clear" }).fill("terminal-test");
+  await page.getByRole("option", { name: "terminal-test", exact: true }).click();
+  assert(!(await draft()).output.smart_paste_rules.some(rule => rule.app_id === "terminal-test"));
+  await openShift();
+  await picker.fill("test-app");
+  const options = page.getByRole("option");
+  assert.deepEqual(await options.allTextContents(), ["Add test-app"], "the picker ignores open windows");
+  await page.getByRole("option", { name: "Add test-app", exact: true }).click();
   assert.equal((await draft()).output.smart_paste_rules[0].app_id, "test-app");
+  await openShift();
+  await shiftGroup.getByRole("button", { name: "Remove test-app override" }).click();
+  assert(!(await draft()).output.smart_paste_rules.some(rule => rule.app_id === "test-app"));
+  await openShift();
+  await picker.fill("*test-app*");
+  await picker.press("Enter");
+  await typeGroup.locator("summary").click();
+  await typePicker.fill("TEST-APP");
+  assert.equal(await page.getByRole("option", { name: "Add TEST-APP", exact: true }).count(), 0);
+  await page.getByRole("option", { name: "*test-app*", exact: true }).click();
+  assert.deepEqual((await draft()).output.smart_paste_rules.filter(rule => rule.app_id.includes("test-app")),
+    [{ app_id: "*test-app*", mode: "type" }]);
   await rules.getByRole("button", { name: "Reset Smart Paste rules to defaults" }).click();
   assert.deepEqual((await draft()).output.smart_paste_rules, [
     { app_id: "WindowsTerminal.exe", mode: "paste_ctrl_shift_v" },

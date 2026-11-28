@@ -4,7 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+desktop-audio = ["dep:cpal"]
+
 [dependencies]
+cpal = { version = "0.18.2", optional = true }
 regex = "1.12"
 anyhow.workspace = true
 fasttext = "=0.7.8"
@@ -20,3 +24,6 @@ tempfile = "3"
 [target.'cfg(windows)'.dependencies]
 sha2.workspace = true
 windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_System_Pipes", "Win32_System_LibraryLoader"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cpal = { version = "0.18.2", features = ["pipewire", "pulseaudio"], optional = true }

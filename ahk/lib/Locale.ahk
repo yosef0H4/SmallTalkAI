@@ -1,5 +1,5 @@
 ; Generated from desktop catalogs and tray menu. Run node web/settings/tools/locales.mjs.
-; catalog-sha256: e766c0a62b6ca3a7324146d4de2a9be717180291b4fcd7d0913046352e6d78ff
+; catalog-sha256: 77ad49b5c8881dd4fa13af2d8597477f2a136cd8ea27e72278e80f8c005c5dae
 UiSetLanguage(language := "auto") {
     global SmallTalkAIUiLocale
     if language = "auto"
@@ -13,6 +13,11 @@ UiText(id, args := unset) {
         "settings.keep_editing", "Keep editing",
         "settings.discard_and_close", "Discard and close",
         "settings.save_and_close", "Save and close",
+        "settings.exit_app", "Exit SmallTalkAI",
+        "settings.exit_warning", "Exiting stops SmallTalkAI, including any dictation or reading in progress.",
+        "settings.exit_unsaved_warning", "Exiting stops SmallTalkAI. Save your Settings changes or discard them before exiting.",
+        "settings.discard_and_exit", "Discard and exit",
+        "settings.save_and_exit", "Save and exit",
         "notice.recordingChunk", "Chunk {number}",
         "capture.previewBusy", "Finish the current dictation before recording a preview.",
         "overlay.screenContext", "Screen",
@@ -247,6 +252,11 @@ UiText(id, args := unset) {
         "settings.keep_editing", "متابعة التحرير",
         "settings.discard_and_close", "تجاهل التغييرات والإغلاق",
         "settings.save_and_close", "حفظ وإغلاق",
+        "settings.exit_app", "إنهاء SmallTalkAI",
+        "settings.exit_warning", "سيؤدي الإنهاء إلى إيقاف SmallTalkAI، بما في ذلك الإملاء أو القراءة الجارية.",
+        "settings.exit_unsaved_warning", "سيؤدي الإنهاء إلى إيقاف SmallTalkAI. احفظ تغييرات الإعدادات أو تجاهلها قبل الإنهاء.",
+        "settings.discard_and_exit", "تجاهل التغييرات والإنهاء",
+        "settings.save_and_exit", "حفظ وإنهاء",
         "notice.recordingChunk", "المقطع {number}",
         "capture.previewBusy", "أنهِ الإملاء الحالي قبل تسجيل عينة.",
         "overlay.screenContext", "الشاشة",

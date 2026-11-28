@@ -17,6 +17,7 @@
   let sampleText = $state<string>();
   let transcript = $state("");
   let waveform = $state("");
+  let levelWarning = $state<"quiet" | "clipping" | null>(null);
   let previewError = $state("");
   let mounted = false;
   const transcriptId = $props.id();
@@ -78,6 +79,7 @@
     busy = true;
     previewError = "";
     waveform = "";
+    levelWarning = null;
     try {
       if (session !== null) {
         transcript = (await preview("stop", session)).text;
@@ -111,13 +113,17 @@
     let timer: ReturnType<typeof setTimeout>;
     async function readWaveform() {
       try {
-        const result = await api<{ waveform: string }>(path, request, controller.signal);
+        const result = await api<{ waveform: string; level_warning?: typeof levelWarning }>(path, request, controller.signal);
         if (!controller.signal.aborted) {
           waveform = result.waveform;
+          levelWarning = result.level_warning ?? null;
           timer = setTimeout(readWaveform, 80);
         }
       } catch {
-        if (!controller.signal.aborted) waveform = "";
+        if (!controller.signal.aborted) {
+          waveform = "";
+          levelWarning = null;
+        }
       }
     }
     void readWaveform();
@@ -139,7 +145,11 @@
           </button>
         {/if}
         <span class="preview-waveform" dir="ltr" aria-hidden="true">{waveform || "▁▁▁▁▁▁▁▁▁▁"}</span>
-        <span role="status">{busy && session !== null ? t("setup.processing_recording") : previewError}</span>
+        <span role="status" class:clipping={levelWarning === "clipping"}>
+          {busy && session !== null
+            ? t("setup.processing_recording")
+            : previewError || (session !== null && levelWarning ? t(`setup.mic_${levelWarning}`) : "")}
+        </span>
       </div>
       <label for={transcriptId}>{t(feature === "tts" ? "setup.voice_preview_text" : "setup.transcript")}</label>
       <textarea id={transcriptId} rows="3" maxlength={feature === "tts" ? 400 : undefined}
@@ -162,5 +172,8 @@
     font: 16px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
     letter-spacing: 1px;
     white-space: nowrap;
+  }
+  .clipping {
+    color: var(--danger);
   }
 </style>

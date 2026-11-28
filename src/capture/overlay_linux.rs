@@ -1,5 +1,5 @@
 use super::overlay_model::{
-    empty_visualizer_levels, set_visualizer_level, OverlayCommand, OverlayContent, OverlayPrimary,
+    empty_visualizer_levels, unpack_waveform, OverlayCommand, OverlayContent, OverlayPrimary,
     VisualizerLevels,
 };
 use super::overlay_render::{plan_text, render_surface, LayoutPlan, MAX_HEIGHT, MAX_WIDTH};
@@ -46,18 +46,18 @@ const MARGIN_TOP: i32 = 36;
 pub struct OverlayHandle {
     tx: Arc<channel::Sender<OverlayCommand>>,
     system_theme_watch: Arc<Once>,
-    level: Arc<AtomicU32>,
+    waveform: Arc<AtomicU32>,
 }
 
 impl OverlayHandle {
     pub fn spawn() -> Result<Self> {
-        let level = Arc::new(AtomicU32::new(0.0_f32.to_bits()));
+        let waveform = Arc::new(AtomicU32::new(0));
         let (tx, rx) = channel::channel();
-        let thread_level = Arc::clone(&level);
+        let thread_waveform = Arc::clone(&waveform);
         std::thread::Builder::new()
             .name("smalltalkai-linux-overlay".to_owned())
             .spawn(move || {
-                if let Err(error) = overlay_thread(rx, thread_level) {
+                if let Err(error) = overlay_thread(rx, thread_waveform) {
                     tracing::warn!(%error, "linux layer-shell overlay disabled");
                 }
             })
@@ -65,7 +65,7 @@ impl OverlayHandle {
         Ok(Self {
             tx: Arc::new(tx),
             system_theme_watch: Arc::new(Once::new()),
-            level,
+            waveform,
         })
     }
 
@@ -85,8 +85,8 @@ impl OverlayHandle {
         }
     }
 
-    pub fn level_cell(&self) -> Arc<AtomicU32> {
-        Arc::clone(&self.level)
+    pub fn waveform_cell(&self) -> Arc<AtomicU32> {
+        Arc::clone(&self.waveform)
     }
 }
 
@@ -128,7 +128,7 @@ fn watch_system_theme(tx: Weak<channel::Sender<OverlayCommand>>) {
     ));
 }
 
-fn overlay_thread(rx: channel::Channel<OverlayCommand>, level: Arc<AtomicU32>) -> Result<()> {
+fn overlay_thread(rx: channel::Channel<OverlayCommand>, waveform: Arc<AtomicU32>) -> Result<()> {
     if std::env::var_os("WAYLAND_DISPLAY").is_none() {
         anyhow::bail!("WAYLAND_DISPLAY is not set");
     }
@@ -169,14 +169,12 @@ fn overlay_thread(rx: channel::Channel<OverlayCommand>, level: Arc<AtomicU32>) -
         configured: false,
         mapped: false,
         content: OverlayContent::default(),
-        target_level: 0.0,
-        display_level: 0.0,
         visualizer_levels: empty_visualizer_levels(),
-        level_sample_tick: 0,
+        last_waveform: 0,
         last_signature: String::new(),
         needs_redraw: true,
         exit: false,
-        level,
+        waveform,
     };
 
     event_loop
@@ -223,23 +221,19 @@ struct LayerOverlay {
     configured: bool,
     mapped: bool,
     content: OverlayContent,
-    target_level: f32,
-    display_level: f32,
     visualizer_levels: VisualizerLevels,
-    level_sample_tick: usize,
+    last_waveform: u32,
     last_signature: String,
     needs_redraw: bool,
     exit: bool,
-    level: Arc<AtomicU32>,
+    waveform: Arc<AtomicU32>,
 }
 
 impl LayerOverlay {
     fn handle_command(&mut self, command: OverlayCommand) {
         if command.resets_waveform() {
-            self.target_level = 0.0;
-            self.display_level = 0.0;
             self.visualizer_levels = empty_visualizer_levels();
-            self.level_sample_tick = 0;
+            self.last_waveform = 0;
         }
         self.content.apply(command, Instant::now());
         self.needs_redraw = true;
@@ -251,14 +245,10 @@ impl LayerOverlay {
             self.needs_redraw = true;
         }
         if self.content.primary == OverlayPrimary::Recording {
-            self.target_level = f32::from_bits(self.level.load(Ordering::Relaxed)).clamp(0.0, 1.0);
-            // The meter already applies attack/release ballistics, so follow it
-            // closely here to avoid adding visible lag.
-            self.display_level = self.target_level;
-            self.level_sample_tick = self.level_sample_tick.wrapping_add(1);
-            if self.level_sample_tick >= 2 {
-                self.level_sample_tick = 0;
-                set_visualizer_level(&mut self.visualizer_levels, self.display_level);
+            let waveform = self.waveform.load(Ordering::Relaxed);
+            if waveform != self.last_waveform {
+                self.visualizer_levels = unpack_waveform(waveform);
+                self.last_waveform = waveform;
                 self.needs_redraw = true;
             }
         }

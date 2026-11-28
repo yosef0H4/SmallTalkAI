@@ -8,8 +8,6 @@
 #[cfg(target_os = "linux")]
 use std::process::Command;
 #[cfg(target_os = "linux")]
-use std::sync::atomic::Ordering;
-#[cfg(target_os = "linux")]
 use std::time::Duration;
 
 #[cfg(target_os = "linux")]
@@ -55,12 +53,28 @@ fn main() {
         .init();
 
     let overlay = OverlayHandle::spawn().expect("spawn overlay");
-    let level = overlay.level_cell();
     sleep(500); // let the thread connect and the layer surface settle
+
+    if std::env::args().any(|arg| arg == "--waveform") {
+        use smalltalkai::capture::audio::visualizer_level_from_rms;
+        overlay.start_recording(0, Default::default());
+        for (name, dbfs) in [
+            ("silent", -80.0),
+            ("quiet", -57.0),
+            ("speech", -32.0),
+            ("loud", -8.0),
+            ("silent-again", -80.0),
+        ] {
+            overlay.set_level(visualizer_level_from_rms(10.0_f32.powf(dbfs / 20.0)));
+            sleep(150);
+            shot(name);
+        }
+        return;
+    }
 
     println!("step 1: show");
     overlay.start_recording(0, Default::default());
-    level.store(0.6f32.to_bits(), Ordering::Relaxed);
+    overlay.set_level(0.6);
     sleep(700);
     shot("1_show");
 
@@ -71,7 +85,7 @@ fn main() {
 
     println!("step 3: show again (the regression)");
     overlay.start_recording(0, Default::default());
-    level.store(0.6f32.to_bits(), Ordering::Relaxed);
+    overlay.set_level(0.6);
     sleep(700);
     shot("3_show_again");
 
@@ -82,7 +96,7 @@ fn main() {
 
     println!("step 5: third show");
     overlay.start_recording(0, Default::default());
-    level.store(0.6f32.to_bits(), Ordering::Relaxed);
+    overlay.set_level(0.6);
     sleep(700);
     shot("5_show_third");
 
@@ -123,7 +137,7 @@ fn main() {
     sleep(700);
     shot("ar-mixed-transcribing");
     overlay.start_recording(0, Default::default());
-    level.store(0.6f32.to_bits(), Ordering::Relaxed);
+    overlay.set_level(0.6);
     overlay.notify_warning(
         translate(Locale::Ar, "notice.microphoneFallback", &[]),
         Duration::from_secs(5),

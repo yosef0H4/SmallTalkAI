@@ -70,6 +70,9 @@ enum Mode {
     #[command(hide = true)]
     Media,
     ListOutputDevices,
+    #[cfg(target_os = "linux")]
+    #[command(hide = true)]
+    FocusedApp,
     #[cfg(windows)]
     #[command(hide = true)]
     CaptureFrame {
@@ -2874,6 +2877,8 @@ impl AudioOutput {
         Ok(true)
     }
     fn open_stream(&self, device: &cpal::Device, stream_epoch: u64) -> Result<(cpal::Stream, u32)> {
+        use cpal::Sample;
+
         let supported = device
             .default_output_config()
             .context("reading default output format")?;
@@ -2886,6 +2891,33 @@ impl AudioOutput {
             cpal::SampleFormat::F32 => {
                 build_output::<f32>(device, &config, ctx, channels, stream_epoch, |v| v, |s| s)
             }
+            cpal::SampleFormat::F64 => build_output::<f64>(
+                device,
+                &config,
+                ctx,
+                channels,
+                stream_epoch,
+                |v| v as f32,
+                f64::from,
+            ),
+            cpal::SampleFormat::I24 => build_output::<cpal::I24>(
+                device,
+                &config,
+                ctx,
+                channels,
+                stream_epoch,
+                f32::from_sample,
+                |s| cpal::I24::from_sample(s.clamp(-1.0, 1.0)),
+            ),
+            cpal::SampleFormat::I32 => build_output::<i32>(
+                device,
+                &config,
+                ctx,
+                channels,
+                stream_epoch,
+                f32::from_sample,
+                |s| i32::from_sample(s.clamp(-1.0, 1.0)),
+            ),
             cpal::SampleFormat::I16 => build_output::<i16>(
                 device,
                 &config,
@@ -3151,9 +3183,16 @@ fn open_preferred_output<T>(
     preferred: Option<&str>,
     mut open: impl FnMut(&cpal::Device) -> Result<T>,
 ) -> Result<T> {
-    let host = cpal::default_host();
+    let host = reader_core::audio_devices::default_host();
     if let Some(preferred) = preferred.filter(|id| !id.trim().is_empty()) {
         let device = preferred.parse::<cpal::DeviceId>().ok().and_then(|id| {
+            let alternate_host;
+            let host = if id.host() == host.id() {
+                &host
+            } else {
+                alternate_host = cpal::host_from_id(id.host()).ok()?;
+                &alternate_host
+            };
             host.output_devices().ok().and_then(|mut devices| {
                 devices.find(|device| device.id().is_ok_and(|candidate| candidate == id))
             })
@@ -3179,11 +3218,12 @@ fn open_preferred_output<T>(
 }
 
 fn list_output_devices() -> Result<()> {
-    let devices: Vec<_> = cpal::default_host()
+    let devices: Vec<_> = reader_core::audio_devices::default_host()
         .output_devices()?
         .filter_map(|device| {
-            let id = device.id().ok()?.to_string();
-            Some(serde_json::json!({"id": id, "name": device.to_string()}))
+            let id = reader_core::audio_devices::picker_id(&device)?;
+            let name = device.description().ok()?.name().to_owned();
+            Some(serde_json::json!({"id": id, "name": name}))
         })
         .collect();
     println!("{}", serde_json::to_string(&devices)?);
@@ -11070,6 +11110,14 @@ fn main() -> Result<()> {
     if matches!(args.command, Mode::ListOutputDevices) {
         return list_output_devices();
     }
+    #[cfg(target_os = "linux")]
+    if matches!(args.command, Mode::FocusedApp) {
+        println!(
+            "{}",
+            serde_json::to_string(&read_along_capture::focused_app_identity()?)?
+        );
+        return Ok(());
+    }
     #[cfg(windows)]
     if let Mode::CaptureFrame {
         ref request,
@@ -11127,6 +11175,8 @@ fn main() -> Result<()> {
         Mode::Server => run_server(store),
         Mode::Media => run_media_request(store),
         Mode::ListOutputDevices => unreachable!("dispatched before loading configuration"),
+        #[cfg(target_os = "linux")]
+        Mode::FocusedApp => unreachable!("dispatched before loading configuration"),
         #[cfg(windows)]
         Mode::CaptureWindow { .. } | Mode::CaptureFrame { .. } => {
             unreachable!("dispatched before loading configuration")

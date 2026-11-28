@@ -49,6 +49,26 @@ struct Task {
     canceled: Arc<AtomicBool>,
     reply: mpsc::SyncSender<Result<()>>,
 }
+
+fn typing_units(mut text: &str, instant: bool) -> impl Iterator<Item = &str> {
+    // EIS allows one UTF-8 commit of at most 254 bytes per device frame.
+    const MAX_COMMIT_BYTES: usize = 254;
+    let is_key = |ch| matches!(ch, '\r' | '\n' | '\t');
+    std::iter::from_fn(move || {
+        let first = text.chars().next()?;
+        let end = if !instant || is_key(first) {
+            first.len_utf8()
+        } else {
+            text.char_indices()
+                .skip(1)
+                .find(|(offset, ch)| is_key(*ch) || offset + ch.len_utf8() > MAX_COMMIT_BYTES)
+                .map_or(text.len(), |(offset, _)| offset)
+        };
+        let (unit, rest) = text.split_at(end);
+        text = rest;
+        Some(unit)
+    })
+}
 static BROKER: OnceLock<mpsc::SyncSender<Task>> = OnceLock::new();
 type Requests = HashMap<String, (Instant, Arc<AtomicBool>)>;
 static REQUESTS: OnceLock<Mutex<Requests>> = OnceLock::new();
@@ -388,7 +408,9 @@ impl Connection {
                 current() && Instant::now() < deadline,
                 "desktop input acknowledgment timed out or canceled"
             );
-            std::thread::sleep(Duration::from_millis(2));
+            if !done.load(Ordering::Acquire) {
+                std::thread::sleep(Duration::from_millis(2));
+            }
         }
         Ok(())
     }
@@ -523,7 +545,10 @@ impl Connection {
                 let input = device
                     .interface::<ei::Text>()
                     .context("EIS text interface unavailable")?;
-                for character in text.chars() {
+                let delay = Duration::from_millis(*delay_ms);
+                let mut units = typing_units(text, delay.is_zero()).peekable();
+                while let Some(unit) = units.next() {
+                    let started = Instant::now();
                     if let Some(focus) = focus {
                         focus.check()?;
                     }
@@ -531,27 +556,27 @@ impl Connection {
                         current(),
                         "typing canceled; text may be partially delivered"
                     );
-                    if matches!(character, '\n' | '\t' | '\r') {
-                        if character != '\r' {
-                            self.keys(&[if character == '\n' { 28 } else { 15 }], current)?;
-                        }
-                    } else {
+                    if matches!(unit, "\n" | "\t") {
+                        self.keys(&[if unit == "\n" { 28 } else { 15 }], current)?;
+                    } else if unit != "\r" {
                         self.sequence = self.sequence.wrapping_add(1);
                         device
                             .device()
                             .start_emulating(self.events.connection().serial(), self.sequence);
-                        input.utf8(character.encode_utf8(&mut [0; 4]));
+                        input.utf8(unit);
                         self.frame(&device);
                         device
                             .device()
                             .stop_emulating(self.events.connection().serial());
                         self.sync(current)?;
                     }
-                    let until = Instant::now() + Duration::from_millis(*delay_ms);
-                    while Instant::now() < until {
+                    while units.peek().is_some() {
+                        let Some(remaining) = delay.checked_sub(started.elapsed()) else {
+                            break;
+                        };
                         ensure!(current(), "typing canceled");
                         self.pump()?;
-                        std::thread::sleep(Duration::from_millis(2));
+                        std::thread::sleep(remaining.min(Duration::from_millis(2)));
                     }
                 }
                 Ok(())
@@ -652,6 +677,19 @@ fn chord(value: &str) -> Result<Vec<u32>> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn instant_typing_batches_at_utf8_boundaries_and_preserves_control_keys() {
+        let prefix = "a".repeat(252);
+        let text = format!("{prefix}🙂مرحبا\t世界\r\nend");
+        let units: Vec<_> = super::typing_units(&text, true).collect();
+        assert_eq!(units, [&prefix, "🙂مرحبا", "\t", "世界", "\r", "\n", "end"]);
+        assert!(units.iter().all(|unit| unit.len() <= 254));
+        assert_eq!(
+            super::typing_units("a🙂\nب", false).collect::<Vec<_>>(),
+            ["a", "🙂", "\n", "ب"]
+        );
+    }
+
     #[test]
     fn idle_eis_socket_is_not_a_disconnect() {
         let (client, peer) = std::os::unix::net::UnixStream::pair().unwrap();

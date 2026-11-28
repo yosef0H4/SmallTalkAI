@@ -18,18 +18,6 @@
 #include <atspi/atspi.h>
 #endif
 
-#define MAX_DESKTOP_WINDOWS 128
-
-static void print_window_row(const char *identity, const char *title) {
-    const char *fields[] = { identity, title ? title : "" };
-    for (size_t field = 0; field < 2; field++) {
-        const unsigned char *text = (const unsigned char *)fields[field];
-        for (size_t i = 0; i < 1024 && text[i]; i++)
-            putchar(text[i] < 32 || text[i] == 127 ? ' ' : text[i]);
-        putchar(field == 0 ? '\t' : '\n');
-    }
-}
-
 typedef enum {
     PASTE_MODE_CTRL_V        = 0,
     PASTE_MODE_CTRL_SHIFT_V  = 1,
@@ -509,36 +497,6 @@ static char *active_app_atspi(void) {
     return NULL;
 }
 
-static int list_windows_atspi(void) {
-    atspi_init();
-    AtspiAccessible *desktop = atspi_get_desktop(0);
-    if (!desktop) return 0;
-    int count = 0;
-    int apps = atspi_accessible_get_child_count(desktop, NULL);
-    for (int i = 0; i < apps && count < MAX_DESKTOP_WINDOWS; i++) {
-        AtspiAccessible *app = atspi_accessible_get_child_at_index(desktop, i, NULL);
-        if (!app) continue;
-        char *name = atspi_accessible_get_name(app, NULL);
-        int windows = name && *name ? atspi_accessible_get_child_count(app, NULL) : 0;
-        for (int j = 0; j < windows && count < MAX_DESKTOP_WINDOWS; j++) {
-            AtspiAccessible *win = atspi_accessible_get_child_at_index(app, j, NULL);
-            if (!win) continue;
-            AtspiRole role = atspi_accessible_get_role(win, NULL);
-            if (role == ATSPI_ROLE_FRAME || role == ATSPI_ROLE_WINDOW || role == ATSPI_ROLE_DIALOG) {
-                char *title = atspi_accessible_get_name(win, NULL);
-                print_window_row(name, title);
-                g_free(title);
-                count++;
-            }
-            g_object_unref(win);
-        }
-        g_free(name);
-        g_object_unref(app);
-    }
-    g_object_unref(desktop);
-    return count;
-}
-
 static int detect_terminal_atspi(void) {
     char *name = active_app_atspi();
     if (!name) return -1;
@@ -571,44 +529,6 @@ static Window get_active_window(Display *dpy) {
     return focused;
 }
 
-static int ignore_closed_window(Display *display, XErrorEvent *event) {
-    (void)display;
-    (void)event;
-    return 0;
-}
-
-static void list_windows_x11(int remaining) {
-    Display *dpy = XOpenDisplay(NULL);
-    if (!dpy) return;
-    XSetErrorHandler(ignore_closed_window);
-    Atom prop = XInternAtom(dpy, "_NET_CLIENT_LIST", True), actual;
-    int format;
-    unsigned long count, after;
-    unsigned char *data = NULL;
-    if (prop != None && XGetWindowProperty(dpy, DefaultRootWindow(dpy), prop,
-            0, MAX_DESKTOP_WINDOWS, False, XA_WINDOW, &actual, &format,
-            &count, &after, &data) == Success && data && actual == XA_WINDOW && format == 32) {
-        Window *windows = (Window *)data;
-        for (unsigned long i = 0; i < count && remaining > 0; i++) {
-            XClassHint hint;
-            if (!XGetClassHint(dpy, windows[i], &hint)) continue;
-            const char *identity = hint.res_class && *hint.res_class ? hint.res_class : hint.res_name;
-            if (identity && *identity) {
-                char *title = NULL;
-                XFetchName(dpy, windows[i], &title);
-                print_window_row(identity, title);
-                if (title) XFree(title);
-                remaining--;
-            }
-            XFree(hint.res_class);
-            XFree(hint.res_name);
-        }
-    }
-    if (data) XFree(data);
-    XCloseDisplay(dpy);
-}
-
-
 /* Observation and portal shortcuts only. No XTest, uinput, accessibility writes,
  * or window activation. The application uses the Rust EIS broker for input. */
 int main(int argc, char *argv[]) {
@@ -617,14 +537,6 @@ int main(int argc, char *argv[]) {
     int copy_mode = -1;
     const char *restore_token = NULL;
     for (int i = 1; i < argc; i++) {
-        if (argc == 2 && !strcmp(argv[i], "--list-windows")) {
-            int count = 0;
-#ifdef HAVE_ATSPI
-            count = list_windows_atspi();
-#endif
-            if (count < MAX_DESKTOP_WINDOWS) list_windows_x11(MAX_DESKTOP_WINDOWS - count);
-            return 0;
-        }
         if (!strcmp(argv[i], "--read-selection")) read_selection = 1;
         else if (!strcmp(argv[i], "--active-app")) print_active_app = 1;
         else if (!strcmp(argv[i], "--detect-terminal")) detect_terminal = 1;

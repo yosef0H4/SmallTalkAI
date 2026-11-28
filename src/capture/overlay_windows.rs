@@ -1,6 +1,6 @@
 use crate::capture::overlay::overlay_model::{
-    empty_visualizer_levels, set_visualizer_level, windows_tooltip_text, OverlayCommand,
-    OverlayContent, OverlayPrimary, RecordingIndicators, VisualizerLevels,
+    empty_visualizer_levels, unpack_waveform, windows_tooltip_text, OverlayCommand, OverlayContent,
+    OverlayPrimary, RecordingIndicators, VisualizerLevels,
 };
 use crate::localization::Locale;
 use anyhow::{anyhow, Result};
@@ -37,13 +37,13 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 const CURSOR_OFFSET: i32 = 16;
 const NOTICE_POLL_INTERVAL: Duration = Duration::from_millis(25);
-const RECORDING_POLL_INTERVAL: Duration = Duration::from_millis(33);
+const RECORDING_POLL_INTERVAL: Duration = Duration::from_millis(20);
 const MAX_TOOLTIP_WIDTH: i32 = 420;
 
 #[derive(Debug, Clone)]
 pub struct OverlayHandle {
     sender: Arc<OverlaySender>,
-    latest_level: Arc<AtomicU32>,
+    latest_waveform: Arc<AtomicU32>,
 }
 
 #[derive(Debug)]
@@ -123,15 +123,15 @@ impl OverlayHandle {
             return Err(std::io::Error::last_os_error().into());
         }
         let wake = Arc::new(WakeEvent(event as isize));
-        let latest_level = Arc::new(AtomicU32::new(0.0_f32.to_bits()));
+        let latest_waveform = Arc::new(AtomicU32::new(0));
         thread::spawn({
-            let latest_level = Arc::clone(&latest_level);
+            let latest_waveform = Arc::clone(&latest_waveform);
             let wake = Arc::clone(&wake);
-            move || overlay_thread(rx, latest_level, wake, reader)
+            move || overlay_thread(rx, latest_waveform, wake, reader)
         });
         Ok(Self {
             sender: Arc::new(OverlaySender { tx, wake }),
-            latest_level,
+            latest_waveform,
         })
     }
 
@@ -144,13 +144,8 @@ impl OverlayHandle {
         self.start_recording(target_window, RecordingIndicators::default());
     }
 
-    pub fn set_level(&self, level: f32) {
-        self.latest_level
-            .store(level.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
-    }
-
-    pub fn level_cell(&self) -> Arc<AtomicU32> {
-        Arc::clone(&self.latest_level)
+    pub fn waveform_cell(&self) -> Arc<AtomicU32> {
+        Arc::clone(&self.latest_waveform)
     }
 
     pub fn benchmark_latency(&self, iterations: usize) -> Vec<Duration> {
@@ -175,7 +170,7 @@ impl OverlayHandle {
 
 fn overlay_thread(
     rx: Receiver<WindowsCommand>,
-    latest_level: Arc<AtomicU32>,
+    latest_waveform: Arc<AtomicU32>,
     wake: Arc<WakeEvent>,
     reader: bool,
 ) {
@@ -192,7 +187,7 @@ fn overlay_thread(
         pump_messages();
         let publisher = unsafe { FindWindowW(std::ptr::null(), hint_window.as_ptr()) };
         state.update_shortcut_hold(publisher);
-        state.set_level(f32::from_bits(latest_level.load(Ordering::Relaxed)));
+        state.set_waveform(latest_waveform.load(Ordering::Relaxed));
         state.tick();
         let timeout = if state.should_render() || (!reader && state.shortcuts_held) {
             state.poll_interval().as_millis() as u32
@@ -222,8 +217,6 @@ struct TooltipState {
     shortcuts_held: bool,
     reader: bool,
     reader_marker: Vec<u16>,
-    target_level: f32,
-    display_level: f32,
     visualizer_levels: VisualizerLevels,
     last_text: String,
     text_buf: Vec<u16>,
@@ -246,8 +239,6 @@ impl TooltipState {
             shortcuts_held: false,
             reader: false,
             reader_marker: profile_name("SmallTalkAIReaderOverlay-"),
-            target_level: 0.0,
-            display_level: 0.0,
             visualizer_levels: empty_visualizer_levels(),
             last_text: String::new(),
             text_buf: Vec::new(),
@@ -263,8 +254,6 @@ impl TooltipState {
                 let reset_window = matches!(command, OverlayCommand::Hide)
                     || matches!(command, OverlayCommand::SetLocale(locale) if self.content.locale != locale);
                 if command.resets_waveform() {
-                    self.target_level = 0.0;
-                    self.display_level = 0.0;
                     self.visualizer_levels = empty_visualizer_levels();
                 }
                 self.content.apply(command, Instant::now());
@@ -279,9 +268,9 @@ impl TooltipState {
         }
     }
 
-    fn set_level(&mut self, level: f32) {
+    fn set_waveform(&mut self, waveform: u32) {
         if self.content.primary == OverlayPrimary::Recording {
-            self.target_level = level.clamp(0.0, 1.0);
+            self.visualizer_levels = unpack_waveform(waveform);
         }
     }
 
@@ -333,10 +322,6 @@ impl TooltipState {
             return;
         }
 
-        if self.content.primary == OverlayPrimary::Recording {
-            self.display_level = self.display_level * 0.10 + self.target_level * 0.90;
-            set_visualizer_level(&mut self.visualizer_levels, self.display_level);
-        }
         let text = windows_tooltip_text(&self.render_text(), self.content.locale);
         if text != self.last_text {
             self.set_text(&text);
@@ -669,7 +654,7 @@ mod tests {
         let hwnd = state.hwnd;
         assert!(!hwnd.is_null());
         for level in [0.0, 0.5, 1.0, 0.3] {
-            state.set_level(level);
+            state.set_waveform(crate::capture::overlay::overlay_model::pack_waveform(level));
             state.tick();
             pump_messages();
             assert_eq!(state.hwnd, hwnd);

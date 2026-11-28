@@ -32,6 +32,7 @@
   }
   let maximized = $state(document.documentElement.dataset.maximized === "true");
   let closeDialog: HTMLDialogElement;
+  let exitApp = $state(false);
   let closing = $state(false);
   function updateFrameState() {
     maximized = document.documentElement.dataset.maximized === "true";
@@ -176,12 +177,18 @@
     if (event.key === "Escape") query = "";
   }
   function close() {
-    if (closing || ui.saving) return;
+    if (closing || ui.saving || closeDialog.open) return;
+    exitApp = false;
     if (ui.dirty) {
-      if (!closeDialog.open) closeDialog.showModal();
+      closeDialog.showModal();
       return;
     }
     void finishClose();
+  }
+  function requestExit() {
+    if (closing || ui.saving || closeDialog.open) return;
+    exitApp = true;
+    closeDialog.showModal();
   }
   async function finishClose(saveFirst = false) {
     if (closing || ui.saving) return;
@@ -194,8 +201,9 @@
           return;
         }
       }
-      if (!window.dispatchEvent(new Event("settings-close-approved", { cancelable: true }))) return;
       await run(async () => {
+        if (exitApp) await api("/api/platform-action", { action: "exit_app" });
+        if (!window.dispatchEvent(new Event("settings-close-approved", { cancelable: true }))) return;
         await api("/api/close", {});
         window.close();
       });
@@ -321,7 +329,7 @@
   {/if}
   <main bind:this={settingsMain}>
     {#if setupDraft && !setupDraft.done}
-      <ModelSetup draft={setupDraft} updated={updateSetup} feedback={settingsNotice} />
+      <ModelSetup draft={setupDraft} updated={updateSetup} feedback={settingsNotice} exit={desktop ? exitButton : undefined} />
     {:else}
     <header class="page-head">
       <h1>{t(current.name)}</h1>
@@ -349,29 +357,47 @@
     </form>
     {/if}
   </main>
-{#if !showingSetup && (ui.notice || ui.dirty)}<div class="settings-feedback">
-{@render settingsNotice()}
-{#if ui.dirty}<footer id="savebar" class="savebar">
-    <span id="dirty"><i></i>{t("ui.unsaved_changes.292672")}</span><button
+{#if !showingSetup && (desktop || ui.notice || ui.dirty)}<div class="settings-feedback" class:desktop-feedback={desktop}>
+{#if ui.noticeDetails}{@render settingsNotice()}{/if}
+{#if desktop || ui.dirty || (ui.notice && !ui.noticeDetails)}
+<footer class="savebar" id={ui.dirty ? "savebar" : undefined}>
+  {#if desktop}{@render exitButton()}{/if}
+  <div class="footer-status">
+    {#if !ui.noticeDetails}{@render settingsNotice()}{/if}
+    {#if ui.dirty}<span id="dirty"><i></i>{t("ui.unsaved_changes.292672")}</span>{/if}
+  </div>
+  {#if ui.dirty}
+    <button
       type="submit"
       form="settings"
       class="primary"
       disabled={ui.saving}>{t(ui.saving ? "Saving…" : "Save")}</button
     >
-  </footer>{/if}
+  {/if}
+</footer>
+{/if}
 </div>{/if}
 </div>
+{#snippet exitButton()}
+  <button class="settings-exit" type="button" aria-label={t("settings.exit_app")} onclick={requestExit}>
+    <Icon name="system" size={16} />{t("menu.exit")}
+  </button>
+{/snippet}
 <dialog bind:this={closeDialog} class="close-confirmation" aria-labelledby="close-title"
   aria-describedby="close-description" oncancel={event => { if (closing) event.preventDefault(); }}>
-  <h2 id="close-title">{t("ui.unsaved_changes.292672")}</h2>
+  <h2 id="close-title">{t(exitApp ? "settings.exit_app" : "ui.unsaved_changes.292672")}</h2>
   <div class="close-content">
-    <p id="close-description">{t("settings.close_unsaved_warning")}</p>
+    <p id="close-description">{t(exitApp
+      ? (ui.dirty ? "settings.exit_unsaved_warning" : "settings.exit_warning")
+      : "settings.close_unsaved_warning")}</p>
     <div class="close-actions" aria-busy={closing}>
       <button type="button" disabled={closing} onclick={() => closeDialog.close()}>{t("settings.keep_editing")}</button>
-      <button type="button" disabled={closing} onclick={() => finishClose()}>{t("settings.discard_and_close")}</button>
-      <button type="button" class="primary" disabled={closing} onclick={() => finishClose(true)}>
-        {t(ui.saving ? "Saving…" : "settings.save_and_close")}
-      </button>
+      <button type="button" disabled={closing} onclick={() => finishClose()}>{t(exitApp
+        ? (ui.dirty ? "settings.discard_and_exit" : "settings.exit_app")
+        : "settings.discard_and_close")}</button>
+      {#if !exitApp || ui.dirty}<button type="button" class="primary" disabled={closing} onclick={() => finishClose(true)}>
+        {t(ui.saving ? "Saving…" : (exitApp ? "settings.save_and_exit" : "settings.save_and_close"))}
+      </button>{/if}
     </div>
   </div>
 </dialog>

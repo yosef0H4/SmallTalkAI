@@ -10,7 +10,7 @@ clap.workspace = true
 dirs.workspace = true
 cpal = "0.18.2"
 ctrlc = { version = "3.4", features = ["termination"] }
-reader-core = { path = "../reader-core" }
+reader-core = { path = "../reader-core", features = ["desktop-audio"] }
 serde_json.workspace = true
 serde.workspace = true
 base64 = "0.22"
@@ -28,7 +28,7 @@ embed-resource = "3"
 tempfile = "3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-cpal = { version = "0.18.2", features = ["pipewire"] }
+cpal = { version = "0.18.2", features = ["pipewire", "pulseaudio"] }
 libc = "0.2"
 nix = { version = "0.31.3", features = ["fs"] }
 wayland-client = "0.31"

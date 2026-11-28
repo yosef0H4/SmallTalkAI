@@ -11,11 +11,13 @@
     path,
     id: inputId,
     value,
+    placeholder,
     selectedLabel,
     items,
     onselect,
     onopen,
     custom = false,
+    createOption,
     disabled = false,
     unavailable = false,
     help = "",
@@ -29,11 +31,13 @@
     path: string;
     id?: string;
     value: string;
+    placeholder?: string;
     selectedLabel?: string;
     items: (ComboItem & { search?: string })[];
     onselect: (value: string) => void;
     onopen?: () => void;
     custom?: boolean;
+    createOption?: (query: string) => ComboItem | undefined;
     disabled?: boolean;
     unavailable?: boolean;
     help?: string;
@@ -52,11 +56,13 @@
     selectedLabel ?? (items.find((i) => i.value === value)?.label ||
       (unavailable ? `${t("ui.unavailable.2c9c1f")} · ${value}` : value)),
   );
-  const filtered = $derived(
-    items.filter((i) =>
+  const filtered = $derived.by(() => {
+    const matches = items.filter((i) =>
       searchMatcher ? searchMatcher(query, i) : matchesSearch(query, t(i.label), i.label, i.value, i.meta, i.search),
-    ),
-  );
+    );
+    const entry = query.trim() && createOption?.(query.trim());
+    return entry ? [...matches, entry] : matches;
+  });
   function expand() {
     if (disabled) return;
     open = true;
@@ -182,6 +188,7 @@
           {disabled}
           readonly={selectOnly}
           type="text"
+          placeholder={placeholder && t(placeholder)}
           dir="auto"
           role="combobox"
           aria-label={t(ariaLabel || label)}

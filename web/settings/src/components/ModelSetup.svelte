@@ -19,10 +19,11 @@
   import ReaderModelSetup from "./ReaderModelSetup.svelte";
   import SttModelSetup from "./SttModelSetup.svelte";
 
-  let { draft, updated, feedback }: {
+  let { draft, updated, feedback, exit }: {
     draft: SetupDraft;
     updated: (draft: SetupDraft) => void;
     feedback: Snippet;
+    exit?: Snippet;
   } = $props();
   const features = ["stt", "ocr", "tts"] as const;
   const labels = ["settings.dictation", "module.vision", "module.speak"];
@@ -151,6 +152,7 @@
   <div class="model-setup-bottom">
     {@render feedback()}
     <footer class="model-setup-actions">
+      {#if exit}{@render exit()}{/if}
       {#if draft.step > 0}<button type="button" disabled={busy} onclick={() => advance(-1)}>{t("setup.back")}</button>{/if}
       {#if canSkip}
         <button type="button" disabled={busy} onclick={() => advance(1)}>{t("setup.configure")}</button>

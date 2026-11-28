@@ -1,4 +1,5 @@
 import type { FieldSpec, Page, DeliveryMode } from "./types";
+import { MIN_TYPING_WPM, MAX_TYPING_WPM } from "./typing";
 export const pages: { id: Page; name: string; icon: string; description: string }[] = [
   {id:"general",name:"ui.general.9239ee",icon:"general",description:"settings.general_hint"},
   {id:"audio",name:"settings.dictation",icon:"audio",description:"settings.dictation_hint"},
@@ -111,8 +112,8 @@ export const fields: Record<string, FieldSpec> = {
     path: "output.typing_speed_wpm",
     label: "ui.speed.2d2cb0",
     type: "range",
-    min: 50,
-    max: 1650,
+    min: MIN_TYPING_WPM,
+    max: MAX_TYPING_WPM,
     step: 1,
     suffix: "ui.wpm.3fc2c6",
   },

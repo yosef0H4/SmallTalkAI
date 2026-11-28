@@ -36,11 +36,11 @@ def need(path: str, *needles: str) -> str:
     return body
 
 
-need("Cargo.toml", 'cpal = "0.17"', 'libloading = "0.8"')
+need("Cargo.toml", 'features = ["pipewire", "pulseaudio"]', 'libloading = "0.8"')
 need(
     "src/capture/audio.rs",
     'cfg(any(windows, target_os = "linux"))',
-    'cpal::default_host',
+    'reader_core::audio_devices::{default_host, picker_id}',
     'choose_input_device_id',
     '.filter(|device| device.id().is_ok_and',
     'cfg(target_os = "linux")',

@@ -72,6 +72,23 @@ pub fn output_devices() -> Result<Value> {
     Ok(serde_json::from_slice(&output.stdout)?)
 }
 
+#[cfg(target_os = "linux")]
+pub fn kde_focused_app_identity() -> Result<Option<String>> {
+    let kde = std::env::var("XDG_CURRENT_DESKTOP")
+        .is_ok_and(|desktop| desktop.to_ascii_lowercase().contains("kde"))
+        || std::env::var_os("KDE_SESSION_VERSION").is_some();
+    if !kde || std::env::var_os("WAYLAND_DISPLAY").is_none() {
+        return Ok(None);
+    }
+    let executable = std::env::current_exe()?.with_file_name("smalltalkai-reader");
+    let output = crate::common::clipboard::output_bounded(
+        Command::new(executable).arg("focused-app"),
+        Duration::from_secs(10),
+    )?;
+    anyhow::ensure!(output.status.success(), "KWin focused-app query failed");
+    Ok(serde_json::from_slice(&output.stdout)?)
+}
+
 fn command_input(args: &[&str], input: Option<&[u8]>) -> Result<String> {
     command_in_profile(args, input, &data_dir(), false)
 }

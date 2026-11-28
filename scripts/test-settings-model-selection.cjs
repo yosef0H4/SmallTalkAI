@@ -160,13 +160,24 @@ const f = require('./settings-fixture.cjs');
     assert.equal(f.getConfig().speech.processing_mode,'one_shot');
     let finishTranscription;
     const transcription = new Promise(resolve => { finishTranscription = resolve; });
+    let levelWarning = 'quiet';
     await page.route('**/api/dictation-preview', async route => {
-      if (route.request().postDataJSON().action === 'stop') await transcription;
+      const {action} = route.request().postDataJSON();
+      if (action === 'waveform') {
+        return route.fulfill({json:{waveform:'▁▂▃▄▅▆▅▄▃▂',level_warning:levelWarning}});
+      }
+      if (action === 'stop') await transcription;
       await route.fulfill({json:{text:'Preview transcript'}});
     });
     const previewBox = page.locator('[data-route-card="stt.default"] .dictation-preview');
     await previewBox.getByRole('button',{name:'Record',exact:true}).click();
     try {
+      const status = previewBox.getByRole('status');
+      await status.getByText('Microphone level is low.',{exact:false}).waitFor();
+      levelWarning = 'clipping';
+      await status.getByText('Microphone is clipping.',{exact:false}).waitFor();
+      levelWarning = null;
+      await page.waitForFunction(() => document.querySelector('.dictation-preview [role=status]')?.textContent.trim() === '');
       await previewBox.getByRole('button',{name:'Stop',exact:true}).click();
       await previewBox.getByText('Transcribing…',{exact:true}).waitFor();
       assert(await previewBox.evaluate(element => {

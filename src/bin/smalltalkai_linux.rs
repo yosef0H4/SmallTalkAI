@@ -2728,6 +2728,10 @@ fn paste_key_for_mode(mode: TextDeliveryMode, force_shift_insert: bool) -> Paste
 }
 
 fn focused_app_identity() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    if let Ok(Some(identity)) = smalltalkai::reader::kde_focused_app_identity() {
+        return Some(identity);
+    }
     find_native_paste_helper()
         .ok()
         .and_then(|helper| {
@@ -3447,6 +3451,8 @@ root.after(150,ready);root.mainloop()
         assert_eq!(typing_delay_ms(true, 450), 26);
         assert_eq!(typing_delay_ms(true, 850), 14);
         assert_eq!(typing_delay_ms(true, 1650), 7);
+        assert_eq!(typing_delay_ms(true, 2000), 6);
+        assert_eq!(typing_delay_ms(true, 4000), 3);
         assert_eq!(typing_delay_ms(false, 60), 0);
         assert_eq!(typing_delay_ms(false, 850), 0);
     }

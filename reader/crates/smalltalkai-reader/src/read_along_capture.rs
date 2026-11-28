@@ -348,6 +348,11 @@ mod linux_backend;
 #[path = "read_along_capture/kde_backend.rs"]
 mod kde_backend;
 
+#[cfg(target_os = "linux")]
+pub(crate) fn focused_app_identity() -> Result<Option<String>> {
+    kde_backend::KdeBackend::observer()?.focused_app_identity()
+}
+
 #[cfg(not(any(windows, target_os = "linux")))]
 fn native_backend(_background_advance: bool) -> Result<Box<dyn WindowBackend>> {
     bail!("read-along capture is unsupported on this platform")

@@ -29,16 +29,27 @@ if typistInstance.active
 ; Inspect configured limits before the timer runs. No keys are injected.
 limitTypist := Typist(logger, Notice)
 Critical("On")
-for pair in [[1, 50], [49, 50], [850, 850], [1650, 1650], [2000, 1650]] {
+for pair in [[1, 50], [49, 50], [850, 850], [1650, 1650], [2000, 2000], [4001, 4000]] {
     limitTypist.Begin(99, -1, "x", true, pair[1], false)
     SetTimer(limitTypist.timer, 0)
     if limitTypist.typingSpeedWpm != pair[2]
         Fail("typing speed clamp failed for " . pair[1])
-    if pair[1] = 1650 && limitTypist.TypingDelay("a", "b", "c") >= 15
+    if pair[1] = 2000 && limitTypist.TypingDelay("a", "b", "c") >= 15
         Fail("high typing speed should not be limited by the previous 15 ms floor")
     limitTypist.Cancel("bounds smoke")
 }
 Critical("Off")
+
+; Check the chunk boundaries without sending input to a window.
+prefix := ""
+Loop (Typist.instantChunkUnits - 1)
+    prefix .= "a"
+for pair in [[prefix . "b", "tail"], [prefix, "🙂"], [prefix, "`r`n"]] {
+    text := pair[1] . pair[2]
+    chunk := Typist.InstantChunk(text, 1)
+    if chunk != pair[1] || Typist.InstantChunk(text, StrLen(chunk) + 1) != pair[2]
+        Fail("Instant typing split a UTF-16 pair or CRLF boundary")
+}
 
 ; Use a target window that cannot match the foreground window so the timer-driven
 ; path cancels before SendText and remains safe for headless runs.

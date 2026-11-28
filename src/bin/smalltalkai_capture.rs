@@ -516,7 +516,7 @@ fn main() -> Result<()> {
         &config.audio.preferred_device_id,
         config.audio.gain,
         frame_tx.clone(),
-        Some(overlay.level_cell()),
+        Some(overlay.waveform_cell()),
         Some(Arc::clone(&recording_active)),
         Some(audio_event_tx.clone()),
     )
@@ -903,7 +903,7 @@ fn refresh_audio_capture(
         &config.audio.preferred_device_id,
         config.audio.gain,
         frame_tx.clone(),
-        Some(overlay.level_cell()),
+        Some(overlay.waveform_cell()),
         Some(Arc::clone(recording_active)),
         Some(audio_event_tx.clone()),
     )?;
@@ -1086,9 +1086,7 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                     return ShellResponse::error(error.to_string());
                 }
             };
-            if preview {
-                overlay.level_cell().store(0, Ordering::Relaxed);
-            }
+            overlay.waveform_cell().store(0, Ordering::Relaxed);
             recording_active.store(true, Ordering::Relaxed);
             *active = Some(Recording {
                 session_id,
@@ -1629,12 +1627,17 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
             {
                 return ShellResponse::error("Dictation preview is no longer recording");
             }
-            let level = f32::from_bits(overlay.level_cell().load(Ordering::Relaxed));
+            let waveform = overlay.waveform_cell().load(Ordering::Relaxed);
             let mut response = ShellResponse::ok("Dictation preview waveform");
             response.values.insert(
                 "waveform".into(),
-                smalltalkai::capture::overlay::waveform_for_level(level),
+                smalltalkai::capture::overlay::waveform_text(waveform),
             );
+            if let Some(warning) = audio::preview_level_warning(waveform) {
+                response
+                    .values
+                    .insert("level_warning".into(), warning.into());
+            }
             response
         }
         ShellCommand::CancelRecordingPreview { session_id } => {
@@ -2080,6 +2083,11 @@ fn handle_control(command: ShellCommand, context: ControlContext<'_>) -> ShellRe
                 NoticeLevel::Error => overlay.notify_error(&text, Duration::from_secs(3)),
             }
             message_response(true, "capture.noticeShown")
+        }
+        #[cfg(windows)]
+        ShellCommand::RequestAppExit => {
+            events.push(ServiceEvent::simple("app_exit_requested"));
+            ShellResponse::ok("Desktop exit requested")
         }
         ShellCommand::Shutdown => {
             recording_active.store(false, Ordering::Relaxed);

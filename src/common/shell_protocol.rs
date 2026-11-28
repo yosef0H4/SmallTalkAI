@@ -119,6 +119,8 @@ pub enum ShellCommand {
         level: NoticeLevel,
         text: String,
     },
+    #[cfg(windows)]
+    RequestAppExit,
     Shutdown,
 }
 

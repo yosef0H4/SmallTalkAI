@@ -29,11 +29,11 @@ The current schema is version 9:
     "worker_shutdown_grace_ms": 2000
   },
   "output": {
-    "delivery_mode": "smart_paste",
+    "delivery_mode": "type",
     "enabled_delivery_modes": ["smart_paste", "type"],
     "app_overrides": [],
-    "paced_typing_enabled": true,
-    "typing_speed_wpm": 450,
+    "paced_typing_enabled": false,
+    "typing_speed_wpm": 2000,
     "trailing_space": true,
     "remove_punctuation": false,
     "lowercase": false
@@ -75,9 +75,10 @@ Writes use a temporary file, flush it, and atomically replace the destination. R
 `output.delivery_mode` is the method used immediately. On both platforms,
 `output.enabled_delivery_modes` lists the methods in shortcut cycle order.
 The active method can be outside the cycle. Include at least one method.
-Linux starts with typing and Windows starts with Smart Paste. Typing defaults
-to 450 WPM. Finite speeds span 50–1650 WPM. Instant uses
-`paced_typing_enabled: false` and keeps the saved finite speed.
+Linux and Windows default to Type with Instant speed at the far right of the
+slider. Finite speeds span 50–4000 WPM,
+with 2000 WPM at the midpoint. Instant uses `paced_typing_enabled: false`
+and keeps the saved finite speed.
 
 The settings server detects external edits with a content hash before Save. A successful Save asks the capture service to reload and emits `configuration_reloaded`; Windows AHK then reapplies its owned hotkeys, startup registration, transforms, and delivery settings.
 

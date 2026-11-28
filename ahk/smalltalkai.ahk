@@ -199,6 +199,7 @@ class SmallTalkAIShell {
         kind := event["kind"]
         session := event["session_id"] = "" ? 0 : event["session_id"] + 0
         switch kind {
+            case "app_exit_requested": ExitApp()
             case "service_ready": this.logger.Write("info", "service ready event")
             case "recording_started": this.logger.Write("info", "recording started event", session)
             case "transcribing": this.logger.Write("info", "transcribing event", session)
@@ -219,7 +220,7 @@ class SmallTalkAIShell {
                 }
                 this.logger.Write("info", "transcript received chars=" . StrLen(text), session)
                 mode := this.DeliveryModeForWindow(target)
-                this.typist.Begin(session, target, text, this.config.Bool("paced_typing_enabled", true), this.config.Int("typing_speed_wpm", 450), false, mode, this.config.Bool("preserve_clipboard", true))
+                this.typist.Begin(session, target, text, this.config.Bool("paced_typing_enabled", false), this.config.Int("typing_speed_wpm", 2000), false, mode, this.config.Bool("preserve_clipboard", true))
             case "notice":
                 this.Notice(event["text"], event["level"])
                 if session && this.sessions.Has(session) && SmallTalkAINoticeEndsSession(event)
@@ -232,7 +233,7 @@ class SmallTalkAIShell {
     }
 
     DeliveryModeForWindow(targetWindow) {
-        configured := this.config.Get("text_delivery_mode", "smart_paste")
+        configured := this.config.Get("text_delivery_mode", "type")
         if configured != "smart_paste"
             return configured
         try appId := WinGetProcessName("ahk_id " . targetWindow)
@@ -329,7 +330,7 @@ class SmallTalkAIShell {
             SetTimer(ObjBindMethod(this, "RetryStarted", session, target, text, mode, response), -25)
             return
         }
-        this.typist.Begin(session, target, text, this.config.Bool("paced_typing_enabled", true), this.config.Int("typing_speed_wpm", 450), false, mode, this.config.Bool("preserve_clipboard", true))
+        this.typist.Begin(session, target, text, this.config.Bool("paced_typing_enabled", false), this.config.Int("typing_speed_wpm", 2000), false, mode, this.config.Bool("preserve_clipboard", true))
     }
 
     CancelAll(*) {
@@ -362,7 +363,7 @@ class SmallTalkAIShell {
     }
 
     ToggleDeliveryModeHotkey() {
-        current := this.config.Get("text_delivery_mode", "smart_paste")
+        current := this.config.Get("text_delivery_mode", "type")
         next := SmallTalkAINextDeliveryMode(current, this.config.Get("enabled_delivery_modes", "smart_paste,type"))
         this.config.Set("text_delivery_mode", next)
         try {

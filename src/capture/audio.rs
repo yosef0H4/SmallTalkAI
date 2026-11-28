@@ -107,8 +107,15 @@ pub struct FrameAssembler {
     channels: usize,
     gain: f32,
     frame_samples: usize,
-    pending: Vec<i16>,
+    pending: Vec<f32>,
     pending_offset: usize,
+}
+
+#[derive(Debug)]
+pub struct CapturedFrame {
+    samples: Vec<i16>,
+    input_rms: f32,
+    clipped: bool,
 }
 impl FrameAssembler {
     pub fn new(input_rate: u32, channels: usize, gain: f32, frame_samples: usize) -> Self {
@@ -126,18 +133,37 @@ impl FrameAssembler {
         self.pending.clear();
         self.pending_offset = 0;
     }
-    pub fn push(&mut self, interleaved: &[f32]) -> Vec<Vec<i16>> {
+    pub fn push(&mut self, interleaved: &[f32]) -> Vec<CapturedFrame> {
         let mono = downmix_interleaved(interleaved, self.channels);
         let resampled = self.resampler.process(&mono);
-        self.pending.extend(
-            resampled
-                .into_iter()
-                .map(|value| f32_to_i16(value * self.gain)),
-        );
+        self.pending.extend(resampled);
         let mut frames = Vec::new();
         while self.pending.len() - self.pending_offset >= self.frame_samples {
             let end = self.pending_offset + self.frame_samples;
-            frames.push(self.pending[self.pending_offset..end].to_vec());
+            let mut sum = 0.0_f64;
+            let mut energy = 0.0_f64;
+            let mut full_scale_samples = 0;
+            let samples = self.pending[self.pending_offset..end]
+                .iter()
+                .map(|&sample| {
+                    let input = f64::from(sample);
+                    sum += input;
+                    energy += input * input;
+                    let amplified = sample * self.gain;
+                    full_scale_samples += usize::from(sample.abs().max(amplified.abs()) >= 0.999);
+                    f32_to_i16(amplified)
+                })
+                .collect();
+            let count = self.frame_samples as f64;
+            let mean = sum / count;
+            // Meter the alternating signal around the input's mean. A DC bias
+            // otherwise looks like steady sound even when speech goes quiet.
+            let signal_power = (energy / count - mean * mean).max(0.0);
+            frames.push(CapturedFrame {
+                samples,
+                input_rms: signal_power.sqrt() as f32,
+                clipped: full_scale_samples * 100 >= self.frame_samples,
+            });
             self.pending_offset = end;
         }
         if self.pending_offset == self.pending.len() {
@@ -151,24 +177,116 @@ impl FrameAssembler {
     }
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum InputLevelWarning {
+    #[default]
+    None,
+    Quiet,
+    Clipping,
+}
+
+// The ten three-bit waveform heights leave the two high bits for the preview
+// warning. Capture can publish both values in the same atomic update.
+const WARNING_SHIFT: u32 = 3 * crate::capture::overlay::overlay_model::BAR_COUNT as u32;
+
+pub fn preview_level_warning(waveform: u32) -> Option<&'static str> {
+    match waveform >> WARNING_SHIFT {
+        1 => Some("quiet"),
+        2 => Some("clipping"),
+        _ => None,
+    }
+}
+
+struct InputLevelMonitor {
+    recent_rms: [f32; 60],
+    frame: usize,
+    frames_since_activity: usize,
+    normal_hold: usize,
+    last_clip: [bool; 15],
+    clip_hold: usize,
+}
+
+impl Default for InputLevelMonitor {
+    fn default() -> Self {
+        Self {
+            recent_rms: [0.0; 60],
+            frame: 0,
+            frames_since_activity: 0,
+            normal_hold: 0,
+            last_clip: [false; 15],
+            clip_hold: 0,
+        }
+    }
+}
+
+impl InputLevelMonitor {
+    fn update(&mut self, rms: f32, clipped: bool) -> InputLevelWarning {
+        const ACTIVITY_RMS: f32 = 0.0008;
+        const LOW_RMS: f32 = 0.01;
+        const MIN_OBSERVATION_FRAMES: usize = 100;
+        self.recent_rms[self.frame % self.recent_rms.len()] = rms;
+        self.last_clip[self.frame % self.last_clip.len()] = clipped;
+        self.frame = self.frame.wrapping_add(1);
+        if (self.frames_since_activity > 0 || rms >= ACTIVITY_RMS)
+            && self.frames_since_activity < MIN_OBSERVATION_FRAMES
+        {
+            self.frames_since_activity += 1;
+        }
+        self.normal_hold = if rms >= LOW_RMS {
+            125
+        } else {
+            self.normal_hold.saturating_sub(1)
+        };
+        if self.last_clip.iter().filter(|&&frame| frame).count() >= 3 {
+            self.clip_hold = 50;
+        }
+        if self.clip_hold > 0 {
+            self.clip_hold -= 1;
+            return InputLevelWarning::Clipping;
+        }
+        if self.frames_since_activity < MIN_OBSERVATION_FRAMES || self.normal_hold > 0 {
+            return InputLevelWarning::None;
+        }
+
+        // Require activity with some variation, to avoid flagging pauses and
+        // steady low room tone. Suppress the warning for a short period after
+        // usable speech levels so a quiet syllable doesn't flash a warning.
+        let (min, max, active) = self
+            .recent_rms
+            .iter()
+            .copied()
+            .filter(|&level| level >= ACTIVITY_RMS)
+            .fold((f32::INFINITY, 0.0_f32, 0), |(min, max, active), level| {
+                (min.min(level), max.max(level), active + 1)
+            });
+        if active >= 20 && (0.0015..LOW_RMS).contains(&max) && min <= max * 0.5 {
+            InputLevelWarning::Quiet
+        } else {
+            InputLevelWarning::None
+        }
+    }
+}
+
 pub fn rms_level(frame: &[i16]) -> f32 {
     visualizer_level_from_rms(raw_rms(frame))
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct AudioLevelMeter;
-impl AudioLevelMeter {
-    pub fn new() -> Self {
-        Self
-    }
-    pub fn reset(&mut self) {}
-    pub fn update(&mut self, rms: f32) -> AudioLevelReading {
-        let dbfs = rms_dbfs(rms);
-        AudioLevelReading {
-            rms,
-            dbfs,
-            level: visualizer_level_from_rms(rms),
-        }
+#[cfg(test)]
+fn recording_level(rms: f32) -> AudioLevelReading {
+    smooth_recording_level(rms, 0.0)
+}
+
+fn smooth_recording_level(rms: f32, previous: f32) -> AudioLevelReading {
+    let dbfs = rms_dbfs(rms);
+    let target = ((dbfs + 58.0) / 52.0).clamp(0.0, 1.0);
+    // React to peaks immediately and release over about 73 ms. Each update
+    // corresponds to one 20 ms capture frame.
+    let level = target + (previous - target).max(0.0) * 0.76;
+    AudioLevelReading {
+        rms,
+        dbfs,
+        level,
+        waveform: crate::capture::overlay::overlay_model::pack_waveform(level),
     }
 }
 
@@ -177,6 +295,7 @@ pub struct AudioLevelReading {
     pub rms: f32,
     pub dbfs: f32,
     pub level: f32,
+    pub waveform: u32,
 }
 
 pub fn raw_rms(frame: &[i16]) -> f32 {
@@ -204,7 +323,9 @@ pub fn rms_dbfs(rms: f32) -> f32 {
 
 pub fn visualizer_level_from_rms(rms: f32) -> f32 {
     let dbfs = rms_dbfs(rms);
-    ((dbfs + 55.0) / 37.0).clamp(0.0, 1.0).powf(1.25)
+    // Give quiet speech room above the meter floor and keep headroom for
+    // close or boosted microphones. This only changes the visual display.
+    ((dbfs + 67.0) / 64.0).clamp(0.0, 1.0)
 }
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -212,7 +333,8 @@ mod platform {
     use super::*;
     use anyhow::{anyhow, Context};
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-    use cpal::{SampleFormat, Stream, StreamConfig};
+    use cpal::{FromSample, Sample, SampleFormat, Stream, StreamConfig};
+    use reader_core::audio_devices::{default_host, picker_id};
     use std::sync::{atomic::Ordering, Mutex};
 
     pub struct CaptureHandle {
@@ -233,39 +355,58 @@ mod platform {
             return "<unknown>".to_owned();
         };
         #[cfg(target_os = "linux")]
-        if let Some(driver) = description.driver() {
-            return format!("{} — {driver}", description.name());
+        {
+            if device.id().is_ok_and(|id| id.host() == cpal::HostId::Alsa) {
+                if let Some(driver) = description.driver() {
+                    return format!("{} — {driver}", description.name());
+                }
+            }
+            description.name().to_owned()
         }
-        description
-            .extended()
-            .first()
-            .cloned()
-            .or_else(|| {
-                description
-                    .driver()
-                    .filter(|driver| *driver != description.name())
-                    .map(|driver| format!("{} ({driver})", description.name()))
-            })
-            .unwrap_or_else(|| description.name().to_owned())
+        #[cfg(not(target_os = "linux"))]
+        {
+            let extended = description.extended().next();
+            extended
+                .map(str::to_owned)
+                .or_else(|| {
+                    description
+                        .driver()
+                        .filter(|driver| *driver != description.name())
+                        .map(|driver| format!("{} ({driver})", description.name()))
+                })
+                .unwrap_or_else(|| description.name().to_owned())
+        }
     }
 
     pub fn list_input_devices() -> Result<Vec<InputDeviceInfo>> {
-        let host = cpal::default_host();
+        let host = default_host();
         Ok(host
             .input_devices()
             .context("enumerating input devices")?
-            .map(|device| InputDeviceInfo {
-                id: device.id().map(|id| id.to_string()).unwrap_or_default(),
-                label: device_label(&device),
+            .filter_map(|device| {
+                Some(InputDeviceInfo {
+                    id: picker_id(&device)?,
+                    label: device_label(&device),
+                })
             })
             .collect())
     }
     fn select_device(device_contains: &str) -> Result<(cpal::Device, InputDeviceSelection)> {
-        let host = cpal::default_host();
-        let devices = host
+        let host = default_host();
+        let mut devices = host
             .input_devices()
             .context("enumerating microphones")?
             .collect::<Vec<_>>();
+        let preferred_id = device_contains.parse::<cpal::DeviceId>().ok();
+        if let Some(other) = preferred_id
+            .as_ref()
+            .filter(|id| id.host() != host.id())
+            .and_then(|id| cpal::host_from_id(id.host()).ok())
+        {
+            if let Ok(inputs) = other.input_devices() {
+                devices.extend(inputs);
+            }
+        }
         let default_device = host.default_input_device();
         let default_id = default_device
             .as_ref()
@@ -273,7 +414,7 @@ mod platform {
             .map(|id| id.to_string());
         let preferred = if device_contains.trim().is_empty() {
             String::new()
-        } else if device_contains.parse::<cpal::DeviceId>().is_ok() {
+        } else if preferred_id.is_some() {
             device_contains.to_owned()
         } else {
             let needle = device_contains.to_lowercase();
@@ -317,7 +458,7 @@ mod platform {
         device_contains: &str,
         gain: f32,
         tx: Sender<Vec<i16>>,
-        latest_level: Option<Arc<AtomicU32>>,
+        latest_waveform: Option<Arc<AtomicU32>>,
         recording_active: Option<Arc<AtomicBool>>,
         event_tx: Option<Sender<AudioEvent>>,
     ) -> Result<CaptureHandle> {
@@ -328,7 +469,7 @@ mod platform {
             selection,
             gain,
             tx.clone(),
-            latest_level.clone(),
+            latest_waveform.clone(),
             recording_active.clone(),
             event_tx.clone(),
         );
@@ -346,7 +487,7 @@ mod platform {
             fallback,
             gain,
             tx,
-            latest_level,
+            latest_waveform,
             recording_active,
             event_tx,
         )
@@ -358,7 +499,7 @@ mod platform {
         selection: InputDeviceSelection,
         gain: f32,
         tx: Sender<Vec<i16>>,
-        latest_level: Option<Arc<AtomicU32>>,
+        latest_waveform: Option<Arc<AtomicU32>>,
         recording_active: Option<Arc<AtomicBool>>,
         event_tx: Option<Sender<AudioEvent>>,
     ) -> Result<CaptureHandle> {
@@ -368,6 +509,24 @@ mod platform {
             .context("reading default microphone config")?;
         let sample_format = supported.sample_format();
         let config: StreamConfig = supported.into();
+        #[cfg(target_os = "linux")]
+        let config = {
+            let mut config = config;
+            if device
+                .id()
+                .is_ok_and(|id| id.host() == cpal::HostId::PulseAudio)
+            {
+                // A server-sized default fragment can hold the last syllable
+                // past Stop and make the meter move in bursts.
+                let target = config.sample_rate / 50;
+                let frames = match supported.buffer_size() {
+                    cpal::SupportedBufferSize::Range { min, max } => target.clamp(*min, *max),
+                    cpal::SupportedBufferSize::Unknown => target,
+                };
+                config.buffer_size = cpal::BufferSize::Fixed(frames.max(1));
+            }
+            config
+        };
         let assembler = Arc::new(Mutex::new(FrameAssembler::new(
             config.sample_rate,
             config.channels as usize,
@@ -377,23 +536,18 @@ mod platform {
         let stream_context = InputStreamContext {
             assembler,
             tx,
-            latest_level,
+            latest_waveform,
             recording_active,
             event_tx,
             generation,
         };
         let stream = match sample_format {
-            SampleFormat::F32 => {
-                build_stream::<f32>(&device, &config, stream_context.clone(), |v| v)?
-            }
-            SampleFormat::I16 => {
-                build_stream::<i16>(&device, &config, stream_context.clone(), |v| {
-                    v as f32 / 32768.0
-                })?
-            }
-            SampleFormat::U16 => build_stream::<u16>(&device, &config, stream_context, |v| {
-                (v as f32 - 32768.0) / 32768.0
-            })?,
+            SampleFormat::F32 => build_stream::<f32>(&device, config, stream_context)?,
+            SampleFormat::F64 => build_stream::<f64>(&device, config, stream_context)?,
+            SampleFormat::I16 => build_stream::<i16>(&device, config, stream_context)?,
+            SampleFormat::U16 => build_stream::<u16>(&device, config, stream_context)?,
+            SampleFormat::I24 => build_stream::<cpal::I24>(&device, config, stream_context)?,
+            SampleFormat::I32 => build_stream::<i32>(&device, config, stream_context)?,
             other => return Err(anyhow!("unsupported microphone sample format: {other:?}")),
         };
         stream.play().context("starting microphone stream")?;
@@ -404,11 +558,10 @@ mod platform {
         })
     }
 
-    #[derive(Clone)]
     struct InputStreamContext {
         assembler: Arc<Mutex<FrameAssembler>>,
         tx: Sender<Vec<i16>>,
-        latest_level: Option<Arc<AtomicU32>>,
+        latest_waveform: Option<Arc<AtomicU32>>,
         recording_active: Option<Arc<AtomicBool>>,
         event_tx: Option<Sender<AudioEvent>>,
         generation: u64,
@@ -416,24 +569,25 @@ mod platform {
 
     fn build_stream<T>(
         device: &cpal::Device,
-        config: &StreamConfig,
+        config: StreamConfig,
         context: InputStreamContext,
-        convert: impl Fn(T) -> f32 + Send + Sync + Copy + 'static,
     ) -> Result<Stream>
     where
         T: cpal::SizedSample + Copy,
+        f32: FromSample<T>,
     {
         let InputStreamContext {
             assembler,
             tx,
-            latest_level,
+            latest_waveform,
             recording_active,
             event_tx,
             generation,
         } = context;
         let mut converted = Vec::new();
         let mut was_recording = false;
-        let mut level_meter = AudioLevelMeter::new();
+        let mut display_level = 0.0;
+        let mut level_monitor = InputLevelMonitor::default();
         let debug_levels = std::env::var_os("SMALLTALKAI_AUDIO_LEVEL_DEBUG").is_some();
         let mut debug_frame_index: u64 = 0;
         Ok(device.build_input_stream(
@@ -450,38 +604,36 @@ mod platform {
                 let mut assembler = assembler.lock().unwrap();
                 if !was_recording {
                     assembler.reset();
-                    level_meter.reset();
+                    display_level = 0.0;
+                    level_monitor = InputLevelMonitor::default();
                     was_recording = true;
                 }
                 converted.clear();
-                converted.extend(data.iter().copied().map(convert));
+                converted.extend(data.iter().copied().map(f32::from_sample));
                 for frame in assembler.push(&converted) {
-                    let raw_rms = raw_rms(&frame);
-                    let reading = level_meter.update(raw_rms);
-                    if let Some(level) = &latest_level {
-                        level.store(reading.level.to_bits(), Ordering::Relaxed);
+                    let reading = smooth_recording_level(frame.input_rms, display_level);
+                    display_level = reading.level;
+                    if let Some(level) = &latest_waveform {
+                        let warning =
+                            level_monitor.update(frame.input_rms * assembler.gain, frame.clipped);
+                        level.store(
+                            reading.waveform | ((warning as u32) << WARNING_SHIFT),
+                            Ordering::Relaxed,
+                        );
                     }
                     if debug_levels {
                         debug_frame_index = debug_frame_index.wrapping_add(1);
                         if debug_frame_index.is_multiple_of(5) {
                             eprintln!(
-                                "audio_level raw_rms={:.6} dbfs={:.1} mapped={:.3} bars={}",
+                                "audio_level input_rms={:.6} dbfs={:.1} mapped={:.3} bars={}",
                                 reading.rms,
                                 reading.dbfs,
                                 reading.level,
-                                crate::capture::overlay::ascii_visualizer(&{
-                                    let mut levels =
-                                        crate::capture::overlay::empty_visualizer_levels();
-                                    crate::capture::overlay::set_visualizer_level(
-                                        &mut levels,
-                                        reading.level,
-                                    );
-                                    levels
-                                })
+                                crate::capture::overlay::waveform_text(reading.waveform)
                             );
                         }
                     }
-                    let _ = tx.try_send(frame);
+                    let _ = tx.try_send(frame.samples);
                 }
             },
             move |error| {
@@ -746,7 +898,7 @@ mod tests {
         let mut a = FrameAssembler::new(16_000, 1, 1.0, 320);
         let frames = a.push(&vec![0.5; 641]);
         assert_eq!(frames.len(), 2);
-        assert_eq!(frames[0].len(), 320);
+        assert_eq!(frames[0].samples.len(), 320);
     }
     #[test]
     fn empty_rms_is_zero() {
@@ -762,18 +914,153 @@ mod tests {
     }
 
     #[test]
+    fn rendered_waveform_distinguishes_quiet_and_loud_speech_levels() {
+        use crate::capture::overlay::waveform_for_level;
+
+        let waveform_at_dbfs =
+            |dbfs: f32| waveform_for_level(visualizer_level_from_rms(10.0_f32.powf(dbfs / 20.0)));
+        assert_eq!(waveform_at_dbfs(-80.0), waveform_at_dbfs(-75.0));
+        assert_ne!(waveform_at_dbfs(-75.0), waveform_at_dbfs(-57.0));
+        assert_ne!(waveform_at_dbfs(-57.0), waveform_at_dbfs(-48.0));
+        assert_ne!(waveform_at_dbfs(-17.0), waveform_at_dbfs(-8.0));
+    }
+
+    #[test]
     fn loudness_meter_tracks_absolute_level() {
-        let mut meter = AudioLevelMeter::new();
-        let quiet = meter.update(0.001);
-        let speech = meter.update(0.16);
+        let quiet = recording_level(0.003);
+        let speech = recording_level(0.04);
         assert!(
             quiet.level < speech.level,
             "louder audio should produce a higher level: quiet={quiet:?} speech={speech:?}"
         );
-        assert!(
-            (speech.level - visualizer_level_from_rms(0.16)).abs() < f32::EPSILON,
-            "meter should use direct loudness mapping: {speech:?}"
+        assert_ne!(quiet.waveform, speech.waveform);
+    }
+
+    #[test]
+    fn capture_gain_does_not_flatten_meter_input() {
+        let mut assembler = FrameAssembler::new(16_000, 1, 10.0, 320);
+        let samples = |count, amplitude: f32| {
+            (0..count)
+                .map(|i| 0.35 + if i % 2 == 0 { amplitude } else { -amplitude })
+                .collect::<Vec<_>>()
+        };
+        let quiet = assembler.push(&samples(321, 0.01)).remove(0);
+        let loud = assembler.push(&samples(320, 0.03)).remove(0);
+        assert_eq!(quiet.samples, loud.samples);
+        assert!(loud.input_rms > quiet.input_rms * 2.0);
+    }
+
+    #[test]
+    fn meter_ignores_dc_bias_but_still_tracks_speech() {
+        let measure = |bias: f32, amplitude: f32| {
+            let mut assembler = FrameAssembler::new(16_000, 1, 1.0, 320);
+            // A 500 Hz tone spans exactly ten periods per 20 ms frame.
+            let samples: Vec<_> = (0..321)
+                .map(|index| bias + amplitude * (std::f32::consts::TAU * index as f32 / 32.0).sin())
+                .collect();
+            assembler.push(&samples).remove(0)
+        };
+        let silence = measure(0.11, 0.0);
+        let clean = measure(0.0, 0.005);
+        let biased = measure(0.11, 0.005);
+        assert!(silence.input_rms < 1e-6);
+        assert!((clean.input_rms - biased.input_rms).abs() < 1e-6);
+        assert_eq!(biased.samples[0], f32_to_i16(0.11));
+
+        assert_eq!(recording_level(silence.input_rms).waveform, 0);
+        assert_ne!(recording_level(biased.input_rms).waveform, 0);
+    }
+
+    #[test]
+    fn preview_warning_requires_sustained_level_evidence() {
+        let mut monitor = super::InputLevelMonitor::default();
+        use super::InputLevelWarning::{Clipping, None, Quiet};
+        let pattern = [0.003, 0.001, 0.006, 0.002, 0.0];
+        for frame in 0..99 {
+            assert!(monitor.update(pattern[frame % pattern.len()], false) == None);
+        }
+        assert!(monitor.update(0.003, false) == Quiet);
+        assert!(monitor.update(0.06, false) == None);
+        for _ in 0..120 {
+            assert!(monitor.update(0.0, false) == None);
+        }
+        assert!(monitor.update(0.04, true) == None);
+        assert!(monitor.update(0.04, true) == None);
+        assert!(monitor.update(0.04, true) == Clipping);
+        for _ in 0..65 {
+            monitor.update(0.0, false);
+        }
+        assert!(monitor.update(0.0, false) == None);
+    }
+
+    #[test]
+    fn preview_does_not_flag_steady_low_input_or_single_peaks() {
+        let mut monitor = super::InputLevelMonitor::default();
+        use super::InputLevelWarning::None;
+        for frame in 0..180 {
+            assert!(monitor.update(0.0025, frame == 77) == None);
+        }
+        assert_eq!(
+            super::preview_level_warning((1 << super::WARNING_SHIFT) | 42),
+            Some("quiet")
         );
+        assert_eq!(
+            super::preview_level_warning((2 << super::WARNING_SHIFT) | 42),
+            Some("clipping")
+        );
+        assert_eq!(super::preview_level_warning(42), Option::None);
+    }
+
+    #[test]
+    fn recording_waveform_stays_centered_and_uses_most_bar_heights() {
+        use crate::capture::overlay::{waveform_for_level, waveform_text};
+        let levels = [-58.0, -54.0, -48.0, -42.0, -36.0, -30.0, -24.0];
+        let mut previous_center = '\0';
+        for dbfs in levels {
+            let reading = recording_level(10.0_f32.powf(dbfs / 20.0));
+            let text = waveform_text(reading.waveform);
+            assert_eq!(text, waveform_for_level(reading.level));
+            let heights: Vec<_> = text.chars().collect();
+            assert!(heights.iter().eq(heights.iter().rev()), "{text}");
+            assert!(heights[..=4].windows(2).all(|pair| pair[0] <= pair[1]));
+            assert!(heights[4] > previous_center, "{text}");
+            previous_center = heights[4];
+        }
+        assert_eq!(recording_level(0.0).waveform, 0);
+        assert_eq!(waveform_text(recording_level(1.0).waveform), "▇▇▇▇▇▇▇▇▇▇");
+        let quiet: Vec<_> = waveform_text(recording_level(0.006).waveform)
+            .chars()
+            .collect();
+        assert!(quiet[4] > quiet[0]);
+    }
+
+    #[test]
+    fn waveform_rises_immediately_and_releases_gradually() {
+        let peak = smooth_recording_level(0.6, 0.0);
+        assert_eq!(peak.level, 1.0);
+        let release = smooth_recording_level(0.0, peak.level);
+        assert!(release.level > 0.0 && release.level < peak.level);
+        let mut level = release.level;
+        for _ in 0..12 {
+            level = smooth_recording_level(0.0, level).level;
+        }
+        assert_eq!(smooth_recording_level(0.0, level).waveform, 0);
+    }
+
+    #[test]
+    fn fixed_meter_range_distinguishes_quiet_speech_and_headroom() {
+        use crate::capture::overlay::overlay_model::waveform_text;
+        let waveform =
+            |dbfs: f32| waveform_text(recording_level(10.0_f32.powf(dbfs / 20.0)).waveform);
+        let quiet = waveform(-48.0);
+        assert_eq!(quiet.chars().next(), Some('▁'));
+        assert_eq!(quiet.chars().nth(4), Some('▃'));
+        let speech = waveform(-20.0);
+        assert_eq!(speech.chars().nth(4), Some('▇'));
+        assert_eq!(speech.chars().next(), Some('▄'));
+        assert_eq!(waveform(-11.0).chars().next(), Some('▆'));
+        assert_eq!(waveform(-8.0), "▇▇▇▇▇▇▇▇▇▇");
+        assert_eq!(waveform(-3.0), "▇▇▇▇▇▇▇▇▇▇");
     }
 
     #[test]

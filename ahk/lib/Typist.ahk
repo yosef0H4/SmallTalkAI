@@ -1,5 +1,6 @@
 class Typist {
     static modifierKeys := ["LCtrl", "RCtrl", "LAlt", "RAlt", "LShift", "RShift", "LWin", "RWin"]
+    static instantChunkUnits := 256
 
     __New(logger, onNotice, onFinished := "", onProgress := "") {
         this.logger := logger
@@ -25,7 +26,7 @@ class Typist {
             "target_window", targetWindow,
             "text", trailingSpace && text != "" ? text . " " : text,
             "paced_typing_enabled", !!pacedTypingEnabled,
-            "typing_speed_wpm", Min(1650, Max(50, typingSpeedWpm + 0)),
+            "typing_speed_wpm", Min(4000, Max(50, typingSpeedWpm + 0)),
             "delivery_mode", deliveryMode,
             "clean_clipboard_on_paste", !!cleanClipboardOnPaste
         )
@@ -47,6 +48,7 @@ class Typist {
         this.deliveryMode := item["delivery_mode"]
         this.cleanClipboardOnPaste := item["clean_clipboard_on_paste"]
         this.offset := 1
+        this.nextCharacterAt := 0
         this.burstFactor := 1.0
         this.burstRemaining := 0
         this.pasteStage := 0
@@ -72,21 +74,34 @@ class Typist {
     Tick(*) {
         if !this.active
             return
-        if WinActive("A") != this.targetWindow {
-            this.CancelCurrent("foreground-window mismatch; transcript was not delivered", true)
-            this.StartNext()
+        ; Let Abort run between chunks while the send and offset update stay together.
+        if this.deliveryMode = "type" && !this.pacedTypingEnabled
+            Critical("On")
+        if !this.ReadyToDeliver()
             return
-        }
-        if this.AnyPhysicalModifierDown() {
-            this.ReportProgress("waiting-for-keys")
-            SetTimer(this.timer, -25)
-            return
-        }
         this.ReportProgress(this.deliveryMode = "type" ? "typing" : (this.pasteStage = 0 ? "preparing-clipboard" : "waiting-for-paste"))
         if this.deliveryMode = "type"
             this.TickType()
         else
             this.TickPaste()
+    }
+
+    ReadyToDeliver() {
+        if WinActive("A") != this.targetWindow {
+            reason := this.deliveryMode = "type" && this.offset > 1
+                ? "text delivery cancelled"
+                : "foreground-window mismatch; transcript was not delivered"
+            this.CancelCurrent(reason, true)
+            this.StartNext()
+            return false
+        }
+        if this.AnyPhysicalModifierDown() {
+            this.nextCharacterAt := 0
+            this.ReportProgress("waiting-for-keys")
+            SetTimer(this.timer, -25)
+            return false
+        }
+        return true
     }
 
     ReportProgress(phase) {
@@ -109,31 +124,62 @@ class Typist {
             return
         }
         if !this.pacedTypingEnabled {
-            try SendText(SubStr(this.text, this.offset))
+            chunk := Typist.InstantChunk(this.text, this.offset)
+            if !this.ReadyToDeliver()
+                return
+            try SendText(chunk)
             catch Error as err {
                 this.CancelCurrent("SendText failed: " . err.Message, true)
                 this.StartNext()
                 return
             }
-            this.offset := this.textLength + 1
-            this.CompleteCurrent()
+            this.offset += StrLen(chunk)
+            if this.offset <= this.textLength
+                SetTimer(this.timer, -1)
+            else
+                this.CompleteCurrent()
             return
         }
-        currentChar := SubStr(this.text, this.offset, 1)
-        try SendText(currentChar)
-        catch Error as err {
-            this.CancelCurrent("SendText failed: " . err.Message, true)
-            this.StartNext()
-            return
+        now := DllCall("GetTickCount64", "UInt64")
+        if !this.nextCharacterAt || now - this.nextCharacterAt > 50
+            this.nextCharacterAt := now
+        ; Timer callbacks can arrive several character intervals late. Send
+        ; the due characters, with a fresh focus check between each one.
+        Loop 8 {
+            if this.nextCharacterAt > DllCall("GetTickCount64", "UInt64")
+                break
+            if A_Index > 1 && (!this.active || !this.ReadyToDeliver())
+                return
+            currentChar := SubStr(this.text, this.offset, 1)
+            try SendText(currentChar)
+            catch Error as err {
+                this.CancelCurrent("SendText failed: " . err.Message, true)
+                this.StartNext()
+                return
+            }
+            previousChar := this.offset > 1 ? SubStr(this.text, this.offset - 1, 1) : ""
+            this.offset += 1
+            if this.offset > this.textLength {
+                this.CompleteCurrent()
+                return
+            }
+            nextChar := SubStr(this.text, this.offset, 1)
+            this.nextCharacterAt += this.TypingDelay(previousChar, currentChar, nextChar)
         }
-        previousChar := this.offset > 1 ? SubStr(this.text, this.offset - 1, 1) : ""
-        nextChar := this.offset < this.textLength ? SubStr(this.text, this.offset + 1, 1) : ""
-        this.offset += 1
-        if this.offset > this.textLength {
-            this.CompleteCurrent()
-            return
-        }
-        SetTimer(this.timer, -this.TypingDelay(previousChar, currentChar, nextChar))
+        SetTimer(this.timer, -Max(1, this.nextCharacterAt - DllCall("GetTickCount64", "UInt64")))
+    }
+
+    static InstantChunk(text, offset) {
+        ; Leave room for SendInput's key events and keep UTF-16 pairs and CRLF together.
+        units := Typist.instantChunkUnits
+        chunk := SubStr(text, offset, units)
+        if StrLen(chunk) < units
+            return chunk
+        last := SubStr(chunk, -1)
+        value := Ord(last)
+        if (value >= 0xD800 && value <= 0xDBFF) || (last = "`r" && SubStr(text, offset + units, 1) = "`n")
+            return SubStr(chunk, 1, units - 1)
+        return chunk
     }
 
     TypingDelay(previousChar, currentChar, nextChar) {

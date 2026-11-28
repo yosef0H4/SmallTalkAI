@@ -76,8 +76,8 @@ pub enum CapsLockBehavior {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TextDeliveryMode {
-    Type,
     #[default]
+    Type,
     SmartPaste,
     PasteShiftInsert,
     PasteCtrlV,
@@ -659,11 +659,11 @@ impl Default for AppConfig {
                 worker_shutdown_grace_ms: 2_000,
             },
             output: OutputConfig {
-                delivery_mode: TextDeliveryMode::SmartPaste,
+                delivery_mode: TextDeliveryMode::default(),
                 enabled_delivery_modes: vec![TextDeliveryMode::SmartPaste, TextDeliveryMode::Type],
                 smart_paste_rules: SmartPasteRule::defaults(),
-                paced_typing_enabled: true,
-                typing_speed_wpm: 450,
+                paced_typing_enabled: false,
+                typing_speed_wpm: 2000,
                 preserve_clipboard: true,
                 trailing_space: true,
                 remove_punctuation: false,
@@ -803,8 +803,8 @@ impl AppConfig {
             "audio_stop_grace_ms must be in [0, 10000]"
         );
         anyhow::ensure!(
-            (50..=1650).contains(&self.output.typing_speed_wpm),
-            "typing_speed_wpm must be in [50, 1650]"
+            (50..=4000).contains(&self.output.typing_speed_wpm),
+            "typing_speed_wpm must be in [50, 4000]"
         );
         anyhow::ensure!(
             !self.output.enabled_delivery_modes.is_empty(),
@@ -1066,7 +1066,7 @@ impl AppConfig {
         if normalized.audio.stop_grace_ms > 10_000 {
             normalized.audio.stop_grace_ms = defaults.audio.stop_grace_ms;
         }
-        if !(50..=1650).contains(&normalized.output.typing_speed_wpm) {
+        if !(50..=4000).contains(&normalized.output.typing_speed_wpm) {
             normalized.output.typing_speed_wpm = defaults.output.typing_speed_wpm;
         }
         let mut delivery_modes = Vec::new();
@@ -1699,34 +1699,40 @@ mod tests {
 
     #[test]
     fn finite_typing_bounds_and_instant_round_trip() {
-        for speed in [50, 450, 850, 1650] {
+        for speed in [50, 450, 1650, 2000, 4000] {
             let mut config = AppConfig::default();
             config.output.typing_speed_wpm = speed;
             config.validate().unwrap();
             let round_trip = AppConfig::normalize_json(&serde_json::to_value(&config).unwrap());
             assert_eq!(round_trip.output.typing_speed_wpm, speed);
         }
-        for speed in [0, 49, 1651] {
+        for speed in [0, 49, 4001] {
             let mut config = AppConfig::default();
             config.output.typing_speed_wpm = speed;
             assert!(config.validate().is_err());
             let normalized = AppConfig::normalize_json(&serde_json::to_value(&config).unwrap());
-            assert_eq!(normalized.output.typing_speed_wpm, 450);
+            assert_eq!(normalized.output.typing_speed_wpm, 2000);
         }
         let mut config = AppConfig::default();
         config.output.paced_typing_enabled = false;
         let round_trip = AppConfig::normalize_json(&serde_json::to_value(&config).unwrap());
         assert!(!round_trip.output.paced_typing_enabled);
-        assert_eq!(round_trip.output.typing_speed_wpm, 450);
+        assert_eq!(round_trip.output.typing_speed_wpm, 2000);
+
+        let existing = AppConfig::normalize_json(&serde_json::json!({
+            "output": { "delivery_mode": "smart_paste", "paced_typing_enabled": true }
+        }));
+        assert_eq!(existing.output.delivery_mode, TextDeliveryMode::SmartPaste);
+        assert!(existing.output.paced_typing_enabled);
     }
 
     #[test]
     fn default_config_is_valid() {
         let config = AppConfig::default();
         config.validate().unwrap();
-        assert_eq!(config.output.delivery_mode, TextDeliveryMode::SmartPaste);
-        assert_eq!(config.output.typing_speed_wpm, 450);
-        assert!(config.output.paced_typing_enabled);
+        assert_eq!(config.output.delivery_mode, TextDeliveryMode::Type);
+        assert_eq!(config.output.typing_speed_wpm, 2000);
+        assert!(!config.output.paced_typing_enabled);
         assert_eq!(
             config.output.enabled_delivery_modes,
             [TextDeliveryMode::SmartPaste, TextDeliveryMode::Type]
@@ -1907,6 +1913,7 @@ mod tests {
     #[test]
     fn smart_paste_rules_migrate_and_allow_deleting_all_defaults() {
         let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+        value["output"]["delivery_mode"] = serde_json::json!("smart_paste");
         value["output"]
             .as_object_mut()
             .unwrap()
@@ -1940,6 +1947,7 @@ mod tests {
     #[test]
     fn smart_paste_rules_yield_to_explicit_delivery_and_prioritize_exact_ids() {
         let mut output = AppConfig::default().output;
+        output.delivery_mode = TextDeliveryMode::SmartPaste;
         output.smart_paste_rules = vec![
             SmartPasteRule {
                 app_id: "*kitty*".into(),

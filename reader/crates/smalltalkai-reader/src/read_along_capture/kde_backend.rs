@@ -97,6 +97,7 @@ struct KWinWindow {
 struct KWinState {
     windows: Vec<KWinWindow>,
     active_uuid: Option<String>,
+    active_app_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -130,6 +131,13 @@ impl KdeBackend {
 
     pub(super) fn active_window(&mut self) -> Result<Option<String>> {
         Ok(self.query_state()?.active_uuid)
+    }
+
+    pub(super) fn focused_app_identity(&mut self) -> Result<Option<String>> {
+        Ok(self
+            .query_state_with_app_info(true)?
+            .active_app_id
+            .filter(|app_id| !app_id.is_empty()))
     }
 
     fn create(picker: bool) -> Result<Self> {
@@ -172,6 +180,10 @@ impl KdeBackend {
     }
 
     fn query_state(&mut self) -> Result<KWinState> {
+        self.query_state_with_app_info(false)
+    }
+
+    fn query_state_with_app_info(&mut self, app_info: bool) -> Result<KWinState> {
         // KWin allocates script IDs from its current script count. Serialize
         // our load/run/unload transactions across capture and focus checks so
         // asynchronous deletion cannot collide with a different live query.
@@ -201,7 +213,7 @@ impl KdeBackend {
             .map_err(|_| anyhow!("KWin callback lock poisoned"))? = Some(sender);
         let script_path =
             std::env::temp_dir().join(format!("smalltalkai-kwin-{}.js", uuid::Uuid::new_v4()));
-        let script = self.query_script()?;
+        let script = self.query_script(app_info)?;
         let plugin_name = format!("smalltalkai-read-along-{}", uuid::Uuid::new_v4());
         OpenOptions::new()
             .write(true)
@@ -245,7 +257,7 @@ impl KdeBackend {
         serde_json::from_str(&payload).context("decoding KWin window list")
     }
 
-    fn query_script(&self) -> Result<String> {
+    fn query_script(&self, app_info: bool) -> Result<String> {
         let bus = self
             .connection
             .unique_name()
@@ -253,18 +265,28 @@ impl KdeBackend {
             .to_string();
         let bus = serde_json::to_string(&bus)?;
         let path = serde_json::to_string(&self.callback_path)?;
-        Ok(format!(
-            r#"
-var wins = workspace.stackingOrder.filter(function(w) {{
+        let (windows, app_property) = if app_info {
+            (
+                "[]",
+                r#", active_app_id: active ? String(active.resourceClass || "").trim() : null"#,
+            )
+        } else {
+            (
+                r#"workspace.stackingOrder.filter(function(w) {
   return w && !w.deleted && !w.desktopWindow && !w.dock && !w.popupWindow &&
     (w.onAllDesktops || w.desktops.indexOf(workspace.currentDesktop) >= 0) &&
     (!w.activities.length || w.activities.indexOf(workspace.currentActivity) >= 0);
-}}).map(function(w) {{
+}).map(function(w) {
   var g = w.frameGeometry;
-  return {{uuid: String(w.internalId), x: Math.round(g.x), y: Math.round(g.y), width: Math.max(0, Math.round(g.width)), height: Math.max(0, Math.round(g.height)), minimized: !!w.minimized}};
-}});
+  return {uuid: String(w.internalId), x: Math.round(g.x), y: Math.round(g.y), width: Math.max(0, Math.round(g.width)), height: Math.max(0, Math.round(g.height)), minimized: !!w.minimized};
+})"#,
+                "",
+            )
+        };
+        Ok(format!(
+            r#"
 var active = workspace.activeWindow;
-var state = JSON.stringify({{windows: wins, active_uuid: active ? String(active.internalId) : null}});
+var state = JSON.stringify({{windows: {windows}, active_uuid: active ? String(active.internalId) : null{app_property}}});
 callDBus({bus}, {path}, "org.smalltalkai.ReadAlong", "report", state);
 "#
         ))

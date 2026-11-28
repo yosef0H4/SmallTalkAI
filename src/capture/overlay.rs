@@ -25,12 +25,12 @@ mod platform {
     use std::time::Duration;
     #[derive(Debug, Clone)]
     pub struct OverlayHandle {
-        level: Arc<AtomicU32>,
+        waveform: Arc<AtomicU32>,
     }
     impl OverlayHandle {
         pub fn spawn() -> Result<Self> {
             Ok(Self {
-                level: Arc::new(AtomicU32::new(0)),
+                waveform: Arc::new(AtomicU32::new(0)),
             })
         }
         pub fn start_recording(&self, _: isize, _: RecordingIndicators) {}
@@ -42,17 +42,26 @@ mod platform {
         pub fn notify_warning(&self, _: impl Into<String>, _: Duration) {}
         pub fn notify_error(&self, _: impl Into<String>, _: Duration) {}
         pub fn clear_notice(&self) {}
-        pub fn level_cell(&self) -> Arc<AtomicU32> {
-            Arc::clone(&self.level)
+        pub fn waveform_cell(&self) -> Arc<AtomicU32> {
+            Arc::clone(&self.waveform)
         }
         pub fn hide(&self) {}
     }
 }
 pub use overlay_model::{
     ascii_visualizer, empty_visualizer_levels, render_overlay_text, set_visualizer_level,
-    waveform_for_level, NoticeLevel, OverlayPrimary, RecordingIndicators,
+    waveform_for_level, waveform_text, NoticeLevel, OverlayPrimary, RecordingIndicators,
 };
 pub use platform::OverlayHandle;
+
+impl OverlayHandle {
+    pub fn set_level(&self, level: f32) {
+        self.waveform_cell().store(
+            overlay_model::pack_waveform(level),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+}
 
 #[cfg(any(windows, target_os = "linux"))]
 impl OverlayHandle {

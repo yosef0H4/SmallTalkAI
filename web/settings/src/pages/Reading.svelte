@@ -47,17 +47,15 @@
     if (section === "speech") reading.config.speech.provider = value === "local_kokoro" ? {kind:"local_kokoro"} : {kind:"open_ai_compatible",base_url:"https://",model:"tts-1",voice:"alloy",format:"wav"};
     else reading.config.ocr.provider = value === "local_paddle" ? {kind:"local_paddle"} : {kind:"open_ai_compatible",base_url:"https://",model:"vision-model",api:"chat_completions"};
   }
-  onMount(() => {
-    let disposed=false;
-    async function refreshDevices() {
+  async function refreshDevices() {
       const result = await api<{devices: {id: string; name: string}[]}>("/api/reader-output-devices").catch(() => null);
-      if (!disposed && result) outputDevices = result.devices;
-    }
+      if (result) outputDevices = result.devices;
+  }
+  onMount(() => {
     void refreshDevices();
-    window.addEventListener("focus", refreshDevices);
     void refresh().catch(error=>notice(t("reading.failed"),"error",String(error)));
-    const timer=setInterval(()=>{if(!disposed) void api<{status: Record<string,unknown>|null}>("/api/reader-status").then(value=>status=value.status).catch(()=>{});},1500);
-    return ()=>{disposed=true;clearInterval(timer);window.removeEventListener("focus", refreshDevices);};
+    const timer=setInterval(()=>{void api<{status: Record<string,unknown>|null}>("/api/reader-status").then(value=>status=value.status).catch(()=>{});},1500);
+    return ()=>clearInterval(timer);
   });
 </script>
 
@@ -78,6 +76,7 @@
   <Group title="reading.playback" icon="audio">
     <Combo label="reading.output_device" path="playback.output_device" value={outputDevice}
       items={outputChoices} unavailable help="reading.output_device_help"
+      onopen={refreshDevices}
       onselect={value => { if (reading.config) reading.config.playback.output_device = value || null; }} />
   </Group>
   <Group title="reading.read_along" icon="keyboard">

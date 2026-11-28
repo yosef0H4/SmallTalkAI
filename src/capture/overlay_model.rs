@@ -259,12 +259,28 @@ pub fn empty_visualizer_levels() -> VisualizerLevels {
 
 pub fn set_visualizer_level(levels: &mut VisualizerLevels, level: f32) {
     let level = level.clamp(0.0, 1.0);
-    let center = (BAR_COUNT as f32 - 1.0) * 0.5;
     for (idx, slot) in levels.iter_mut().enumerate() {
-        let distance = (idx as f32 - center).abs() / center.max(1.0);
-        let envelope = (1.0 - distance * 0.72).max(0.18);
-        *slot = level * envelope;
+        let from_edge = idx.min(BAR_COUNT - 1 - idx);
+        let distance = 1.0 - from_edge as f32 / (BAR_COUNT / 2 - 1) as f32;
+        *slot = (level.powf(1.0 + 1.2 * distance) * (1.35 - 0.35 * distance)).min(1.0);
     }
+}
+
+// Ten three-bit bar heights fit in one atomic update from the audio callback.
+pub fn pack_waveform(level: f32) -> u32 {
+    let mut levels = empty_visualizer_levels();
+    set_visualizer_level(&mut levels, level);
+    levels.iter().enumerate().fold(0, |frame, (i, &height)| {
+        frame | (bar_index(height) as u32) << (i * 3)
+    })
+}
+
+pub(super) fn unpack_waveform(frame: u32) -> VisualizerLevels {
+    std::array::from_fn(|i| ((frame >> (i * 3)) & 7) as f32 / (WAVEFORM_GLYPHS.len() - 1) as f32)
+}
+
+pub fn waveform_text(frame: u32) -> String {
+    ascii_visualizer(&unpack_waveform(frame))
 }
 
 pub fn waveform_for_level(level: f32) -> String {
@@ -273,16 +289,22 @@ pub fn waveform_for_level(level: f32) -> String {
     ascii_visualizer(&levels)
 }
 
+const WAVEFORM_GLYPHS: &[char] = &[
+    '\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}',
+];
+
+fn bar_index(level: f32) -> usize {
+    let strength = (level + 0.04).clamp(0.0, 1.0);
+    (strength * (WAVEFORM_GLYPHS.len() - 1) as f32).round() as usize
+}
+
 pub fn ascii_visualizer(levels: &VisualizerLevels) -> String {
-    const GLYPHS: &[char] = &[
-        '\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}',
-    ];
     let mut line = String::with_capacity(BAR_COUNT * 3);
-    for level in levels {
-        let strength = (*level + 0.04).clamp(0.0, 1.0);
-        let glyph = GLYPHS[(strength * (GLYPHS.len() - 1) as f32).round() as usize];
-        line.push(glyph);
-    }
+    line.extend(
+        levels
+            .iter()
+            .map(|&level| WAVEFORM_GLYPHS[bar_index(level)]),
+    );
     line
 }
 
